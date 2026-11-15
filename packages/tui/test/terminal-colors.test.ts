@@ -122,6 +122,21 @@ describe("parseTerminalColorSchemeReport", () => {
 	});
 });
 
+/** A TUI with a focused input recorder and an input listener that records what reaches it. */
+function createRecordingTui() {
+	const terminal = new TestTerminal();
+	const tui = new TUI(terminal);
+	const component = new InputRecorder();
+	const listenerInputs: string[] = [];
+	tui.addChild(component);
+	tui.setFocus(component);
+	tui.addInputListener((data) => {
+		listenerInputs.push(data);
+		return undefined;
+	});
+	return { terminal, tui, component, listenerInputs };
+}
+
 describe("TUI.queryTerminalBackgroundColor", () => {
 	it("writes OSC 11 query and resolves with the parsed RGB reply", async () => {
 		const terminal = new TestTerminal();
@@ -140,16 +155,7 @@ describe("TUI.queryTerminalBackgroundColor", () => {
 	});
 
 	it("consumes OSC 11 replies before input listeners and focused component dispatch", async () => {
-		const terminal = new TestTerminal();
-		const tui = new TUI(terminal);
-		const component = new InputRecorder();
-		const listenerInputs: string[] = [];
-		tui.addChild(component);
-		tui.setFocus(component);
-		tui.addInputListener((data) => {
-			listenerInputs.push(data);
-			return undefined;
-		});
+		const { terminal, tui, component, listenerInputs } = createRecordingTui();
 		tui.start();
 		try {
 			const query = tui.queryTerminalBackgroundColor({ timeoutMs: 1000 });
@@ -165,16 +171,7 @@ describe("TUI.queryTerminalBackgroundColor", () => {
 	});
 
 	it("consumes unparseable strict OSC 11 replies and resolves undefined", async () => {
-		const terminal = new TestTerminal();
-		const tui = new TUI(terminal);
-		const component = new InputRecorder();
-		const listenerInputs: string[] = [];
-		tui.addChild(component);
-		tui.setFocus(component);
-		tui.addInputListener((data) => {
-			listenerInputs.push(data);
-			return undefined;
-		});
+		const { terminal, tui, component, listenerInputs } = createRecordingTui();
 		tui.start();
 		try {
 			const query = tui.queryTerminalBackgroundColor({ timeoutMs: 1000 });
@@ -190,16 +187,7 @@ describe("TUI.queryTerminalBackgroundColor", () => {
 	});
 
 	it("dispatches non-matching input normally while waiting for an OSC 11 reply", async () => {
-		const terminal = new TestTerminal();
-		const tui = new TUI(terminal);
-		const component = new InputRecorder();
-		const listenerInputs: string[] = [];
-		tui.addChild(component);
-		tui.setFocus(component);
-		tui.addInputListener((data) => {
-			listenerInputs.push(data);
-			return undefined;
-		});
+		const { terminal, tui, component, listenerInputs } = createRecordingTui();
 		tui.start();
 		try {
 			let settled = false;
@@ -223,16 +211,7 @@ describe("TUI.queryTerminalBackgroundColor", () => {
 	});
 
 	it("keeps consuming a late OSC 11 reply after timeout", async () => {
-		const terminal = new TestTerminal();
-		const tui = new TUI(terminal);
-		const component = new InputRecorder();
-		const listenerInputs: string[] = [];
-		tui.addChild(component);
-		tui.setFocus(component);
-		tui.addInputListener((data) => {
-			listenerInputs.push(data);
-			return undefined;
-		});
+		const { terminal, tui, component, listenerInputs } = createRecordingTui();
 		tui.start();
 		try {
 			const query = tui.queryTerminalBackgroundColor({ timeoutMs: 1 });
