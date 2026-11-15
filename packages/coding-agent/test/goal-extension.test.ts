@@ -117,6 +117,18 @@ function schemaHasProperty(schema: unknown, property: string): boolean {
 	return typeof properties === "object" && properties !== null && property in properties;
 }
 
+const identityTheme = {
+	bg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+	fg: (_color: string, text: string) => text,
+} as Parameters<EntryRenderer>[2];
+
+function requireSupervisorStatusRenderer(harness: ReturnType<typeof createGoalHarness>): EntryRenderer {
+	const renderer = harness.getSupervisorStatusRenderer();
+	if (!renderer) throw new Error("Supervisor status renderer was not registered");
+	return renderer;
+}
+
 function createGoalHarness(
 	cwd: string,
 	options?: {
@@ -1047,13 +1059,7 @@ describe("goal extension", () => {
 			if (cancelled) await harness.runInput("Cancel the review.");
 			finishReview?.(decision);
 			await review;
-			const renderer = harness.getSupervisorStatusRenderer();
-			if (!renderer) throw new Error("Supervisor status renderer was not registered");
-			const identityTheme = {
-				bg: (_color: string, text: string) => text,
-				bold: (text: string) => text,
-				fg: (_color: string, text: string) => text,
-			} as Parameters<EntryRenderer>[2];
+			const renderer = requireSupervisorStatusRenderer(harness);
 			const blocks = harness.appendEntry.mock.calls
 				.map(([customType, data], index) =>
 					renderer(
@@ -1190,13 +1196,7 @@ describe("goal extension", () => {
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
 			const harness = createGoalHarness(cwd);
-			const renderer = harness.getSupervisorStatusRenderer();
-			if (!renderer) throw new Error("Supervisor status renderer was not registered");
-			const identityTheme = {
-				bg: (_color: string, text: string) => text,
-				bold: (text: string) => text,
-				fg: (_color: string, text: string) => text,
-			} as Parameters<EntryRenderer>[2];
+			const renderer = requireSupervisorStatusRenderer(harness);
 			const entry: Parameters<EntryRenderer>[0] = {
 				type: "custom",
 				id: "status-1",
@@ -1692,13 +1692,7 @@ describe("goal extension", () => {
 				}),
 			);
 
-			const renderer = harness.getSupervisorStatusRenderer();
-			if (!renderer) throw new Error("Supervisor status renderer was not registered");
-			const identityTheme = {
-				bg: (_color: string, text: string) => text,
-				bold: (text: string) => text,
-				fg: (_color: string, text: string) => text,
-			} as Parameters<EntryRenderer>[2];
+			const renderer = requireSupervisorStatusRenderer(harness);
 			const component = renderer(
 				{
 					type: "custom",
