@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `/import` (session import) overwriting a stored session that has the same file name; the import now gets the next free numbered name ([#8985](https://github.com/earendil-works/pi-mono/pull/8985))
 - Fixed prompts that start with `-` being parsed as options; `--` now ends option parsing, so `pi -p -- "- summarize this"` sends the text as a prompt ([#7269](https://github.com/earendil-works/pi-mono/issues/7269))
 - Fixed HTML export failing with `Maximum call stack size exceeded` for sessions whose entry chain is deeper than the JavaScript call stack ([#11225](https://github.com/earendil-works/pi-mono/issues/11225))
 - Fixed `--provider` without `--model` being silently ignored, so the default model from another provider ran; it now fails with an error ([#10236](https://github.com/earendil-works/pi-mono/issues/10236))

@@ -200,6 +200,27 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(readSessionNameState(controlDbPath, destinationPath).hasStoredValue).toBe(false);
 	});
 
+	it("preserves an existing session when importing a file with the same name", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		const sessionDir = runtime.session.sessionManager.getSessionDir();
+		const importDir = join(tempDir, "import");
+		const storedPath = join(sessionDir, "collision.jsonl");
+		const importPath = join(importDir, "collision.jsonl");
+		const header = (id: string) =>
+			`${JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: tempDir })}\n`;
+		mkdirSync(sessionDir, { recursive: true });
+		mkdirSync(importDir, { recursive: true });
+		const storedSession = header("stored");
+		writeFileSync(storedPath, storedSession);
+		writeFileSync(importPath, header("imported"));
+
+		await runtime.importFromJsonl(importPath);
+
+		expect(readFileSync(storedPath, "utf8")).toBe(storedSession);
+		expect(runtime.session.sessionFile).toBe(join(sessionDir, "collision-1.jsonl"));
+		expect(readFileSync(runtime.session.sessionFile ?? "", "utf8")).toContain('"id":"imported"');
+	});
+
 	it("relocates the active session to a new cwd and adds a context note", async () => {
 		const { runtime, tempDir } = await createRuntimeForTest(() => {});
 		const targetCwd = join(tempDir, "target");

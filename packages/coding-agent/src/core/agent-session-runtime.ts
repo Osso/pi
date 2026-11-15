@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { constants, copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { basename, join, parse, resolve } from "node:path";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
 import type { AgentSessionRuntimeDiagnostic, AgentSessionServices } from "./agent-session-services.ts";
@@ -649,7 +649,7 @@ export class AgentSessionRuntime {
 			mkdirSync(sessionDir, { recursive: true });
 		}
 
-		const destinationPath = join(sessionDir, basename(resolvedPath));
+		const destinationPath = importDestinationPath(resolvedPath, sessionDir);
 		const beforeResult = await this.emitBeforeSwitch("resume", destinationPath);
 		if (beforeResult.cancelled) {
 			return beforeResult;
@@ -675,7 +675,7 @@ export class AgentSessionRuntime {
 
 	private copyImportedSession(sourcePath: string, destinationPath: string): void {
 		if (resolve(destinationPath) === sourcePath) return;
-		copyFileSync(sourcePath, destinationPath);
+		copyFileSync(sourcePath, destinationPath, constants.COPYFILE_EXCL);
 		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
 		if (controlDbPath) removeSessionMetadata(controlDbPath, destinationPath);
 	}
@@ -737,3 +737,13 @@ export {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "./agent-session-services.ts";
+
+/** Keeps a stored session that has the imported file's name: the import gets the next free numbered name. */
+function importDestinationPath(sourcePath: string, sessionDir: string): string {
+	const { name, ext } = parse(sourcePath);
+	let destinationPath = join(sessionDir, basename(sourcePath));
+	for (let suffix = 1; resolve(destinationPath) !== sourcePath && existsSync(destinationPath); suffix++) {
+		destinationPath = join(sessionDir, `${name}-${suffix}${ext}`);
+	}
+	return destinationPath;
+}
