@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed HTML export failing with `Maximum call stack size exceeded` for sessions whose entry chain is deeper than the JavaScript call stack ([#11225](https://github.com/earendil-works/pi-mono/issues/11225))
 - Fixed `--provider` without `--model` being silently ignored, so the default model from another provider ran; it now fails with an error ([#10236](https://github.com/earendil-works/pi-mono/issues/10236))
 - Fixed `stripAnsi` leaving the parameters of private-parameter CSI sequences in tool output, for example `35;59;1M` from an SGR mouse report `ESC[<35;59;1M` ([#11377](https://github.com/earendil-works/pi-mono/issues/11377))
 - Fixed a failed session write (for example `ENOSPC` or `EBUSY`) leaving the unwritten entry in memory as the current leaf, so later entries on disk pointed to a missing parent and resume dropped all earlier history ([#11460](https://github.com/earendil-works/pi-mono/issues/11460))
