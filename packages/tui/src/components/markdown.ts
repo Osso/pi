@@ -1,4 +1,5 @@
 import { Marked, type Token, Tokenizer, type Tokens } from "marked";
+import { stripTerminalControls } from "../terminal-controls.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
@@ -13,11 +14,7 @@ function isHtmlCommentOnly(html: string): boolean {
 }
 
 function getTokenRawHtml(token: Token): string | undefined {
-	if (!("raw" in token) || typeof token.raw !== "string") {
-		return undefined;
-	}
-
-	return token.raw;
+	return "raw" in token && typeof token.raw === "string" ? token.raw : undefined;
 }
 
 class StrictStrikethroughTokenizer extends Tokenizer {
@@ -213,8 +210,8 @@ export class Markdown implements Component {
 			return result;
 		}
 
-		// Replace tabs with 3 spaces for consistent rendering
-		const normalizedText = this.text.replace(/\t/g, "   ");
+		// Drop terminal controls; replace tabs with 3 spaces for consistent rendering
+		const normalizedText = stripTerminalControls(this.text).replace(/\t/g, "   ");
 
 		// Parse markdown to HTML-like tokens
 		const tokens = markdownParser.lexer(normalizedText);
@@ -496,7 +493,7 @@ export class Markdown implements Component {
 				break;
 
 			case "html": {
-				// Render HTML as plain text (escaped for terminal), but keep HTML comments invisible.
+				// Render HTML as plain text, but keep HTML comments invisible.
 				const rawHtml = getTokenRawHtml(token);
 				if (rawHtml && !isHtmlCommentOnly(rawHtml)) {
 					lines.push(this.applyDefaultStyle(rawHtml.trim()));

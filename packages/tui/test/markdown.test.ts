@@ -44,6 +44,22 @@ describe("Markdown component", () => {
 			assert.deepStrictEqual(markdown.render(40), [""]);
 		});
 
+		it("drops terminal controls from text and HTML but keeps SGR styling", () => {
+			const markdown = new Markdown(
+				"hello\x1b]0;owned\x07world \x1b[31mred\x1b[39m\r\n\n<b>\x1b[2Jbold\x1b]52;c;cGk=\x07</b>",
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const output = markdown.render(80).join("\n");
+
+			assert.ok(!/\x1b\]|\x1b\[2J|\x07|\r/.test(output), JSON.stringify(output));
+			assert.ok(output.includes("\x1b[31mred\x1b[39m"), "Should keep SGR styling");
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+			assert.deepStrictEqual(lines, ["helloworld red", "", "<b>bold</b>"]);
+		});
+
 		it("should render non-comment HTML as plain text", () => {
 			const markdown = new Markdown("<span>visible</span>", 0, 0, defaultMarkdownTheme);
 
