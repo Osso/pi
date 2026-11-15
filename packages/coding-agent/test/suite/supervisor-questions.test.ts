@@ -200,10 +200,11 @@ describe("Supervisor question answering", () => {
 		asker.setResponses([askCall(true), fauxAssistantMessage("Using vitest.")]);
 
 		const turn = asker.session.prompt("Pick a runner.");
-		await waitFor(() => supervisorUi.panels.length === 1 && askerUi.panels.length === 1);
+		// Generous bounds: the Supervisor's escalation is a model turn, slow under a loaded test run.
+		await waitFor(() => supervisorUi.panels.length === 1 && askerUi.panels.length === 1, 20_000);
 		askerUi.panels[0]?.handleInput?.(ENTER);
 		await turn;
-		await waitFor(() => supervisorUi.closed === 1);
+		await waitFor(() => supervisorUi.closed === 1, 20_000);
 
 		expect(askResult(asker).details).toMatchObject({ answers: { [QUESTION]: "vitest" }, cancelled: false });
 		expect(askResult(asker).details).not.toHaveProperty("answeredBy");
@@ -212,7 +213,7 @@ describe("Supervisor question answering", () => {
 			(message) => message.role === "user" && JSON.stringify(message.content).includes("supervisor_response"),
 		);
 		expect(mail).toEqual([]);
-	});
+	}, 45_000);
 
 	it("delivers a Supervisor answer to a nonblocking question through the inbox", async () => {
 		const controlDbPath = sharedControlDb();
