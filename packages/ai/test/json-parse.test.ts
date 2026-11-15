@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStreamingJson } from "../src/utils/json-parse.ts";
+import { parseStreamingJson, parseToolCallArguments } from "../src/utils/json-parse.ts";
 
 describe("parseStreamingJson", () => {
 	// #10868
@@ -29,5 +29,40 @@ describe("parseStreamingJson", () => {
 		expect(parseStreamingJson('{"a":"line1\nline2')).toEqual({ a: "line1\nline2" });
 		expect(parseStreamingJson('{"path":"a.ts","content":"x\ty')).toEqual({ path: "a.ts", content: "x\ty" });
 		expect(parseStreamingJson(String.raw`{"path":"C:\users`)).toEqual({ path: "C:\\users" });
+	});
+});
+
+// #10897
+describe("parseToolCallArguments", () => {
+	it("parses complete JSON and repairs invalid escapes", () => {
+		expect(parseToolCallArguments(String.raw`{"kind":"seek","note":"\url"}`)).toEqual({
+			arguments: { kind: "seek", note: "\\url" },
+		});
+	});
+
+	it("uses empty arguments for empty text", () => {
+		expect(parseToolCallArguments("")).toEqual({ arguments: {} });
+	});
+
+	it("does not keep the valid prefix of malformed JSON", () => {
+		const raw = '{"action":"apply","actions":[{"kind":"seek","time":.5}]}';
+		const result = parseToolCallArguments(raw);
+		expect(result.arguments).toEqual({});
+		expect(result.argumentsError).toMatch(/\n\nReceived arguments:\n/);
+		expect(result.argumentsError?.endsWith(raw)).toBe(true);
+	});
+
+	it("does not complete cut-off JSON", () => {
+		const raw = '{"kind":"seek","clipId":"clip-fl';
+		const result = parseToolCallArguments(raw);
+		expect(result.arguments).toEqual({});
+		expect(result.argumentsError?.endsWith(raw)).toBe(true);
+	});
+
+	it("rejects JSON that is not an object", () => {
+		expect(parseToolCallArguments("[1,2]")).toEqual({
+			arguments: {},
+			argumentsError: "Tool arguments must be a JSON object\n\nReceived arguments:\n[1,2]",
+		});
 	});
 });

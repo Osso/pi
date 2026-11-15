@@ -287,9 +287,7 @@ export interface ImagesOptions {
 	 * A null value suppresses a provider/API default header with the same name.
 	 */
 	headers?: ProviderHeaders;
-	/**
-	 * HTTP request timeout in milliseconds for providers/SDKs that support it.
-	 */
+	/** HTTP request timeout in milliseconds for providers/SDKs that support it. */
 	timeoutMs?: number;
 	/**
 	 * Maximum retry attempts for providers/SDKs that support client-side retries.
@@ -380,6 +378,8 @@ export interface ToolCall {
 	/** Application-owned execution metadata. Provider adapters must ignore this field. */
 	execution?: ToolCallExecution;
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
+	/** Set when the finished arguments text was not a JSON object; `arguments` is then `{}`. */
+	argumentsError?: string;
 }
 
 export interface Usage {
