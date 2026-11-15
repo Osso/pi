@@ -39,7 +39,6 @@
 			"scripts/smoke-archived-session-open.mjs",
 			"scripts/smoke-local-release.mjs",
 			"scripts/test-coding-agent-lock-generators.mjs",
-			"scripts/validate-systemd-exec-path.mjs",
 			"!**/node_modules/**/*",
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",

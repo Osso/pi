@@ -1,57 +1,13 @@
 #!/usr/bin/env bash
+# Removes the retired systemd user units of the Architect and Supervisor residents.
+# The Architect starts on demand; the Supervisor is an interactive session named by `supervisor.sessionId`.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PI_BINARY="${1:-}"
-SUPERVISOR_MODE="${2:-systemd}"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-SUPERVISOR_TEMPLATE="$ROOT_DIR/packages/coding-agent/systemd/pi-supervisor.service"
-SUPERVISOR_UNIT="$SYSTEMD_USER_DIR/pi-supervisor.service"
-ARCHITECT_UNIT="$SYSTEMD_USER_DIR/pi-architect.service"
-
-if [[ -z "$PI_BINARY" ]]; then
-	echo "Usage: configure-resident-services.sh <pi-binary> [systemd|autostart]" >&2
-	exit 1
-fi
-case "$SUPERVISOR_MODE" in
-	systemd | autostart) ;;
-	*)
-		echo "Supervisor service mode must be systemd or autostart" >&2
-		exit 1
-		;;
-esac
-
-if [[ "$SUPERVISOR_MODE" == "systemd" ]]; then
-	node "$ROOT_DIR/scripts/validate-systemd-exec-path.mjs" "$PI_BINARY"
-fi
-mkdir -p "$SYSTEMD_USER_DIR"
 
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
-
-render_supervisor_unit() {
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		printf '%s\n' "${line//@PI_SUPERVISOR_BINARY@/$PI_BINARY}"
-	done < "$SUPERVISOR_TEMPLATE"
-}
-
-extract_loaded_supervisor_unit() {
-	local inside_unit=0
-	local line
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$inside_unit" -eq 1 && "$line" == "# /"* ]]; then
-			break
-		fi
-		if [[ "$inside_unit" -eq 0 ]]; then
-			if [[ "$line" != "[Unit]" ]]; then
-				continue
-			fi
-			inside_unit=1
-		fi
-		printf '%s\n' "$line"
-	done
-}
 
 verify_service_disabled() {
 	local unit="$1"
@@ -66,32 +22,12 @@ verify_service_disabled() {
 	fi
 }
 
-if systemctl --user cat pi-architect.service >/dev/null 2>&1; then
-	systemctl --user disable --now pi-architect.service
-fi
-rm -f "$ARCHITECT_UNIT"
-
-LOADED_SUPERVISOR_OUTPUT="$(systemctl --user cat pi-supervisor.service --no-pager 2>/dev/null || true)"
-if [[ "$SUPERVISOR_MODE" == "autostart" ]]; then
-	if [[ -n "$LOADED_SUPERVISOR_OUTPUT" || -e "$SUPERVISOR_UNIT" ]]; then
-		systemctl --user disable --now pi-supervisor.service
+for unit in pi-architect.service pi-supervisor.service; do
+	if systemctl --user cat "$unit" >/dev/null 2>&1 || [[ -e "$SYSTEMD_USER_DIR/$unit" ]]; then
+		systemctl --user disable --now "$unit"
 	fi
-	rm -f "$SUPERVISOR_UNIT"
-	systemctl --user daemon-reload
-	verify_service_disabled pi-architect.service
-	verify_service_disabled pi-supervisor.service
-	exit 0
-fi
-
-DESIRED_SUPERVISOR_UNIT="$(render_supervisor_unit)"
-LOADED_SUPERVISOR_UNIT="$(extract_loaded_supervisor_unit <<< "$LOADED_SUPERVISOR_OUTPUT")"
-if [[ "$LOADED_SUPERVISOR_UNIT" != "$DESIRED_SUPERVISOR_UNIT" ]]; then
-	printf '%s\n' "$DESIRED_SUPERVISOR_UNIT" > "$SUPERVISOR_UNIT"
-	chmod 644 "$SUPERVISOR_UNIT"
-	systemctl --user daemon-reload
-fi
+	rm -f "$SYSTEMD_USER_DIR/$unit"
+done
+systemctl --user daemon-reload
 verify_service_disabled pi-architect.service
-
-systemctl --user enable --now pi-supervisor.service
-systemctl --user restart pi-supervisor.service
-systemctl --user is-active --quiet pi-supervisor.service
+verify_service_disabled pi-supervisor.service

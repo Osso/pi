@@ -7,7 +7,6 @@ BIN_DIR="${PI_DEPLOY_BIN_DIR:-$HOME/.local/bin}"
 TMP_INSTALL_DIR="${INSTALL_DIR}.tmp"
 OLD_INSTALL_DIR="${INSTALL_DIR}.old"
 BUILD_DIR="${PI_DEPLOY_BUILD_DIR:-$ROOT_DIR/packages/coding-agent/binaries}"
-CONFIGURE_RESIDENT_SERVICES="${PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES:-0}"
 DEPLOY_AGENT_SERVER=0
 
 case "$#:$*" in
@@ -79,22 +78,6 @@ on_exit() {
 	exit "$status"
 }
 
-case "$CONFIGURE_RESIDENT_SERVICES" in
-	0)
-		SUPERVISOR_SERVICE_MODE="autostart"
-		;;
-	1)
-		SUPERVISOR_SERVICE_MODE="systemd"
-		;;
-	skip)
-		SUPERVISOR_SERVICE_MODE="skip"
-		;;
-	*)
-		echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES must be 0, 1, or skip" >&2
-		exit 1
-		;;
-esac
-
 require_safe_absolute_dir "PI_DEPLOY_INSTALL_DIR" "$INSTALL_DIR"
 require_safe_absolute_dir "PI_DEPLOY_BIN_DIR" "$BIN_DIR"
 
@@ -122,14 +105,6 @@ case "$(uname -s)-$(uname -m)" in
 		exit 1
 		;;
 esac
-
-if [[ "$SUPERVISOR_SERVICE_MODE" == "systemd" ]]; then
-	if [[ "$PLATFORM" != linux-* ]]; then
-		echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 requires Linux systemd" >&2
-		exit 1
-	fi
-	node "$ROOT_DIR/scripts/validate-systemd-exec-path.mjs" "$BIN_DIR/pi"
-fi
 
 npm run check
 
@@ -165,8 +140,8 @@ DEPLOY_REPLACED_LAUNCHER=1
 ln -s "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
-if [[ "$PLATFORM" == linux-* && "$SUPERVISOR_SERVICE_MODE" != "skip" ]]; then
-	"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi" "$SUPERVISOR_SERVICE_MODE"
+if [[ "$PLATFORM" == linux-* ]]; then
+	"$ROOT_DIR/scripts/configure-resident-services.sh"
 fi
 rm -rf "$OLD_INSTALL_DIR" "$OLD_LAUNCHER_DIR"
 DEPLOY_REPLACED_INSTALL=0

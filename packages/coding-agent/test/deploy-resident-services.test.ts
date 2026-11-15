@@ -35,7 +35,6 @@ interface DeployFixture {
 
 interface DeployRunOptions {
 	versionExitCode?: number;
-	configureResidentServices?: string;
 	machine?: string;
 	system?: string;
 }
@@ -91,7 +90,7 @@ chmod 755 "$out/$platform/pi"
 `;
 const CONFIGURE_RESIDENT_SERVICES_STUB = `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\t%s\\n' "$1" "$2" >> "$PI_DEPLOY_CONFIGURE_LOG"
+printf '%s\\n' configured >> "$PI_DEPLOY_CONFIGURE_LOG"
 `;
 const SYSTEMCTL_STUB = `#!/usr/bin/env node
 const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
@@ -103,10 +102,7 @@ const disabledUnits = new Set(existsSync(statePath) ? readFileSync(statePath, "u
 const saveState = () => writeFileSync(statePath, [...disabledUnits].join("\\n"));
 appendFileSync(process.env.PI_TEST_SYSTEMCTL_LOG, args.join(" ") + "\\n");
 if (command === "cat" && unit === "pi-architect.service") process.exit(0);
-if (command === "cat" && unit === "pi-supervisor.service") {
-  process.stdout.write("# " + process.env.PI_TEST_SUPERVISOR_UNIT + "\\n" + readFileSync(process.env.PI_TEST_SUPERVISOR_UNIT, "utf8"));
-  process.exit(0);
-}
+if (command === "cat" && unit === "pi-supervisor.service") process.exit(1);
 if (command === "disable" && unit) {
   disabledUnits.add(unit);
   saveState();
@@ -143,7 +139,6 @@ function createDeployFixture(parentDir: string): DeployFixture {
 	writeExecutable(join(stubBinDir, "uname"), UNAME_STUB);
 	writeExecutable(join(scriptsDir, "build-binaries.sh"), BUILD_BINARIES_STUB);
 	writeExecutable(join(scriptsDir, "configure-resident-services.sh"), CONFIGURE_RESIDENT_SERVICES_STUB);
-	writeFileSync(join(scriptsDir, "validate-systemd-exec-path.mjs"), "");
 	return fixture;
 }
 
@@ -162,8 +157,6 @@ function runDeploy(fixture: DeployFixture, options: DeployRunOptions = {}) {
 		PI_TEST_UNAME_MACHINE: options.machine ?? "x86_64",
 		PI_TEST_UNAME_SYSTEM: options.system ?? "Linux",
 	};
-	if (options.configureResidentServices === undefined) delete env.PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES;
-	else env.PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES = options.configureResidentServices;
 	return spawnSync("bash", [join(fixture.deployRoot, "deploy.sh")], {
 		cwd: fixture.deployRoot,
 		env,
@@ -222,9 +215,7 @@ function assertSuccessfulInstall(fixture: InstallTransactionFixture, system: str
 	expect(readlinkSync(fixture.launcherPath)).toBe(join(fixture.installDir, "pi"));
 	expect(readFileSync(fixture.launcherPath, "utf8")).not.toBe(previousBinary);
 	expect(existsSync(join(fixture.installDir, "old-only"))).toBe(false);
-	expect(readFileSync(fixture.configureLog, "utf8")).toBe(
-		system === "Linux" ? `${fixture.launcherPath}\tautostart\n` : "",
-	);
+	expect(readFileSync(fixture.configureLog, "utf8")).toBe(system === "Linux" ? "configured\n" : "");
 }
 
 function assertRestoredLauncher(fixture: InstallTransactionFixture): void {
@@ -259,21 +250,12 @@ describe("resident service deployment", () => {
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
-	it("deploys with lazy Supervisor autostart ownership by default", () => {
+	it("removes the retired resident units on Linux", () => {
 		const fixture = createDeployFixture(tempDir);
 		const result = runDeploy(fixture);
 
 		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-		expect(readFileSync(fixture.configureLog, "utf8")).toBe(`${join(fixture.binDir, "pi")}\tautostart\n`);
-	});
-
-	it("stages a Linux bundle without changing resident services when explicitly skipped", () => {
-		const fixture = createDeployFixture(tempDir);
-		const result = runDeploy(fixture, { configureResidentServices: "skip" });
-
-		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-		expect(existsSync(join(fixture.installDir, "pi"))).toBe(true);
-		expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
+		expect(readFileSync(fixture.configureLog, "utf8")).toBe("configured\n");
 	});
 
 	it("skips Linux resident-service configuration on macOS", () => {
@@ -309,32 +291,14 @@ describe("resident service deployment", () => {
 		);
 	});
 
-	it("configures a systemd-owned Supervisor only when explicitly enabled", () => {
-		const fixture = createDeployFixture(tempDir);
-		const result = runDeploy(fixture, { configureResidentServices: "1" });
-
-		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-		expect(readFileSync(fixture.configureLog, "utf8")).toBe(`${join(fixture.binDir, "pi")}\tsystemd\n`);
-	});
-
-	it("rejects invalid resident-service configuration before invoking it", () => {
-		const fixture = createDeployFixture(tempDir);
-		const result = runDeploy(fixture, { configureResidentServices: "enabled" });
-
-		expect(result.status).toBe(1);
-		expect(`${result.stdout}\n${result.stderr}`).toContain("PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES");
-		expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
-	});
-
-	it("autostart mode disables every resident systemd unit without starting Supervisor", () => {
+	it("disables and deletes the retired Architect and Supervisor units", () => {
 		const fixture = createResidentServiceFixture(tempDir);
-		const result = spawnSync(residentServicesScript, ["/home/osso/.local/bin/pi", "autostart"], {
+		const result = spawnSync(residentServicesScript, [], {
 			encoding: "utf8",
 			env: {
 				...process.env,
 				HOME: join(tempDir, "home"),
 				PATH: `${fixture.fakeBinDir}:${process.env.PATH ?? ""}`,
-				PI_TEST_SUPERVISOR_UNIT: fixture.supervisorUnit,
 				PI_TEST_SYSTEMCTL_LOG: fixture.systemctlLog,
 				PI_TEST_SYSTEMCTL_STATE: fixture.systemctlState,
 				XDG_CONFIG_HOME: fixture.configHome,
@@ -351,7 +315,7 @@ describe("resident service deployment", () => {
 		expect(readFileSync(fixture.systemctlLog, "utf8").trim().split("\n")).toEqual([
 			"--user cat pi-architect.service",
 			"--user disable --now pi-architect.service",
-			"--user cat pi-supervisor.service --no-pager",
+			"--user cat pi-supervisor.service",
 			"--user disable --now pi-supervisor.service",
 			"--user daemon-reload",
 			"--user is-active --quiet pi-architect.service",
