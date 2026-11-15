@@ -6,7 +6,8 @@ import { theme } from "../theme/theme.ts";
  * Format: "+123 content" or "-123 content" or " 123 content" or "     ..."
  */
 function parseDiffLine(line: string): { prefix: string; lineNum: string; content: string } | null {
-	const match = line.match(/^([+-\s])(\s*\d*)\s(.*)$/);
+	// `s`: content may contain U+2028/U+2029, which `.` does not match otherwise.
+	const match = line.match(/^([+-\s])(\s*\d*)\s(.*)$/s);
 	if (!match) return null;
 	const [, prefix, lineNum, content] = match;
 	if (prefix === undefined || lineNum === undefined || content === undefined) return null;
