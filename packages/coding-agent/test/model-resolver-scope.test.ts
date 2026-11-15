@@ -59,4 +59,16 @@ describe("model scope identifiers", () => {
 		expect(result.scopedModels.map(({ model }) => model.id)).toEqual(["gpt-x"]);
 		expect(result.scopedModels[0]?.thinkingLevel).toBe("high");
 	});
+
+	test("matches a provider-prefixed fuzzy pattern within that provider", async () => {
+		const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+		vi.spyOn(registry, "getAvailable").mockResolvedValue(models);
+		const result = await resolveModelScopeWithDiagnostics(["scope-fixture/simple:high"], registry);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.scopedModels.map(({ model, thinkingLevel }) => [model.id, thinkingLevel])).toEqual([
+			["sonnet-simple", "high"],
+		]);
+	});
+
 });

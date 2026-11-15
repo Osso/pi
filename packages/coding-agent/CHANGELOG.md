@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `--models` and `enabledModels` rejecting a provider-prefixed fuzzy pattern such as `anthropic/sonnet`, which `--model` accepts
 - Fixed `--permission-prompt-tool` allow decisions being discarded, and the native prompt shown instead, when `updatedPermissions` rules used Claude Code's `{toolName, ruleContent}` object format
 - Fixed saving a second permission rule to a pretty-printed settings file breaking its indentation and closing-brace layout
 - Fixed `--models` and `enabledModels` resolving an exact model id that two providers share, such as `gpt-5.5`, to a different model whose id contains it, such as `gpt-5.5-pro`

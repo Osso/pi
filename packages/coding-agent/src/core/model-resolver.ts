@@ -128,6 +128,13 @@ function tryMatchModel(modelPattern: string, availableModels: Model<Api>[]): Mod
 		return exactMatch;
 	}
 
+	// "provider/pattern" matches within that provider first, as --model does.
+	const slashIndex = modelPattern.indexOf("/");
+	const provider = modelPattern.slice(0, Math.max(slashIndex, 0)).toLowerCase();
+	const providerModels = availableModels.filter((m) => m.provider.toLowerCase() === provider);
+	const providerMatch = providerModels.length > 0 && tryMatchModel(modelPattern.slice(slashIndex + 1), providerModels);
+	if (providerMatch) return providerMatch;
+
 	// An exact id that several providers share still names that model, never a longer id containing it.
 	const pattern = modelPattern.toLowerCase();
 	const exactIds = availableModels.filter((m) => m.id.toLowerCase() === pattern);
