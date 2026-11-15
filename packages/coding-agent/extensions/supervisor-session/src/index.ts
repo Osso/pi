@@ -95,6 +95,8 @@ class SupervisorSessionServer {
 	private turnEndWaiters: Array<() => void> = [];
 	private chatInterrupted = false;
 	private reviewInstructions: SupervisorInstructionReviewer | undefined;
+	/** Escalated questions open in the UI, by request ID; closed when the asker answers locally. */
+	private readonly openEscalations = new Map<number, AbortController>();
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
@@ -161,6 +163,7 @@ class SupervisorSessionServer {
 	}
 
 	private async serveAvailableWork(ctx: ExtensionContext, controlDbPath: string): Promise<void> {
+		this.closeWithdrawnEscalations(controlDbPath);
 		if (!ctx.isIdle()) {
 			if (hasPendingSupervisorApprovalRequest(controlDbPath)) {
 				this.chatInterrupted = true;
@@ -189,6 +192,13 @@ class SupervisorSessionServer {
 		}
 	}
 
+	/** A withdrawal arrives as a wake; its panel closes so the user cannot answer it twice. */
+	private closeWithdrawnEscalations(controlDbPath: string): void {
+		for (const [requestId, controller] of this.openEscalations) {
+			if (readSupervisorRequest(controlDbPath, requestId)?.status === "cancelled") controller.abort();
+		}
+	}
+
 	/** A question the Supervisor escalated, or failed to decide, opens here for the user to answer. */
 	private askUserAfterEscalation(ctx: ExtensionContext, controlDbPath: string, request: SupervisorRequest): void {
 		const completed = readSupervisorRequest(controlDbPath, request.id);
@@ -197,9 +207,11 @@ class SupervisorSessionServer {
 		if (!replyTo || !ctx.hasUI || ctx.mode !== "tui") return;
 		const questions = request.payload.questions as Parameters<typeof askQuestionsInUi>[1];
 		validateQuestions(questions);
-		void askQuestionsInUi(ctx.ui, questions)
+		const withdrawn = new AbortController();
+		this.openEscalations.set(request.id, withdrawn);
+		void askQuestionsInUi(ctx.ui, questions, withdrawn.signal)
 			.then(({ answers, cancelled }) => {
-				if (cancelled) return;
+				if (cancelled || readSupervisorRequest(controlDbPath, request.id)?.status === "cancelled") return;
 				const response = {
 					kind: "answer" as const,
 					answers: Object.fromEntries(
@@ -215,7 +227,8 @@ class SupervisorSessionServer {
 			.catch((error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`Escalated question ${request.id} failed: ${message}`, "error");
-			});
+			})
+			.finally(() => this.openEscalations.delete(request.id));
 	}
 
 	private createEvaluator(ctx: ExtensionContext, request: SupervisorRequest): SupervisorEvaluator {

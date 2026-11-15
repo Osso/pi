@@ -192,8 +192,13 @@ function queueQuestions(
 export function askQuestionsInUi(
 	ui: ExtensionUIContext,
 	questions: AskQuestionsToolInput["questions"],
+	signal?: AbortSignal,
 ): Promise<AskQuestionsPanelResult> {
-	return queueQuestions(ui, questions);
+	const race: QuestionPanelRace = {};
+	const close = () => settleQuestionRace(race, { answers: {}, cancelled: true });
+	if (signal?.aborted) close();
+	else signal?.addEventListener("abort", close, { once: true });
+	return queueQuestions(ui, questions, race);
 }
 
 function supervisorAnswerResult(reply: Extract<SupervisorQuestionReply, { kind: "answer" }>): AskQuestionsAnswer {

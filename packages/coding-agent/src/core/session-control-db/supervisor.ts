@@ -100,7 +100,7 @@ export function cancelSupervisorRequest(controlDbPath: string, route: Supervisor
 					`UPDATE supervisor_requests
 					 SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
 					 WHERE sender_session_id = ? AND json_extract(reply_to_json, '$.requestId') = ?
-					   AND status IN ('pending', 'claimed')`,
+					   AND (status IN ('pending', 'claimed') OR (kind = 'question' AND status = 'completed'))`,
 				)
 				.run(new Date().toISOString(), JSON.stringify(response), route.sessionId, route.requestId);
 			return result.changes === 1;

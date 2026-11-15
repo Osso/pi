@@ -190,6 +190,30 @@ describe("Supervisor question answering", () => {
 		expect(askerUi.closed).toBe(1);
 	});
 
+	it("closes the escalated panel without a reply when the user answers locally first", async () => {
+		const controlDbPath = sharedControlDb();
+		const supervisorUi = panelUi();
+		const supervisor = await openSupervisor(controlDbPath, supervisorUi);
+		supervisor.setResponses([supervisorResponse({ kind: "escalate", reason: "This is a product tradeoff." })]);
+		const askerUi = panelUi();
+		const asker = await openSession(controlDbPath, askerUi, supervisor.sessionManager.getSessionId());
+		asker.setResponses([askCall(true), fauxAssistantMessage("Using vitest.")]);
+
+		const turn = asker.session.prompt("Pick a runner.");
+		await waitFor(() => supervisorUi.panels.length === 1 && askerUi.panels.length === 1);
+		askerUi.panels[0]?.handleInput?.(ENTER);
+		await turn;
+		await waitFor(() => supervisorUi.closed === 1);
+
+		expect(askResult(asker).details).toMatchObject({ answers: { [QUESTION]: "vitest" }, cancelled: false });
+		expect(askResult(asker).details).not.toHaveProperty("answeredBy");
+		expect(requestStatuses(controlDbPath)).toEqual(["cancelled"]);
+		const mail = asker.session.messages.filter(
+			(message) => message.role === "user" && JSON.stringify(message.content).includes("supervisor_response"),
+		);
+		expect(mail).toEqual([]);
+	});
+
 	it("delivers a Supervisor answer to a nonblocking question through the inbox", async () => {
 		const controlDbPath = sharedControlDb();
 		const supervisor = await openSupervisor(controlDbPath);
