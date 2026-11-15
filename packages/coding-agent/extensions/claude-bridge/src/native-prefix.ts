@@ -22,6 +22,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getAgentDir } from "../../../src/config.ts";
 import { messageContentToText } from "./convert.ts";
+import { MCP_TOOL_PREFIX } from "./skills.ts";
 
 type Rec = Record<string, unknown>;
 type Block = { type: string; [key: string]: unknown };
@@ -167,15 +168,34 @@ export function userSideContent(record: Rec): unknown {
 	return record.isMeta ? undefined : (record.message as Rec | undefined)?.content;
 }
 
+/** Whether a user record only answers tool calls CC ran itself. */
+function answersOnly(record: Rec, internalToolIds: Set<unknown>): boolean {
+	const blocks = blocksOf((record.message as Rec | undefined)?.content);
+	return (
+		record.type === "user" &&
+		blocks.length > 0 &&
+		blocks.every((block) => block.type === "tool_result" && internalToolIds.has(block.tool_use_id))
+	);
+}
+
 /** CC's records as units; `end` indexes the unit's last record. One assistant
- *  message spans several records sharing a `message.id`. An assistant message
- *  CC wrote itself (`model: "<synthetic>"`, e.g. the "No response requested."
- *  after a turn the bridge ended on a tool) never reached pi, so it is kept but
- *  not compared. */
+ *  message spans several records sharing a `message.id`. Kept but not compared,
+ *  because they never reached pi:
+ *  - an assistant message CC wrote itself (`model: "<synthetic>"`, e.g. the "No
+ *    response requested." after a turn the bridge ended on a tool);
+ *  - a tool call outside pi's MCP tools (native WebSearch, or a name CC rejected)
+ *    and the records answering it. The assistant message after it continues the
+ *    same unit, as the bridge streams both into one pi message. */
 function recordUnits(records: readonly Rec[]): Unit[] {
 	const builder = new UnitBuilder();
+	const internalToolIds = new Set<unknown>();
 	let assistant: { id: unknown; blocks: Block[] } | null = null;
 	records.forEach((record, index) => {
+		if (assistant !== null && answersOnly(record, internalToolIds)) {
+			assistant.id = undefined;
+			builder.extend(index);
+			return;
+		}
 		if (record.type !== "assistant") {
 			assistant = null;
 			builder.user(userSideContent(record), index);
@@ -186,10 +206,15 @@ function recordUnits(records: readonly Rec[]): Unit[] {
 			builder.extend(index);
 			return;
 		}
-		const current =
-			assistant !== null && assistant.id === message.id ? assistant : { id: message.id, blocks: [] as Block[] };
-		const continues = current === assistant;
-		current.blocks.push(...blocksOf(message.content));
+		const previous: { id: unknown; blocks: Block[] } | null = assistant;
+		const continues = previous !== null && (previous.id === undefined || previous.id === message.id);
+		const current = continues && previous ? previous : { id: message.id, blocks: [] as Block[] };
+		current.id = message.id;
+		for (const block of blocksOf(message.content)) {
+			if (block.type === "tool_use" && !String(block.name).startsWith(MCP_TOOL_PREFIX))
+				internalToolIds.add(block.id);
+			else current.blocks.push(block);
+		}
 		assistant = current;
 		builder.assistant(current.blocks, index, continues);
 	});
