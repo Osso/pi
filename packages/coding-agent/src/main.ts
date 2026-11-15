@@ -519,9 +519,11 @@ function buildSessionOptions(
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	let cliThinkingFromModel = false;
 
-	// Model from CLI
-	// - supports --provider <name> --model <pattern>
-	// - supports --model <provider>/<pattern>
+	// Model from CLI: --provider <name> --model <pattern>, or --model <provider>/<pattern>
+	if (parsed.provider && !parsed.model) {
+		const example = `--provider ${parsed.provider} --model <pattern>`;
+		diagnostics.push({ type: "error", message: `--provider requires --model (for example: ${example})` });
+	}
 	if (parsed.model) {
 		const resolved = resolveCliModel({
 			cliProvider: parsed.provider,
@@ -529,12 +531,8 @@ function buildSessionOptions(
 			cliThinking: parsed.thinking,
 			modelRegistry,
 		});
-		if (resolved.warning) {
-			diagnostics.push({ type: "warning", message: resolved.warning });
-		}
-		if (resolved.error) {
-			diagnostics.push({ type: "error", message: resolved.error });
-		}
+		if (resolved.warning) diagnostics.push({ type: "warning", message: resolved.warning });
+		if (resolved.error) diagnostics.push({ type: "error", message: resolved.error });
 		if (resolved.model) {
 			options.model = resolved.model;
 			// Allow "--model <pattern>:<thinking>" as a shorthand.

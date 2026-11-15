@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `--provider` without `--model` being silently ignored, so the default model from another provider ran; it now fails with an error ([#10236](https://github.com/earendil-works/pi-mono/issues/10236))
 - Fixed `stripAnsi` leaving the parameters of private-parameter CSI sequences in tool output, for example `35;59;1M` from an SGR mouse report `ESC[<35;59;1M` ([#11377](https://github.com/earendil-works/pi-mono/issues/11377))
 - Fixed a failed session write (for example `ENOSPC` or `EBUSY`) leaving the unwritten entry in memory as the current leaf, so later entries on disk pointed to a missing parent and resume dropped all earlier history ([#11460](https://github.com/earendil-works/pi-mono/issues/11460))
 - Fixed a trailing or doubled comma in `--models` producing an empty model pattern ([#10334](https://github.com/earendil-works/pi-mono/issues/10334))

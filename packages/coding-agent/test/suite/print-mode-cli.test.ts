@@ -14,7 +14,12 @@ interface PrintModeRun {
 	requestMessages: Message[][];
 }
 
-async function runPrintMode(answer: string, cliArgs: string[], stdin?: string): Promise<PrintModeRun> {
+async function runPrintMode(
+	answer: string,
+	cliArgs: string[],
+	stdin?: string,
+	modelArgs = ["--provider", "headless-faux", "--model", "headless-faux-1"],
+): Promise<PrintModeRun> {
 	const paths = createHeadlessPaths();
 	const cacheDir = join(paths.tempDir, "compile-cache");
 	mkdirSync(cacheDir);
@@ -41,10 +46,7 @@ async function runPrintMode(answer: string, cliArgs: string[], stdin?: string): 
 					"--import",
 					pathToFileURL(preloadPath).href,
 					cliPath,
-					"--provider",
-					"headless-faux",
-					"--model",
-					"headless-faux-1",
+					...modelArgs,
 					"--no-session",
 					"--no-context-files",
 					"--no-skills",
@@ -131,6 +133,16 @@ describe("print-mode CLI", () => {
 		const run = await runPrintMode("unused", ["-p", "@.", "hi"]);
 		expect(run.exitCode).toBe(1);
 		expect(run.stderr).toMatch(/is a directory; @ arguments must be files/);
+		expect(run.requestMessages).toEqual([]);
+	}, 30_000);
+
+	// https://github.com/earendil-works/pi/issues/10236
+	it("rejects --provider without --model instead of ignoring it", async () => {
+		const run = await runPrintMode("unused", ["-p", "hi"], undefined, ["--provider", "headless-faux"]);
+		expect(run.exitCode).toBe(1);
+		expect(run.stderr).toContain(
+			"--provider requires --model (for example: --provider headless-faux --model <pattern>)",
+		);
 		expect(run.requestMessages).toEqual([]);
 	}, 30_000);
 });

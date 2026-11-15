@@ -350,7 +350,8 @@ function createHeadlessRpcClient(
 			...(options.env ?? {}),
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
 		},
-		provider: selectedProvider,
+		// --provider only narrows --model lookup, so it is omitted with the model.
+		provider: options.model === false ? undefined : selectedProvider,
 		model: options.model === false ? undefined : (options.model ?? defaultModel),
 		nodeArgs:
 			runtime === "bun"
