@@ -626,16 +626,18 @@ export class Editor implements Component, Focusable {
 
 	private acceptHistorySearch(): void {
 		const selectedEntry = this.historySearchIndex >= 0 ? this.history[this.historySearchIndex] : undefined;
+		const draft = this.historySearchDraft;
 		this.exitHistorySearch();
-		if (selectedEntry !== undefined) {
-			this.setTextInternal(selectedEntry);
-		}
+		if (selectedEntry !== undefined) this.setTextInternal(selectedEntry);
+		// Undo returns to the pre-search draft, as it does after Up-arrow history browsing.
+		if (draft && draft.lines.join("\n") !== this.getText()) this.undoStack.push(draft);
 		this.tui.requestRender();
 	}
 
 	private cancelHistorySearch(): void {
 		const draft = this.historySearchDraft;
-		this.acceptHistorySearch();
+		this.exitHistorySearch();
+		this.tui.requestRender();
 		if (draft) {
 			this.state = draft;
 			this.preferredVisualCol = null;
@@ -1264,13 +1266,11 @@ export class Editor implements Component, Focusable {
 		return this.state.lines.join("\n");
 	}
 
+	// One pass, so marker-like text inside an expanded paste is never replaced by a later paste.
 	private expandPasteMarkers(text: string): string {
-		let result = text;
-		for (const [pasteId, pasteContent] of this.pastes) {
-			const markerRegex = new RegExp(`\\[paste #${pasteId}( (\\+\\d+ lines|\\d+ chars))?\\]`, "g");
-			result = result.replace(markerRegex, () => pasteContent);
-		}
-		return result;
+		return text.replace(/\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]/g, (marker, id: string) => {
+			return this.pastes.get(Number(id)) ?? marker;
+		});
 	}
 
 	/**
@@ -1801,9 +1801,7 @@ export class Editor implements Component, Focusable {
 			this.setCursorCol(previousLine.length);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	private deleteToEndOfLine(): void {
@@ -1833,9 +1831,7 @@ export class Editor implements Component, Focusable {
 			this.state.lines.splice(this.state.cursorLine + 1, 1);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	private deleteWordBackwards(): void {
@@ -1878,9 +1874,7 @@ export class Editor implements Component, Focusable {
 			this.setCursorCol(deleteFrom);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	private deleteWordForward(): void {
@@ -1920,9 +1914,7 @@ export class Editor implements Component, Focusable {
 				currentLine.slice(0, this.state.cursorCol) + currentLine.slice(deleteTo);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	private handleForwardDelete(): void {
@@ -2213,9 +2205,7 @@ export class Editor implements Component, Focusable {
 			this.setCursorCol((lines[lines.length - 1] || "").length);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	/**
@@ -2255,9 +2245,7 @@ export class Editor implements Component, Focusable {
 			this.setCursorCol(startCol);
 		}
 
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.notifyTextChanged();
 	}
 
 	private pushUndoSnapshot(): void {
@@ -2271,9 +2259,14 @@ export class Editor implements Component, Focusable {
 		Object.assign(this.state, snapshot);
 		this.lastAction = null;
 		this.preferredVisualCol = null;
-		if (this.onChange) {
-			this.onChange(this.getText());
-		}
+		this.snappedFromCursorCol = null;
+		this.notifyTextChanged();
+	}
+
+	// For edits outside typing: an open picker computed for the old text is refreshed so Tab never applies it.
+	private notifyTextChanged(): void {
+		this.onChange?.(this.getText());
+		this.refreshStaleAutocomplete();
 	}
 
 	/**
@@ -2299,9 +2292,15 @@ export class Editor implements Component, Focusable {
 					: this.state.cursorCol - 1
 				: undefined;
 
-			const idx = isForward ? line.indexOf(char, searchFrom) : line.lastIndexOf(char, searchFrom);
+			// Only segment starts are targets, so a jump never lands inside a paste marker.
+			const starts = [...this.segment(line, "grapheme")].flatMap((seg) =>
+				seg.segment.startsWith(char) ? [seg.index] : [],
+			);
+			const idx = isForward
+				? starts.find((start) => searchFrom === undefined || start >= searchFrom)
+				: starts.filter((start) => searchFrom === undefined || start <= searchFrom).at(-1);
 
-			if (idx !== -1 && searchFrom !== -1) {
+			if (idx !== undefined) {
 				this.state.cursorLine = lineIdx;
 				this.setCursorCol(idx);
 				return;
