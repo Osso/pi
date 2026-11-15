@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed a trailing or doubled comma in `--models` producing an empty model pattern ([#10334](https://github.com/earendil-works/pi-mono/issues/10334))
 - Fixed `pi.exec()` returning an empty `stderr` when the command cannot be spawned (for example `ENOENT`); the spawn error message is now reported ([#11085](https://github.com/earendil-works/pi-mono/issues/11085))
 - Fixed `pi.exec()` corrupting multi-byte UTF-8 characters split across output chunks into U+FFFD ([#11312](https://github.com/earendil-works/pi-mono/issues/11312))
 - Fixed the grep tool reading the user's ripgrep config (`RIPGREP_CONFIG_PATH`), which could silently change its semantics, for example making `literal: false` searches literal ([#11203](https://github.com/earendil-works/pi-mono/issues/11203))

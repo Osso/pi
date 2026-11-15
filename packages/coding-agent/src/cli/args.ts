@@ -148,7 +148,8 @@ export function parseArgs(args: string[]): Args {
 		} else if (arg === "--models" && i + 1 < args.length) {
 			result.models = consumeNext()
 				.split(",")
-				.map((s) => s.trim());
+				.map((s) => s.trim())
+				.filter((pattern) => pattern.length > 0);
 		} else if (arg === "--no-tools" || arg === "-nt") {
 			result.noTools = true;
 		} else if (arg === "--no-builtin-tools" || arg === "-nbt") {
