@@ -128,30 +128,21 @@ function tryMatchModel(modelPattern: string, availableModels: Model<Api>[]): Mod
 		return exactMatch;
 	}
 
-	// No exact match - fall back to partial matching
-	const matches = availableModels.filter(
-		(m) =>
-			m.id.toLowerCase().includes(modelPattern.toLowerCase()) ||
-			m.name?.toLowerCase().includes(modelPattern.toLowerCase()),
-	);
+	// An exact id that several providers share still names that model, never a longer id containing it.
+	const pattern = modelPattern.toLowerCase();
+	const exactIds = availableModels.filter((m) => m.id.toLowerCase() === pattern);
+	const matches =
+		exactIds.length > 0
+			? exactIds
+			: availableModels.filter(
+					(m) => m.id.toLowerCase().includes(pattern) || m.name?.toLowerCase().includes(pattern),
+				);
 
-	if (matches.length === 0) {
-		return undefined;
-	}
-
-	// Separate into aliases and dated versions
+	// Prefer aliases over dated versions; within the group, pick the id that sorts highest.
 	const aliases = matches.filter((m) => isAlias(m.id));
-	const datedVersions = matches.filter((m) => !isAlias(m.id));
-
-	if (aliases.length > 0) {
-		// Prefer alias - if multiple aliases, pick the one that sorts highest
-		aliases.sort((a, b) => b.id.localeCompare(a.id));
-		return aliases[0];
-	} else {
-		// No alias found, pick latest dated version
-		datedVersions.sort((a, b) => b.id.localeCompare(a.id));
-		return datedVersions[0];
-	}
+	const candidates = aliases.length > 0 ? aliases : matches;
+	candidates.sort((a, b) => b.id.localeCompare(a.id));
+	return candidates[0];
 }
 
 export interface ParsedModelResult {

@@ -47,4 +47,16 @@ describe("model scope identifiers", () => {
 			expect(result.scopedModels[0]?.thinkingLevel).toBe(pattern.endsWith(":high") ? "high" : undefined);
 		},
 	);
+
+	test("keeps an exact id that two providers share instead of matching a longer id", async () => {
+		const shared = ["alpha-provider", "beta-provider"].flatMap((provider) =>
+			["gpt-x", "gpt-x-pro"].map((id) => ({ ...models[0], id, name: id, provider })),
+		);
+		const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+		vi.spyOn(registry, "getAvailable").mockResolvedValue(shared);
+		const result = await resolveModelScopeWithDiagnostics(["gpt-x:high"], registry);
+
+		expect(result.scopedModels.map(({ model }) => model.id)).toEqual(["gpt-x"]);
+		expect(result.scopedModels[0]?.thinkingLevel).toBe("high");
+	});
 });
