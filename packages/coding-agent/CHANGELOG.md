@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed skills whose YAML `name` is a number or boolean, such as `name: 2048`, failing to load with `name.startsWith is not a function`; the name now falls back to the skill directory, and a non-string `description` is reported as missing
 - Fixed `find` patterns with a leading `./`, such as `./src/*.ts`, matching nothing
 - Fixed the `find` tool reporting "results limit reached" when exactly `limit` files matched
 - Fixed the `find` tool listing `.git` internals such as `.git/HEAD` and `.git/hooks/*` in repositories, which also used up the result limit

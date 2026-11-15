@@ -1,4 +1,5 @@
-import { homedir } from "os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { describe, expect, it } from "vitest";
 import type { ResourceDiagnostic } from "../src/core/diagnostics.ts";
@@ -52,6 +53,26 @@ describe("skills", () => {
 			expect(
 				diagnostics.some((d: ResourceDiagnostic) => d.message.includes("does not match parent directory")),
 			).toBe(false);
+		});
+
+		it("loads a skill whose YAML name is not a string under its directory name", () => {
+			const dir = mkdtempSync(join(tmpdir(), "pi-skills-yaml-types-"));
+			try {
+				mkdirSync(join(dir, "numeric"));
+				writeFileSync(
+					join(dir, "numeric", "SKILL.md"),
+					"---\nname: 2048\ndescription: Numeric name skill\n---\nBody\n",
+				);
+				mkdirSync(join(dir, "bool-desc"));
+				writeFileSync(join(dir, "bool-desc", "SKILL.md"), "---\ndescription: true\n---\nBody\n");
+
+				const { skills, diagnostics } = loadSkillsFromDir({ dir, source: "test" });
+
+				expect(skills.map((skill) => [skill.name, skill.description])).toEqual([["numeric", "Numeric name skill"]]);
+				expect(diagnostics.map((d) => d.message)).toEqual(["description is required"]);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
 		});
 
 		it("should warn when name contains invalid characters", () => {
