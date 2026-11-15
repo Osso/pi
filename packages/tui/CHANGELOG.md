@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed Markdown rendering without a blank line between a list and a directly following heading, code fence or blockquote
 - Fixed `@` file completion scoped to a project subdirectory (such as `@packages/`) listing files that the project root `.gitignore` excludes
 - Fixed underline continuing into the padding of a line that ends with a literal newline inside underlined text
 - Fixed word wrap starting the next line with a space, or adding an empty line, when the wrap fell on a space right after a style change such as the end of bold text or a link

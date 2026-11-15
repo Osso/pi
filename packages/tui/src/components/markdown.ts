@@ -429,8 +429,8 @@ export class Markdown implements Component {
 			case "list": {
 				const listLines = this.renderList(token as Tokens.List, 0, width, styleContext);
 				lines.push(...listLines);
-				// Don't add spacing after lists if a space token follows
-				// (the space token will handle it)
+				// Separate a following heading or fence; a space token adds its own line, adjacent lists stay together.
+				if (nextTokenType && nextTokenType !== "space" && nextTokenType !== "list") lines.push("");
 				break;
 			}
 

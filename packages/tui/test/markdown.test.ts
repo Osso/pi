@@ -201,6 +201,20 @@ describe("Markdown component", () => {
 			]);
 		});
 
+		it("should separate a list from a directly following heading or code fence", () => {
+			const heading = new Markdown("- a\n- b\n## Head", 0, 0, defaultMarkdownTheme);
+			const fence = new Markdown("- a\n- b\n```\nx\n```", 0, 0, defaultMarkdownTheme);
+
+			assert.deepStrictEqual(
+				heading.render(40).map((line) => stripAnsi(line).trimEnd()),
+				["- a", "- b", "", "Head"],
+			);
+			assert.deepStrictEqual(
+				fence.render(40).map((line) => stripAnsi(line).trimEnd()),
+				["- a", "- b", "", "```", "  x", "```"],
+			);
+		});
+
 		it("should render task list markers", () => {
 			const markdown = new Markdown("- [ ] beep\n- [x] boop", 0, 0, defaultMarkdownTheme);
 
