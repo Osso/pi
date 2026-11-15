@@ -17,6 +17,19 @@ function messageEntry(id: string, parentId: string | null, content: string): obj
 	};
 }
 
+/** The compaction entry "compaction-1" that keeps the history from "kept-1" on. */
+function keptOneCompaction(timestamp: string): object {
+	return {
+		type: "compaction",
+		id: "compaction-1",
+		parentId: "kept-1",
+		timestamp,
+		summary: "summary",
+		firstKeptEntryId: "kept-1",
+		tokensBefore: 1000,
+	};
+}
+
 function treeEntryIds(nodes: SessionTreeNode[]): string[] {
 	return nodes.flatMap((node) => [node.entry.id, ...treeEntryIds(node.children)]);
 }
@@ -55,15 +68,7 @@ describe("active slice session loading", () => {
 				display: true,
 			},
 			messageEntry("kept-1", "cwd-change", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		const content = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
@@ -114,15 +119,7 @@ describe("active slice session loading", () => {
 				name: "Current Name",
 			}),
 			JSON.stringify(messageEntry("kept-1", "name-new", "kept")),
-			JSON.stringify({
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:03Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			}),
+			JSON.stringify(keptOneCompaction("2025-01-01T00:00:03Z")),
 			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
 		];
 		writeFileSync(file, `${lines.join("\n")}\n`);
@@ -158,15 +155,7 @@ describe("active slice session loading", () => {
 				display: true,
 			},
 			messageEntry("kept-1", "cwd-change", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:02Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:02Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -328,15 +317,7 @@ describe("active slice session loading", () => {
 			}),
 			JSON.stringify(messageEntry("old-1", null, "old")),
 			JSON.stringify(messageEntry("kept-1", "old-1", "kept")),
-			JSON.stringify({
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			}),
+			JSON.stringify(keptOneCompaction("2025-01-01T00:00:00Z")),
 			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
 		];
 		writeFileSync(file, `${lines.join("\n")}\n{"type":"message"`);
@@ -359,15 +340,7 @@ describe("active slice session loading", () => {
 			JSON.stringify(messageEntry("old-1", null, "old")),
 			JSON.stringify(messageEntry("kept-1", "old-1", "kept")),
 			"not json",
-			JSON.stringify({
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			}),
+			JSON.stringify(keptOneCompaction("2025-01-01T00:00:00Z")),
 			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
 		];
 		writeFileSync(file, `${lines.join("\n")}\n`);
@@ -403,15 +376,7 @@ describe("active slice session loading", () => {
 				cwd: "/tmp",
 			},
 			messageEntry("kept-1", "missing-summarized-parent", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -439,15 +404,7 @@ describe("active slice session loading", () => {
 			},
 			messageEntry("old-1", null, "summarized"),
 			messageEntry("kept-1", "old-1", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2026-08-04T00:00:03.000Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2026-08-04T00:00:03.000Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		const originalContent = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
@@ -520,15 +477,7 @@ describe("active slice session loading", () => {
 				display: true,
 			},
 			messageEntry("kept-1", "cwd-change", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -551,15 +500,7 @@ describe("active slice session loading", () => {
 			},
 			messageEntry("old-1", null, "summarized"),
 			messageEntry("kept-1", "old-1", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -584,15 +525,7 @@ describe("active slice session loading", () => {
 			messageEntry("old-1", null, "summarized"),
 			messageEntry("old-2", "old-1", "also summarized"),
 			messageEntry("kept-1", "old-2", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -678,15 +611,7 @@ describe("active slice session loading", () => {
 			},
 			...labeledEntries.slice(1),
 			messageEntry("kept-1", "label-1", "kept"),
-			{
-				type: "compaction",
-				id: "compaction-1",
-				parentId: "kept-1",
-				timestamp: "2025-01-01T00:00:00Z",
-				summary: "summary",
-				firstKeptEntryId: "kept-1",
-				tokensBefore: 1000,
-			},
+			keptOneCompaction("2025-01-01T00:00:00Z"),
 			messageEntry("after-1", "compaction-1", "after"),
 		];
 		writeFileSync(compactedFile, `${compactedEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
