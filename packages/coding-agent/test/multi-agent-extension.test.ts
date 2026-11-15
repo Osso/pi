@@ -111,9 +111,7 @@ function harnessPrintContext(harness: Harness, cwd = "/repo"): ExtensionContext 
 		cwd,
 		hasUI: false,
 		mode: "print",
-		model: harness.getModel(),
-		modelRegistry: harness.session.modelRegistry,
-		sessionManager: harness.sessionManager,
+		...harnessCtx(harness),
 	} as unknown as ExtensionContext;
 }
 
@@ -5677,9 +5675,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		await harness.command("bg", "  Audit current test failures  ", {
-			model: parentHarness.getModel(),
-			modelRegistry: parentHarness.session.modelRegistry,
-			sessionManager: parentHarness.sessionManager,
+			...harnessCtx(parentHarness),
 		});
 		const [agent] = harness.store.listAgents();
 		if (!agent) {
@@ -5705,9 +5701,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		await harness.command("bg", "x".repeat(10001), {
-			model: parentHarness.getModel(),
-			modelRegistry: parentHarness.session.modelRegistry,
-			sessionManager: parentHarness.sessionManager,
+			...harnessCtx(parentHarness),
 			ui: { notify: (message, level) => notifications.push({ level, message }) },
 		});
 
