@@ -25,7 +25,7 @@ import {
 } from "../extensions/pyrun/src/detached-runner.ts";
 import { enqueueDetachedJobStatusRequest } from "../src/core/detached-job-control.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
-import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
+import type { DetachedJobArtifacts, DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
@@ -48,48 +48,16 @@ afterEach(() => {
 
 describe("detached Pyrun runner", () => {
 	it("owns evaluation output and commits one exact terminal input", async () => {
-		const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-"));
-		temporaryDirectories.push(root);
-		const runnerPath = join(root, "fake-pyrun.mjs");
-		writeFileSync(
-			runnerPath,
-			[
-				"#!/usr/bin/env node",
-				"import { createInterface } from 'node:readline';",
-				"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
-				"const request = JSON.parse((await lines.next()).value);",
-				"process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
-				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
-				"const response = JSON.parse((await lines.next()).value);",
-				"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: response.result }) + '\\n');",
-			].join("\n"),
-		);
-		chmodSync(runnerPath, 0o700);
-		const controlDbPath = join(root, "control.sqlite");
-		const sessionPath = join(root, "session.jsonl");
-		const store = new MultiAgentStore();
-		const coordinator = new LifecycleCoordinator({
-			controlDbPath,
-			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			now: () => new Date().toISOString(),
-			processIdentity: testProcessIdentity("pyrun-runner"),
-			sessionPath,
-		});
-		const lifecycle = createDetachedJobLifecycleController({
-			artifactRoot: root,
-			controlDbPath,
-			coordinator,
-			ownerSessionId: "main",
-			sessionPath,
-			store,
-		});
+		const { controlDbPath, sessionPath, lifecycle, root, runnerPath } = createRunnerFixture("pyrun-runner", [
+			READ_REQUEST,
+			"process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
+			"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
+			"const response = JSON.parse((await lines.next()).value);",
+			"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: response.result }) + '\\n');",
+		]);
 		const jobId = lifecycle.allocateJobId("pyrun");
 		const artifacts = lifecycle.createArtifacts(jobId);
-		const activationPath = join(artifacts.directory, "activation.json");
-		const manifestPath = join(artifacts.directory, "launch.json");
-		const runnerPid = launchDetachedPyrunRunner(manifestPath, {
-			entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
-		});
+		const { activationPath, manifestPath, runnerPid } = launchRunner(artifacts);
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
 		const ownership = lifecycle.register({
@@ -103,19 +71,12 @@ describe("detached Pyrun runner", () => {
 		const supervisorAddress = { agentId: null, sessionId: "main" };
 		registerRuntimeMailboxListener(controlDbPath, supervisorAddress, process.pid);
 		writeDetachedPyrunLaunchManifest(manifestPath, {
-			activationPath,
-			artifacts,
-			bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
-			bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
-			controlDbPath,
-			foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
+			...manifestPaths(controlDbPath, sessionPath, artifacts),
 			params: { code: "6 * 7" },
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			runnerOptions: { command: runnerPath, inheritEnv: true },
 			runnerProcessIdentity: readProcessIdentity(runnerPid),
-			sessionPath,
 			startedAt: Date.now() - 1_000,
-			supervisorProcessIdentity: readProcessIdentity(process.pid),
 			toolCallId: "test-pyrun-tool-call",
 		});
 		writeDetachedPyrunActivation(activationPath, ownership.identity);
@@ -174,73 +135,34 @@ describe("detached Pyrun runner", () => {
 	});
 
 	it("reads a foreground bridge response that is still being written", async () => {
-		const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-partial-"));
-		temporaryDirectories.push(root);
-		const runnerPath = join(root, "fake-pyrun.mjs");
-		writeFileSync(
-			runnerPath,
-			[
-				"#!/usr/bin/env node",
-				"import { createInterface } from 'node:readline';",
-				"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
-				"await lines.next();",
-				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
-				"const response = JSON.parse((await lines.next()).value);",
-				"process.stdout.write(JSON.stringify({ type: 'completed', value: response.result ?? response.error }) + '\\n');",
-			].join("\n"),
-		);
-		chmodSync(runnerPath, 0o700);
-		const controlDbPath = join(root, "control.sqlite");
-		const sessionPath = join(root, "session.jsonl");
-		const store = new MultiAgentStore();
-		const lifecycle = createDetachedJobLifecycleController({
-			artifactRoot: root,
-			controlDbPath,
-			coordinator: new LifecycleCoordinator({
-				controlDbPath,
-				createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-				now: () => new Date().toISOString(),
-				processIdentity: testProcessIdentity("pyrun-partial-response"),
-				sessionPath,
-			}),
-			ownerSessionId: "main",
-			sessionPath,
-			store,
-		});
+		const { controlDbPath, sessionPath, lifecycle, runnerPath } = createRunnerFixture("pyrun-partial-response", [
+			READ_REQUEST,
+			"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
+			"const response = JSON.parse((await lines.next()).value);",
+			"process.stdout.write(JSON.stringify({ type: 'completed', value: response.result ?? response.error }) + '\\n');",
+		]);
 		const jobId = lifecycle.allocateJobId("pyrun");
 		const artifacts = lifecycle.createArtifacts(jobId);
-		const manifestPath = join(artifacts.directory, "launch.json");
-		const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
-		const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");
-		const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
-		const runnerPid = launchDetachedPyrunRunner(manifestPath, {
-			entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
-		});
+		const { manifestPath, runnerPid } = launchRunner(artifacts);
+		const paths = manifestPaths(controlDbPath, sessionPath, artifacts);
 		try {
 			writeDetachedPyrunLaunchManifest(manifestPath, {
-				activationPath: join(artifacts.directory, "activation.json"),
-				artifacts,
-				bridgeRequestPath,
-				bridgeResponsePath,
-				controlDbPath,
-				foregroundCompletionPath,
+				...paths,
 				params: { code: "pi.models.scoped()" },
 				runnerAddress: { agentId: jobId, sessionId: "main" },
 				runnerOptions: { command: runnerPath, inheritEnv: true },
 				runnerProcessIdentity: readProcessIdentity(runnerPid),
-				sessionPath,
 				startedAt: Date.now(),
-				supervisorProcessIdentity: readProcessIdentity(process.pid),
 				toolCallId: "test-pyrun-partial-response",
 			});
-			await waitFor(() => existsSync(bridgeRequestPath));
-			const { requestId } = JSON.parse(readFileSync(bridgeRequestPath, "utf8")) as { requestId: string };
+			await waitFor(() => existsSync(paths.bridgeRequestPath));
+			const { requestId } = JSON.parse(readFileSync(paths.bridgeRequestPath, "utf8")) as { requestId: string };
 			const response = `${JSON.stringify({ requestId, result: [{ id: "model-1" }] })}\n`;
 			const split = response.indexOf("model-1");
-			writeFileSync(bridgeResponsePath, response.slice(0, split));
+			writeFileSync(paths.bridgeResponsePath, response.slice(0, split));
 			// The runner polls every second; let it read the unfinished line before the rest arrives.
 			await new Promise((resolve) => setTimeout(resolve, 1_500));
-			writeFileSync(bridgeResponsePath, response.slice(split), { flag: "a" });
+			writeFileSync(paths.bridgeResponsePath, response.slice(split), { flag: "a" });
 			await waitFor(
 				() =>
 					existsSync(artifacts.outputPath) &&
@@ -248,54 +170,22 @@ describe("detached Pyrun runner", () => {
 			);
 			expect(readFileSync(artifacts.outputPath, "utf8")).toContain('"value":[{"id":"model-1"}]');
 		} finally {
-			writeFileSync(foregroundCompletionPath, "");
+			writeFileSync(paths.foregroundCompletionPath, "");
 		}
 	});
 
 	it.runIf(process.platform === "linux")(
 		"keeps one stable control database connection while evaluation remains active",
 		async () => {
-			const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-retained-db-"));
-			temporaryDirectories.push(root);
-			const runnerPath = join(root, "fake-pyrun.mjs");
-			writeFileSync(
-				runnerPath,
-				[
-					"#!/usr/bin/env node",
-					"import { createInterface } from 'node:readline';",
-					"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
-					"const request = JSON.parse((await lines.next()).value);",
-					"process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
-					"await new Promise((resolve) => setTimeout(resolve, 3_000));",
-					"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: 42 }) + '\\n');",
-				].join("\n"),
-			);
-			chmodSync(runnerPath, 0o700);
-			const controlDbPath = join(root, "control.sqlite");
-			const sessionPath = join(root, "session.jsonl");
-			const store = new MultiAgentStore();
-			const coordinator = new LifecycleCoordinator({
-				controlDbPath,
-				createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-				now: () => new Date().toISOString(),
-				processIdentity: testProcessIdentity("pyrun-retained-db"),
-				sessionPath,
-			});
-			const lifecycle = createDetachedJobLifecycleController({
-				artifactRoot: root,
-				controlDbPath,
-				coordinator,
-				ownerSessionId: "main",
-				sessionPath,
-				store,
-			});
+			const { controlDbPath, sessionPath, lifecycle, root, runnerPath } = createRunnerFixture("pyrun-retained-db", [
+				READ_REQUEST,
+				"process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
+				"await new Promise((resolve) => setTimeout(resolve, 3_000));",
+				"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: 42 }) + '\\n');",
+			]);
 			const jobId = lifecycle.allocateJobId("pyrun");
 			const artifacts = lifecycle.createArtifacts(jobId);
-			const activationPath = join(artifacts.directory, "activation.json");
-			const manifestPath = join(artifacts.directory, "launch.json");
-			const runnerPid = launchDetachedPyrunRunner(manifestPath, {
-				entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
-			});
+			const { activationPath, manifestPath, runnerPid } = launchRunner(artifacts);
 			await new Promise((resolve) => setTimeout(resolve, 100));
 			expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
 			const ownership = lifecycle.register({
@@ -309,19 +199,12 @@ describe("detached Pyrun runner", () => {
 			const supervisorAddress = { agentId: null, sessionId: "main" };
 			registerRuntimeMailboxListener(controlDbPath, supervisorAddress, process.pid, sessionPath);
 			writeDetachedPyrunLaunchManifest(manifestPath, {
-				activationPath,
-				artifacts,
-				bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
-				bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
-				controlDbPath,
-				foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
+				...manifestPaths(controlDbPath, sessionPath, artifacts),
 				params: { code: "6 * 7" },
 				runnerAddress: { agentId: jobId, sessionId: "main" },
 				runnerOptions: { command: runnerPath, inheritEnv: true },
 				runnerProcessIdentity: readProcessIdentity(runnerPid),
-				sessionPath,
 				startedAt: Date.now() - 1_000,
-				supervisorProcessIdentity: readProcessIdentity(process.pid),
 				toolCallId: "test-pyrun-retained-db",
 			});
 			writeDetachedPyrunActivation(activationPath, ownership.identity);
@@ -390,15 +273,10 @@ describe("detached Pyrun runner", () => {
 	it.runIf(process.platform === "linux")(
 		"kills the nested Pyrun runner and its child when a durable evaluation is cancelled",
 		async () => {
-			const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-cancel-tree-"));
-			temporaryDirectories.push(root);
-			const childPidPath = join(root, "child.pid");
-			const nestedRunnerPidPath = join(root, "nested-runner.pid");
-			const nestedRunnerPath = join(root, "nested-pyrun.mjs");
-			writeFileSync(
-				nestedRunnerPath,
+			const runnerAddress = { agentId: "pyrun_1", sessionId: "main" };
+			const fixture = createRunnerFixture(
+				"pyrun-cancel-tree",
 				[
-					"#!/usr/bin/env node",
 					"import { spawn } from 'node:child_process';",
 					"import { writeFileSync } from 'node:fs';",
 					"writeFileSync(process.env.NESTED_RUNNER_PID_PATH, String(process.pid));",
@@ -411,34 +289,14 @@ describe("detached Pyrun runner", () => {
 					"  process.stdout.write(JSON.stringify({ type: 'progress', message: 'child started' }) + '\\n');",
 					"});",
 					"setInterval(() => {}, 1000);",
-				].join("\n"),
+				],
+				() => runnerAddress.agentId,
 			);
-			chmodSync(nestedRunnerPath, 0o700);
-			const controlDbPath = join(root, "control.sqlite");
-			const sessionPath = join(root, "session.jsonl");
-			const runnerAddress = { agentId: "pyrun_1", sessionId: "main" };
-			const store = new MultiAgentStore();
-			const coordinator = new LifecycleCoordinator({
-				controlDbPath,
-				createAgentId: () => runnerAddress.agentId,
-				now: () => new Date().toISOString(),
-				processIdentity: testProcessIdentity("pyrun-cancel-tree"),
-				sessionPath,
-			});
-			const lifecycle = createDetachedJobLifecycleController({
-				artifactRoot: root,
-				controlDbPath,
-				coordinator,
-				ownerSessionId: runnerAddress.sessionId,
-				sessionPath,
-				store,
-			});
+			const { controlDbPath, coordinator, lifecycle, root, sessionPath } = fixture;
+			const childPidPath = join(root, "child.pid");
+			const nestedRunnerPidPath = join(root, "nested-runner.pid");
 			const artifacts = lifecycle.createArtifacts(runnerAddress.agentId);
-			const activationPath = join(artifacts.directory, "activation.json");
-			const manifestPath = join(artifacts.directory, "launch.json");
-			const durableRunnerPid = launchDetachedPyrunRunner(manifestPath, {
-				entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
-			});
+			const { activationPath, manifestPath, runnerPid: durableRunnerPid } = launchRunner(artifacts);
 			let childPid = 0;
 			let nestedRunnerPid = 0;
 			try {
@@ -452,24 +310,17 @@ describe("detached Pyrun runner", () => {
 					workerHandleId: String(durableRunnerPid),
 				});
 				writeDetachedPyrunLaunchManifest(manifestPath, {
-					activationPath,
-					artifacts,
-					bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
-					bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
-					controlDbPath,
-					foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
+					...manifestPaths(controlDbPath, sessionPath, artifacts),
 					params: { code: "run child forever" },
 					runnerAddress,
 					runnerOptions: {
-						args: [nestedRunnerPath],
+						args: [fixture.runnerPath],
 						command: process.execPath,
 						env: { CHILD_PID_PATH: childPidPath, NESTED_RUNNER_PID_PATH: nestedRunnerPidPath },
 						inheritEnv: true,
 					},
 					runnerProcessIdentity: durableRunnerIdentity,
-					sessionPath,
 					startedAt: Date.now(),
-					supervisorProcessIdentity: readProcessIdentity(process.pid),
 					toolCallId: "test-pyrun-cancel-tree",
 				});
 				writeDetachedPyrunActivation(activationPath, ownership.identity);
@@ -533,6 +384,60 @@ describe("detached Pyrun runner", () => {
 		expect(() => readDetachedPyrunLaunchManifest(manifestPath)).toThrow(/Invalid detached Pyrun launch manifest:/);
 	});
 });
+
+const RUNNER_ENTRY = join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts");
+/** Fake runner prologue: reads the evaluation request line into `request`; `lines` yields later stdin lines. */
+const READ_REQUEST = [
+	"import { createInterface } from 'node:readline';",
+	"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
+	"const request = JSON.parse((await lines.next()).value);",
+].join("\n");
+
+function createRunnerFixture(name: string, script: string[], createAgentId?: () => string) {
+	const root = mkdtempSync(join(tmpdir(), `pi-detached-${name}-`));
+	temporaryDirectories.push(root);
+	const runnerPath = join(root, "fake-pyrun.mjs");
+	writeFileSync(runnerPath, ["#!/usr/bin/env node", ...script].join("\n"));
+	chmodSync(runnerPath, 0o700);
+	const controlDbPath = join(root, "control.sqlite");
+	const sessionPath = join(root, "session.jsonl");
+	const store = new MultiAgentStore();
+	const coordinator = new LifecycleCoordinator({
+		controlDbPath,
+		createAgentId: createAgentId ?? (() => store.allocateAgentIdForLifecycleCoordinator()),
+		now: () => new Date().toISOString(),
+		processIdentity: testProcessIdentity(name),
+		sessionPath,
+	});
+	const lifecycle = createDetachedJobLifecycleController({
+		artifactRoot: root,
+		controlDbPath,
+		coordinator,
+		ownerSessionId: "main",
+		sessionPath,
+		store,
+	});
+	return { controlDbPath, coordinator, lifecycle, root, runnerPath, sessionPath };
+}
+
+function launchRunner(artifacts: DetachedJobArtifacts) {
+	const manifestPath = join(artifacts.directory, "launch.json");
+	const runnerPid = launchDetachedPyrunRunner(manifestPath, { entryPath: RUNNER_ENTRY });
+	return { activationPath: join(artifacts.directory, "activation.json"), manifestPath, runnerPid };
+}
+
+function manifestPaths(controlDbPath: string, sessionPath: string, artifacts: DetachedJobArtifacts) {
+	return {
+		activationPath: join(artifacts.directory, "activation.json"),
+		artifacts,
+		bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
+		bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
+		controlDbPath,
+		foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
+		sessionPath,
+		supervisorProcessIdentity: readProcessIdentity(process.pid),
+	};
+}
 
 async function requestAndAssertDetachedPyrunStatus(input: {
 	controlDbPath: string;
