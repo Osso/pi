@@ -69,8 +69,8 @@ function extractStatus(error: SdkErrorShape): number | undefined {
 /**
  * Probe the raw body reason, first usable hit wins, in SDK-field order:
  * `body` string (Mistral) → `error` parsed JSON body object (`openai` SDK's
- * `this.error`) → `$response.body` (Bedrock). Empty objects are treated as no
- * body so an empty parsed body does not surface as `"{}"`. The chosen body is
+ * `this.error`) → `$response.body` (Bedrock). Empty objects and class instances (response
+ * streams, SDK wrappers) are treated as no body. The chosen body is
  * truncated to the cap.
  */
 function extractBody(error: SdkErrorShape): string | undefined {
@@ -83,15 +83,24 @@ function extractBody(error: SdkErrorShape): string | undefined {
 
 function pickBodyText(error: SdkErrorShape): string | undefined {
 	if (typeof error.body === "string") return error.body;
-	if (isNonEmptyObject(error.error)) return safeJsonStringify(error.error);
+	if (isPlainNonEmptyObject(error.error)) return safeJsonStringify(error.error);
 	const responseBody = error.$response?.body;
 	if (typeof responseBody === "string") return responseBody;
-	if (isNonEmptyObject(responseBody)) return safeJsonStringify(responseBody);
+	if (isPlainNonEmptyObject(responseBody)) return safeJsonStringify(responseBody);
 	return undefined;
 }
 
-function isNonEmptyObject(value: unknown): boolean {
-	return typeof value === "object" && value !== null && Object.keys(value).length > 0;
+/**
+ * Only a plain object counts as a parsed HTTP body. SDK error fields can hold class
+ * instances instead (AWS SDK v3's `$response.body` is a response stream); serializing
+ * one yields internals such as `{"_events":...}` that would replace the real
+ * `error.message` in the composed display string.
+ */
+function isPlainNonEmptyObject(value: unknown): value is object {
+	if (typeof value !== "object" || value === null) return false;
+	const prototype = Object.getPrototypeOf(value);
+	if (prototype !== Object.prototype && prototype !== null) return false;
+	return Object.keys(value).length > 0;
 }
 
 /**
