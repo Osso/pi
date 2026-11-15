@@ -30,6 +30,36 @@ import {
 } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
+const echoText: AgentTool["execute"] = async (_toolCallId, params) => {
+	const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+	return { content: [{ type: "text", text }], details: { text } };
+};
+
+const failIfExecuted: AgentTool["execute"] = async () => {
+	throw new Error("tool should have been blocked");
+};
+
+/** The model calls echo("hello"), then answers with the tool result text. */
+function setEchoHelloResponses(harness: Harness): void {
+	harness.setResponses([
+		fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+		(context) => {
+			const toolResult = context.messages.find((message) => message.role === "toolResult");
+			return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+		},
+	]);
+}
+
+function createEchoTool(execute: AgentTool["execute"] = echoText): AgentTool {
+	return {
+		name: "echo",
+		label: "Echo",
+		description: "Echo text back",
+		parameters: Type.Object({ text: Type.String() }),
+		execute,
+	};
+}
+
 describe("AgentSession model and extension characterization", () => {
 	const harnesses: Harness[] = [];
 	const hookScriptDirs: string[] = [];
@@ -297,15 +327,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows extension tool_call handlers to block tool execution", async () => {
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
@@ -340,16 +362,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("dispatches in-place tool_call input rewrites to the tool and later handlers", async () => {
 		const observedInputs: Record<string, unknown>[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
@@ -422,15 +435,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("short-circuits later tool_call handlers after a block result", async () => {
 		let laterHandlerCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
@@ -444,13 +449,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -459,15 +458,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("blocks non-allowlisted tools before auto-approve can execute them", async () => {
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			settings: { approvalPolicy: "auto-approve", approvalPreset: "auto-approve" },
 			tools: [echoTool],
@@ -475,13 +466,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("/safe on");
 		await harness.session.prompt("hi");
@@ -506,13 +491,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("/safe on");
 		await harness.session.prompt("hi");
@@ -548,15 +527,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("blocks execution when a tool_call handler throws a non-Error value", async () => {
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
@@ -568,13 +539,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -585,30 +550,17 @@ describe("AgentSession model and extension characterization", () => {
 		const confirm = vi.fn(async () => false);
 		const select = vi.fn(async () => "Allow once");
 		let toolExecutions = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				toolExecutions++;
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool(async (toolCallId, params, signal) => {
+			toolExecutions++;
+			return echoText(toolCallId, params, signal);
+		});
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -623,17 +575,10 @@ describe("AgentSession model and extension characterization", () => {
 		const select = vi.fn(async () => "Allow always");
 		const spawnedPrompts: string[] = [];
 		let toolExecutions = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				toolExecutions++;
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool(async (toolCallId, params, signal) => {
+			toolExecutions++;
+			return echoText(toolCallId, params, signal);
+		});
 		const spawnAgentTool: AgentTool = {
 			name: "spawn_agent",
 			label: "Spawn Agent",
@@ -652,13 +597,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -691,13 +630,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -711,15 +644,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("preserves baseline tool_call review with bypassPermissions=false under on-request", async () => {
 		const hookEvents: Array<{ bypassPermissions?: boolean; toolName: string }> = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
@@ -736,13 +661,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -752,15 +671,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("blocks tool calls under never approval policy without running hook reviewers", async () => {
 		let hookCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			settings: { approvalPolicy: "never" },
 			tools: [echoTool],
@@ -774,13 +685,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -790,16 +695,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("runs tool calls under auto-approve policy without running hook reviewers", async () => {
 		let hookCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			settings: { approvalPolicy: "auto-approve" },
 			tools: [echoTool],
@@ -813,13 +709,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -909,30 +799,17 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("blocks tool calls rejected by the resident Supervisor", async () => {
 		let toolExecutions = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				toolExecutions++;
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool(async (toolCallId, params, signal) => {
+			toolExecutions++;
+			return echoText(toolCallId, params, signal);
+		});
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "llm denied" }),
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -1042,17 +919,10 @@ describe("AgentSession model and extension characterization", () => {
 	it("escalates Supervisor rejection to native approval for the ask preset", async () => {
 		let toolExecutions = 0;
 		const select = vi.fn(async () => "Allow once");
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				toolExecutions++;
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool(async (toolCallId, params, signal) => {
+			toolExecutions++;
+			return echoText(toolCallId, params, signal);
+		});
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
 			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "needs supervision" }),
@@ -1060,13 +930,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn(), select),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoHelloResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -1081,16 +945,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("sends bounded current-request evidence to the Supervisor without prior decision history", async () => {
 		const supervisorPayloads: Record<string, unknown>[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async (input) => {
@@ -1119,16 +974,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("does not load or mutate the retired approval-memory file", async () => {
 		let supervisorCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async () => {
@@ -1161,16 +1007,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {
 		let autoReviewerCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			settings: {
 				approvalPolicy: "on-request",
@@ -1201,15 +1038,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("skips the LLM-approved reviewer when never policy blocks explicitly", async () => {
 		let autoReviewerCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const harness = await createHarness({
 			settings: { approvalPolicy: "never", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
@@ -1235,16 +1064,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("skips the LLM-approved reviewer when auto-approve policy allows explicitly", async () => {
 		let autoReviewerCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			settings: { approvalPolicy: "auto-approve", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
@@ -1270,19 +1090,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("runs configured permission prompt tool before executing tool calls", async () => {
 		const approvalInputs: unknown[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return {
-					content: [{ type: "text", text }],
-					details: { text },
-				};
-			},
-		};
+		const echoTool = createEchoTool();
 		const approvalTool: AgentTool = {
 			name: "mcp__approval__prompt",
 			label: "Approval",
@@ -1337,19 +1145,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("uses a single loaded permission prompt protocol tool without explicit config", async () => {
 		const approvalInputs: unknown[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return {
-					content: [{ type: "text", text }],
-					details: { text },
-				};
-			},
-		};
+		const echoTool = createEchoTool();
 		const approvalTool: AgentTool = {
 			name: "mcp__project-approval__approval_prompt",
 			label: "Approval",
@@ -1396,19 +1192,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("falls back to native approval when permission prompt tool discovery is ambiguous", async () => {
 		const approvalInputs: unknown[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return {
-					content: [{ type: "text", text }],
-					details: { text },
-				};
-			},
-		};
+		const echoTool = createEchoTool();
 		const createApprovalTool = (name: string): AgentTool => ({
 			name,
 			label: "Approval",
@@ -1454,15 +1238,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("blocks tool calls denied by the configured permission prompt tool", async () => {
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				throw new Error("tool should have been blocked");
-			},
-		};
+		const echoTool = createEchoTool(failIfExecuted);
 		const approvalTool: AgentTool = {
 			name: "mcp__approval__prompt",
 			label: "Approval",
@@ -1501,19 +1277,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("skips configured permission prompt tool when persisted allow rule matches", async () => {
 		let approvalCalls = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return {
-					content: [{ type: "text", text }],
-					details: { text },
-				};
-			},
-		};
+		const echoTool = createEchoTool();
 		const approvalTool: AgentTool = {
 			name: "mcp__approval__prompt",
 			label: "Approval",
@@ -1567,16 +1331,7 @@ describe("AgentSession model and extension characterization", () => {
 			details: unknown;
 			isError: boolean;
 		}> = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
+		const echoTool = createEchoTool();
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
