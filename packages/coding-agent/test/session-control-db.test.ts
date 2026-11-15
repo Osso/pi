@@ -252,6 +252,22 @@ async function runWithoutWriterLockWait(
 	return completed;
 }
 
+/** Writes session metadata with fixed test defaults for the fields a test does not set. */
+function writeTestSessionMetadata(
+	controlDbPath: string,
+	metadata: Pick<Parameters<typeof writeSessionMetadata>[1], "sessionPath" | "id"> &
+		Partial<Parameters<typeof writeSessionMetadata>[1]>,
+): void {
+	writeSessionMetadata(controlDbPath, {
+		cwd: "/repo",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		modifiedAt: "2026-01-01T00:00:00.000Z",
+		messageCount: 1,
+		firstMessage: "first",
+		...metadata,
+	});
+}
+
 function claimTestRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
@@ -5059,14 +5075,11 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("allows concurrent multi-process readers and writers on control.sqlite", async () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 		});
 
 		const workerSource = `
@@ -5987,15 +6000,7 @@ Date.now = () => ${Date.now()};
 		const sessionPath = "/sessions/non-pi-owner.jsonl";
 		const sessionId = "non-pi-owner";
 		try {
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id: sessionId,
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				modifiedAt: "2026-01-01T00:00:00.000Z",
-				messageCount: 1,
-				firstMessage: "first",
-			});
+			writeTestSessionMetadata(controlDbPath, { sessionPath, id: sessionId });
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, child.pid, sessionPath);
 			bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 				id: "running",
@@ -6030,15 +6035,7 @@ Date.now = () => ${Date.now()};
 			[liveSessionPath, "live-supervisor"],
 			[missingHealthSessionPath, "missing-health-supervisor"],
 		] as const) {
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id,
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				modifiedAt: "2026-01-01T00:00:00.000Z",
-				messageCount: 1,
-				firstMessage: "first",
-			});
+			writeTestSessionMetadata(controlDbPath, { sessionPath, id });
 		}
 		writeSessionHealth(controlDbPath, {
 			...emptySessionHealth(inactiveSessionId, "2026-01-01T00:00:00.000Z"),
@@ -6126,15 +6123,7 @@ Date.now = () => ${Date.now()};
 	it("relocates the live listener path atomically with its multi-agent store", () => {
 		const oldSessionPath = "/sessions/live-old.jsonl";
 		const newSessionPath = "/sessions/live-new.jsonl";
-		writeSessionMetadata(controlDbPath, {
-			sessionPath: oldSessionPath,
-			id: "live-session",
-			cwd: "/repo",
-			createdAt: "2026-01-01T00:00:00.000Z",
-			modifiedAt: "2026-01-01T00:00:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
-		});
+		writeTestSessionMetadata(controlDbPath, { sessionPath: oldSessionPath, id: "live-session" });
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123, oldSessionPath);
 		bootstrapMultiAgentAgent(controlDbPath, oldSessionPath, "running", {
 			id: "running",
@@ -6157,15 +6146,7 @@ Date.now = () => ${Date.now()};
 		const assertedSessionPath = "/sessions/asserted.jsonl";
 		const unknownSessionPath = "/sessions/unknown.jsonl";
 		for (const sessionPath of [assertedSessionPath, unknownSessionPath]) {
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id: "live-session",
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				modifiedAt: "2026-01-01T00:00:00.000Z",
-				messageCount: 1,
-				firstMessage: "first",
-			});
+			writeTestSessionMetadata(controlDbPath, { sessionPath, id: "live-session" });
 		}
 		registerRuntimeMailboxListener(
 			controlDbPath,
@@ -6193,15 +6174,7 @@ Date.now = () => ${Date.now()};
 		const assertedSessionPath = "/sessions/asserted.jsonl";
 		const unknownSessionPath = "/sessions/unknown.jsonl";
 		for (const sessionPath of [assertedSessionPath, unknownSessionPath]) {
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id: "live-session",
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				modifiedAt: "2026-01-01T00:00:00.000Z",
-				messageCount: 1,
-				firstMessage: "first",
-			});
+			writeTestSessionMetadata(controlDbPath, { sessionPath, id: "live-session" });
 		}
 		registerRuntimeMailboxListener(
 			controlDbPath,
@@ -6235,15 +6208,7 @@ Date.now = () => ${Date.now()};
 	it("explains how to recover when another live runtime owns the session", () => {
 		const sessionPath = "/sessions/concurrent-runtime.jsonl";
 		const recipient = { agentId: null, sessionId: "concurrent-runtime-session" };
-		writeSessionMetadata(controlDbPath, {
-			sessionPath,
-			id: recipient.sessionId,
-			cwd: "/repo",
-			createdAt: "2026-01-01T00:00:00.000Z",
-			modifiedAt: "2026-01-01T00:00:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
-		});
+		writeTestSessionMetadata(controlDbPath, { sessionPath, id: recipient.sessionId });
 		registerRuntimeMailboxListener(controlDbPath, recipient, 111, sessionPath, {
 			runtimeInstanceId: "runtime-a",
 		});
@@ -6277,15 +6242,7 @@ Date.now = () => ${Date.now()};
 
 	it("advances generation without mutating lifecycle rows when a new runtime reuses the same pid", () => {
 		const sessionPath = "/sessions/reused-pid.jsonl";
-		writeSessionMetadata(controlDbPath, {
-			sessionPath,
-			id: "reused-pid-session",
-			cwd: "/repo",
-			createdAt: "2026-01-01T00:00:00.000Z",
-			modifiedAt: "2026-01-01T00:00:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
-		});
+		writeTestSessionMetadata(controlDbPath, { sessionPath, id: "reused-pid-session" });
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: "reused-pid-session" },
@@ -6430,14 +6387,10 @@ Date.now = () => ${Date.now()};
 			["session-a", "Alpha"],
 			["session-b", "Beta"],
 		] as const) {
-			writeSessionMetadata(controlDbPath, {
+			writeTestSessionMetadata(controlDbPath, {
 				sessionPath: `/tmp/${id}.jsonl`,
 				id,
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
 				modifiedAt: "2026-01-01T00:10:00.000Z",
-				messageCount: 1,
-				firstMessage: "first",
 			});
 			writeSessionName(controlDbPath, `/tmp/${id}.jsonl`, name);
 		}
@@ -6463,18 +6416,16 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("stores and lists session metadata ordered by modified time", () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
 			name: "Alpha",
-			parentSessionPath: undefined,
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 2,
 			firstMessage: "first alpha",
 		});
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-b.jsonl",
 			id: "session-b",
 			cwd: "/repo/b",
@@ -6482,7 +6433,6 @@ Date.now = () => ${Date.now()};
 			parentSessionPath: "/tmp/session-a.jsonl",
 			createdAt: "2026-01-02T00:00:00.000Z",
 			modifiedAt: "2026-01-02T00:05:00.000Z",
-			messageCount: 1,
 			firstMessage: "first beta",
 		});
 
@@ -6516,14 +6466,11 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("archives and restores session metadata without changing transcript data", () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 		});
 
 		archiveSession(controlDbPath, "/tmp/session-a.jsonl");
@@ -6601,23 +6548,18 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("updates existing session metadata without changing its session path or name", () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
 			name: "Original",
-			parentSessionPath: undefined,
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 		});
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a-renamed",
 			cwd: "/repo/a2",
 			parentSessionPath: "/tmp/parent.jsonl",
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:20:00.000Z",
 			messageCount: 3,
 			firstMessage: "updated first",
@@ -6658,16 +6600,12 @@ Date.now = () => ${Date.now()};
 			db.close();
 		}
 
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
 			name: undefined,
-			parentSessionPath: undefined,
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 			isSubagent: true,
 			subagentName: "researcher",
 		});
@@ -6725,16 +6663,13 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("stores goal and subagent metadata in the session metadata row", () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
 			name: "Alpha",
 			parentSessionPath: "/tmp/parent.jsonl",
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 			isSubagent: true,
 			subagentName: "researcher",
 		});
@@ -6778,40 +6713,31 @@ Date.now = () => ${Date.now()};
 	});
 
 	it("preserves dedicated session names across generic metadata snapshots", () => {
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			parentSessionPath: undefined,
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 1,
-			firstMessage: "first",
 		});
 
 		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			parentSessionPath: undefined,
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:20:00.000Z",
 			messageCount: 2,
-			firstMessage: "first",
 		});
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBe("Alpha");
 
 		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", undefined);
-		writeSessionMetadata(controlDbPath, {
+		writeTestSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:30:00.000Z",
 			messageCount: 3,
-			firstMessage: "first",
 		});
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBeUndefined();
