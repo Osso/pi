@@ -169,6 +169,32 @@ type WriterLockRun = { ready: WorkerStatusMessage; completed: WorkerStatusMessag
  * Sends `request` to a ready worker while another connection holds the writer lock, then releases it.
  * `blockedBeforeRelease` is set when the worker did not reach `expectedType` within a second under the lock.
  */
+/** Worker importing `names` from the control DB module; it reports ready and runs `body` on its first message. */
+function controlDbWorker(
+	names: string,
+	body: string,
+	workerData: Record<string, unknown>,
+	errorType = "error",
+): Worker {
+	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+	return new Worker(
+		`
+Date.now = () => ${Date.now()};
+import { parentPort, workerData } from "node:worker_threads";
+import { ${names} } from ${JSON.stringify(moduleUrl)};
+parentPort?.postMessage({ type: "ready" });
+parentPort?.once("message", () => {
+	try {
+${body}
+	} catch (error) {
+		parentPort?.postMessage({ error: String(error), type: ${JSON.stringify(errorType)} });
+	}
+});
+`,
+		{ eval: true, execArgv: ["--experimental-strip-types"], workerData },
+	);
+}
+
 async function runWorkerUnderWriterLock(
 	worker: Worker,
 	controlDbPath: string,
@@ -653,24 +679,13 @@ describe("session control DB", () => {
 
 	it("returns without a writer lock when no Architect request is claimable", async () => {
 		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"claimPendingArchitectRequests",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { claimPendingArchitectRequests } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const claimed = claimPendingArchitectRequests(workerData.controlDbPath, "architect-worker");
-						parentPort?.postMessage({ count: claimed.length, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const claimed = claimPendingArchitectRequests(workerData.controlDbPath, "architect-worker");
+			parentPort?.postMessage({ count: claimed.length, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -859,33 +874,19 @@ Date.now = () => ${Date.now()};
 			.get(sessionPath, messageId) as { data: string; updated_at: string };
 		beforeDb.close();
 
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"upsertMultiAgentMailboxMessage",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { upsertMultiAgentMailboxMessage } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						upsertMultiAgentMailboxMessage(
-							workerData.controlDbPath,
-							workerData.sessionPath,
-							workerData.messageId,
-							workerData.conflicting,
-						);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			upsertMultiAgentMailboxMessage(
+				workerData.controlDbPath,
+				workerData.sessionPath,
+				workerData.messageId,
+				workerData.conflicting,
+			);
+			parentPort?.postMessage({ type: "completed" });
 			`,
-			{
-				eval: true,
-				execArgv: ["--experimental-strip-types"],
-				workerData: { conflicting, controlDbPath, messageId, sessionPath },
-			},
+			{ conflicting, controlDbPath, messageId, sessionPath },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -1302,24 +1303,14 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		};
 		const input = { agent, nowIso: agent.updatedAt, sessionPath };
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"createFailedMultiAgentChild",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { createFailedMultiAgentChild } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						createFailedMultiAgentChild(workerData.controlDbPath, workerData.input);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			createFailedMultiAgentChild(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage({ type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+			{ controlDbPath, input },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -1371,28 +1362,14 @@ Date.now = () => ${Date.now()};
 		expect(ownership.ok).toBe(true);
 		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
 		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"bootstrapMultiAgentAgent",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { bootstrapMultiAgentAgent } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						bootstrapMultiAgentAgent(workerData.controlDbPath, workerData.sessionPath, workerData.agentId, workerData.agent);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			bootstrapMultiAgentAgent(workerData.controlDbPath, workerData.sessionPath, workerData.agentId, workerData.agent);
+			parentPort?.postMessage({ type: "completed" });
 			`,
-			{
-				eval: true,
-				execArgv: ["--experimental-strip-types"],
-				workerData: { agent, agentId, controlDbPath, sessionPath },
-			},
+			{ agent, agentId, controlDbPath, sessionPath },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -1427,24 +1404,14 @@ Date.now = () => ${Date.now()};
 			nowIso: "2026-08-09T00:00:01.000Z",
 			sessionPath,
 		};
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"createMultiAgentAttachment",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { createMultiAgentAttachment } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						createMultiAgentAttachment(workerData.controlDbPath, workerData.input);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			createMultiAgentAttachment(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage({ type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+			{ controlDbPath, input },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -1546,24 +1513,14 @@ Date.now = () => ${Date.now()};
 			processIdentity: testProcessIdentity("invalid-child-runtime"),
 			sessionPath,
 		};
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"createMultiAgentChildWithRuntimeOwnership",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { createMultiAgentChildWithRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						createMultiAgentChildWithRuntimeOwnership(workerData.controlDbPath, workerData.input);
-						parentPort?.postMessage({ ok: true, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			createMultiAgentChildWithRuntimeOwnership(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage({ ok: true, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+			{ controlDbPath, input },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -2705,40 +2662,25 @@ Date.now = () => ${Date.now()};
 			sessionPath,
 		});
 		const before = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"updateMultiAgentAgentCurrentActivity",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { updateMultiAgentAgentCurrentActivity } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const result = updateMultiAgentAgentCurrentActivity(
-							workerData.controlDbPath,
-							workerData.sessionPath,
-							workerData.agentId,
-							{ phase: "thinking", startedAt: workerData.updatedAt },
-							workerData.updatedAt,
-							workerData.ownership,
-						);
-						parentPort?.postMessage({ type: result === undefined ? "undefined" : "defined" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const result = updateMultiAgentAgentCurrentActivity(
+				workerData.controlDbPath,
+				workerData.sessionPath,
+				workerData.agentId,
+				{ phase: "thinking", startedAt: workerData.updatedAt },
+				workerData.updatedAt,
+				workerData.ownership,
+			);
+			parentPort?.postMessage({ type: result === undefined ? "undefined" : "defined" });
 			`,
 			{
-				eval: true,
-				execArgv: ["--experimental-strip-types"],
-				workerData: {
-					agentId,
-					controlDbPath,
-					ownership: { ownerSessionId: "supervisor", processIdentity: suppliedIdentity },
-					sessionPath,
-					updatedAt: "2026-08-09T00:00:01.000Z",
-				},
+				agentId,
+				controlDbPath,
+				ownership: { ownerSessionId: "supervisor", processIdentity: suppliedIdentity },
+				sessionPath,
+				updatedAt: "2026-08-09T00:00:01.000Z",
 			},
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
@@ -3106,28 +3048,17 @@ Date.now = () => ${Date.now()};
 			updatedAt: "2026-07-11T21:30:00.000Z",
 		};
 
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"commitMultiAgentDetachMark",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { commitMultiAgentDetachMark } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const result = commitMultiAgentDetachMark(workerData.controlDbPath, workerData.input);
-						parentPort?.postMessage({
-							error: result.ok ? undefined : result.error,
-							ok: result.ok,
-							type: "completed",
-						});
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const result = commitMultiAgentDetachMark(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage({
+				error: result.ok ? undefined : result.error,
+				ok: result.ok,
+				type: "completed",
+			});
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+			{ controlDbPath, input },
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -3426,7 +3357,6 @@ Date.now = () => ${Date.now()};
 		);
 		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
 		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const recoveryInput = {
 			expectedOwner: {
 				agentId,
@@ -3437,23 +3367,13 @@ Date.now = () => ${Date.now()};
 			nowIso: "2026-08-09T00:00:01.000Z",
 			supervisor: { processIdentity, sessionId: supervisorSessionId },
 		};
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"recoverDeadMultiAgentRuntime",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { recoverDeadMultiAgentRuntime } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const result = recoverDeadMultiAgentRuntime(workerData.controlDbPath, workerData.recoveryInput);
-						parentPort?.postMessage({ ...result, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const result = recoverDeadMultiAgentRuntime(workerData.controlDbPath, workerData.recoveryInput);
+			parentPort?.postMessage({ ...result, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recoveryInput } },
+			{ controlDbPath, recoveryInput },
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -3555,24 +3475,13 @@ Date.now = () => ${Date.now()};
 			sessionPath,
 			supervisor: { processIdentity, sessionId: supervisorSessionId },
 		};
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"acquireAttachedRuntimeOwnership",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { acquireAttachedRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const result = acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input);
-						parentPort?.postMessage({ ok: result.ok, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const result = acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage({ ok: result.ok, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+			{ controlDbPath, input },
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -3842,24 +3751,14 @@ Date.now = () => ${Date.now()};
 		} finally {
 			db.close();
 		}
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"readMultiAgentState",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { readMultiAgentState } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
-						parentPort?.postMessage({ ok: true, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "completed" });
-					}
-				});
+			readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
+			parentPort?.postMessage({ ok: true, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
+			{ controlDbPath, sessionPath },
+			"completed",
 		);
 		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -5363,24 +5262,13 @@ Date.now = () => ${Date.now()};
 
 	it("returns without a writer lock when no incoming message is pending", async () => {
 		expect(claimLatestIncomingMessage(controlDbPath, "session-a")).toBeUndefined();
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"claimLatestIncomingMessage",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { claimLatestIncomingMessage } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const claimed = claimLatestIncomingMessage(workerData.controlDbPath, "session-a");
-						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const claimed = claimLatestIncomingMessage(workerData.controlDbPath, "session-a");
+			parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
@@ -5417,24 +5305,13 @@ Date.now = () => ${Date.now()};
 
 	it("returns without a writer lock when no Supervisor request is pending", async () => {
 		expect(claimNextSupervisorRequest(controlDbPath, "initial-claim")).toBeUndefined();
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"claimNextSupervisorRequest",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { claimNextSupervisorRequest } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const claimed = claimNextSupervisorRequest(workerData.controlDbPath, "worker-claim");
-						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const claimed = claimNextSupervisorRequest(workerData.controlDbPath, "worker-claim");
+			parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
@@ -5460,24 +5337,13 @@ Date.now = () => ${Date.now()};
 
 	it("returns without a writer lock when no Supervisor request needs recovery", async () => {
 		recoverSupervisorRequests(controlDbPath);
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"recoverSupervisorRequests",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { recoverSupervisorRequests } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						recoverSupervisorRequests(workerData.controlDbPath);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			recoverSupervisorRequests(workerData.controlDbPath);
+			parentPort?.postMessage({ type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
@@ -5504,28 +5370,17 @@ Date.now = () => ${Date.now()};
 		expect(
 			claimMultiAgentTerminalOutbox(controlDbPath, "initial-terminal-claim", "2026-08-09T00:00:00.000Z"),
 		).toBeUndefined();
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"claimMultiAgentTerminalOutbox",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { claimMultiAgentTerminalOutbox } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const claimed = claimMultiAgentTerminalOutbox(
-							workerData.controlDbPath,
-							"worker-terminal-claim",
-							"2026-08-09T00:00:01.000Z",
-						);
-						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const claimed = claimMultiAgentTerminalOutbox(
+				workerData.controlDbPath,
+				"worker-terminal-claim",
+				"2026-08-09T00:00:01.000Z",
+			);
+			parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
@@ -5551,24 +5406,13 @@ Date.now = () => ${Date.now()};
 
 	it("reads existing prompt history without acquiring the writer lock", async () => {
 		recordPromptHistoryEntry(controlDbPath, "persisted prompt");
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"readOrMigratePromptHistory",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["legacy prompt"]);
-						parentPort?.postMessage({ entries, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["legacy prompt"]);
+			parentPort?.postMessage({ entries, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+			{ controlDbPath },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
@@ -5911,24 +5755,13 @@ Date.now = () => ${Date.now()};
 			toAgentId: "main",
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"claimRuntimeMailboxMessages",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { claimRuntimeMailboxMessages } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
-						parentPort?.postMessage({ count: claimed.length, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+			parentPort?.postMessage({ count: claimed.length, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
+			{ controlDbPath, recipient },
 		);
 		const { completed: result, blockedBeforeRelease } = await runWorkerUnderWriterLock(
 			worker,
@@ -5958,42 +5791,27 @@ Date.now = () => ${Date.now()};
 			checkStatus: "ok",
 			pid: process.pid,
 		});
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"registerRuntimeMailboxListener",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						registerRuntimeMailboxListener(
-							workerData.controlDbPath,
-							workerData.recipient,
-							process.pid,
-							workerData.sessionPath,
-							{
-								isRuntimeProcessAlive: (pid: number) => {
-									parentPort?.postMessage({ pid, type: "callback" });
-									return false;
-								},
-							},
-						);
-						parentPort?.postMessage({ type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			registerRuntimeMailboxListener(
+				workerData.controlDbPath,
+				workerData.recipient,
+				process.pid,
+				workerData.sessionPath,
+				{
+					isRuntimeProcessAlive: (pid: number) => {
+						parentPort?.postMessage({ pid, type: "callback" });
+						return false;
+					},
+				},
+			);
+			parentPort?.postMessage({ type: "completed" });
 			`,
 			{
-				eval: true,
-				execArgv: ["--experimental-strip-types"],
-				workerData: {
-					controlDbPath,
-					recipient: { agentId: null, sessionId },
-					sessionPath: "/sessions/listener-contention.jsonl",
-				},
+				controlDbPath,
+				recipient: { agentId: null, sessionId },
+				sessionPath: "/sessions/listener-contention.jsonl",
 			},
 		);
 		const holder = createSqliteDatabase(controlDbPath);
@@ -6946,24 +6764,13 @@ Date.now = () => ${Date.now()};
 	it("returns without a writer lock when no session is eligible for archival", async () => {
 		const cutoff = "2026-01-02T00:00:00.000Z";
 		expect(archiveSessionsOlderThan(controlDbPath, new Date(cutoff))).toEqual([]);
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const worker = new Worker(
+		const worker = controlDbWorker(
+			"archiveSessionsOlderThan",
 			`
-Date.now = () => ${Date.now()};
-				import { parentPort, workerData } from "node:worker_threads";
-				import { archiveSessionsOlderThan } from ${JSON.stringify(moduleUrl)};
-
-				parentPort?.postMessage({ type: "ready" });
-				parentPort?.once("message", () => {
-					try {
-						const paths = archiveSessionsOlderThan(workerData.controlDbPath, new Date(workerData.cutoff));
-						parentPort?.postMessage({ paths, type: "completed" });
-					} catch (error) {
-						parentPort?.postMessage({ error: String(error), type: "error" });
-					}
-				});
+			const paths = archiveSessionsOlderThan(workerData.controlDbPath, new Date(workerData.cutoff));
+			parentPort?.postMessage({ paths, type: "completed" });
 			`,
-			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, cutoff } },
+			{ controlDbPath, cutoff },
 		);
 		const holder = createSqliteDatabase(controlDbPath);
 		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
