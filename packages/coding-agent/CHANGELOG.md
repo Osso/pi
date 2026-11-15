@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed bare exact `--model` IDs shared by multiple providers choosing the first catalog entry instead of the sole authenticated provider or a clear ambiguity error ([#7327](https://github.com/earendil-works/pi/issues/7327))
 - Fixed `/run-plan /absolute/path/PLAN.md` reporting the plan file as missing
 - Fixed `/run-plan` reporting no unchecked items when the plan had a blank `- [ ]` line before real items
 - Fixed `/run-plan` failing after every turn when its plan file was deleted, and later running a new `PLAN.md` without being asked; a missing plan file now stops the active run
