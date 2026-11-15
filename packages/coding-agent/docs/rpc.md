@@ -478,6 +478,8 @@ Execute a shell command and add output to conversation context.
 
 A missing or non-string `command` is rejected with `command must be a string`; nothing runs.
 
+The command goes through the extension `user_bash` event like `!` commands in interactive mode: a handler can supply custom `operations` or a complete `result`. If a handler throws or returns an invalid result, the request fails with that error and the command does not run.
+
 Response:
 ```json
 {

@@ -34,6 +34,7 @@ import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+import { runRpcBash } from "./rpc-bash.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -590,10 +591,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 			case "bash": {
 				if (typeof command.command !== "string") return error(id, "bash", "command must be a string");
-				const result = await session.executeBash(command.command, undefined, {
-					excludeFromContext: command.excludeFromContext,
-				});
-				return success(id, "bash", result);
+				return success(id, "bash", await runRpcBash(session, command.command, command.excludeFromContext));
 			}
 
 			case "abort_bash": {

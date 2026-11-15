@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed the RPC `bash` command bypassing `user_bash` extension handlers, so sandbox routing such as the bwrap extension did not apply to RPC clients ([#7214](https://github.com/earendil-works/pi-mono/pull/7214))
 - Fixed `!`/`!!` commands falling back to local execution when a `user_bash` handler (such as a sandbox router) threw or returned an invalid result; they now fail closed and report the error ([#9068](https://github.com/earendil-works/pi-mono/issues/9068))
 - Fixed concurrent user bash commands: cancelling now aborts every running command, and `isBashRunning` stays true until the last one finishes ([#7103](https://github.com/earendil-works/pi-mono/pull/7103))
 - Fixed duplicate transcript messages when a startup session rebind overlapped a session switch: the stale rebind subscribed to the agent a second time ([#7110](https://github.com/earendil-works/pi-mono/pull/7110))
