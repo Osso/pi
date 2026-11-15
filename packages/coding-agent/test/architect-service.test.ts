@@ -5,7 +5,6 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import {
 	ARCHITECT_EXCLUDED_TOOL_NAMES,
-	ARCHITECT_RULES_SCOPE,
 	ArchitectConsolePromptQueue,
 	blockArchitectRestrictedTool,
 	completeSentArchitectRequest,
@@ -233,40 +232,6 @@ describe("resident architect service", () => {
 			"The bounded sessions list already represents main-listener and fresh-health filtering.",
 		);
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Use session membership, never goal fields, as liveness evidence.");
-	});
-
-	it("loads Architect rules without supervisor rules", async () => {
-		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-rules-"));
-		const architectSentinel = "ARCHITECT_RULE_SENTINEL";
-		const supervisorSentinel = "SUPERVISOR_RULE_SENTINEL";
-		try {
-			const architectRulesDir = join(agentDir, "rules", "architect");
-			const mainRulesDir = join(agentDir, "rules", "main");
-			mkdirSync(architectRulesDir, { recursive: true });
-			mkdirSync(mainRulesDir, { recursive: true });
-			writeFileSync(join(architectRulesDir, "sentinel.md"), architectSentinel);
-			writeFileSync(join(mainRulesDir, "sentinel.md"), supervisorSentinel);
-			const model = getModel("anthropic", "claude-sonnet-4-5");
-			if (!model) throw new Error("Expected test model");
-
-			const { session } = await createAgentSession({
-				agentDir,
-				cwd: agentDir,
-				model,
-				multiAgentRuntimeRole: "observer",
-				rulesScope: ARCHITECT_RULES_SCOPE,
-				sessionManager: SessionManager.inMemory(agentDir),
-				settingsManager: createArchitectSettingsManager(),
-			});
-			try {
-				expect(session.systemPrompt).toContain(`<user_rules>\n${architectSentinel}\n</user_rules>`);
-				expect(session.systemPrompt).not.toContain(supervisorSentinel);
-			} finally {
-				session.dispose();
-			}
-		} finally {
-			rmSync(agentDir, { force: true, recursive: true });
-		}
 	});
 
 	it("keeps ordinary observer sessions shared-only", async () => {

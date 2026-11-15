@@ -39,8 +39,9 @@ import {
 	type ProviderDiagnosticContext,
 	type ProviderDiagnosticModel,
 } from "./provider-diagnostics.ts";
-import type { ResourceLoader, RulesScope } from "./resource-loader.ts";
+import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
+import { mainSessionRulesScope, type RulesScope } from "./rules-scope.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import { time } from "./timings.ts";
@@ -136,10 +137,14 @@ export interface CreateAgentSessionOptions {
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
 }
 
-function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
-	if (role === "child") return "child";
+function rulesScopeForRuntime(
+	role: MultiAgentRuntimeRole | undefined,
+	settingsManager: SettingsManager,
+	sessionManager: SessionManager,
+): RulesScope {
+	if (role === "child") return "sub-agent";
 	if (role === "observer") return "shared";
-	return "main";
+	return mainSessionRulesScope(settingsManager, sessionManager);
 }
 
 /** Result from createAgentSession */
@@ -268,7 +273,8 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 			agentDir,
 			settingsManager,
 			extensionFactories: options.extensionFactories,
-			rulesScope: options.rulesScope ?? rulesScopeForRuntimeRole(options.multiAgentRuntimeRole),
+			rulesScope:
+				options.rulesScope ?? rulesScopeForRuntime(options.multiAgentRuntimeRole, settingsManager, sessionManager),
 		});
 		await resourceLoader.reload();
 		time("resourceLoader.reload");

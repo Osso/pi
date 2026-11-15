@@ -31,7 +31,7 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 
 ### Advice
 
-- [x] Load shared and `rules/architect/*.md` user rules through an explicit rule-scope override while retaining the Architect's `observer` execution role; ordinary observers remain shared-only.
+- [x] Load only shared top-level user rules, like every `observer` runtime.
 - [x] Keep `ask_architect` out of the built-in tool registry and default active tool list while the Architect is disabled; the retained Architect runtime still excludes `ask_architect` and `contact_parent` when re-enabled.
 - [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block global `channel_post` fanout.
 - [x] Frame findings as advisory hypotheses for the receiving session to verify, accept, reject, or defer; never issue commands, execution gates, stop conditions, operational sequencing, mandatory next steps, or reinterpret goal completion.
@@ -55,7 +55,7 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy, authoritative-spec discovery, and structured observation prompt.
 - `packages/coding-agent/src/architect/project-spec.ts` — Architect-only, canonical-path-constrained reader for Markdown files under the originating project's `docs/specs/` tree.
-- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the `architect` user-rule scope, observer execution role, read-only bwrap profile, sandboxed Pyrun runner, and resident console server.
+- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the observer execution role (shared user rules only), read-only bwrap profile, sandboxed Pyrun runner, and resident console server.
 - `packages/coding-agent/src/core/resident-console-transport.ts` — owner-only attach protocol, branch snapshot, live events, and single-client prompt transport.
 - `packages/coding-agent/src/cli/resident-console-command.ts` — `--architect` console client and optional initial prompt handling.
 - `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.

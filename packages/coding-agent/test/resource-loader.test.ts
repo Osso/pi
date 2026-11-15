@@ -751,46 +751,28 @@ Content`,
 			expect(loadRulesFromDir(rulesDir)).toBe("B rule.\n\na rule.");
 		});
 
-		it("should load shared and main rules for main sessions", async () => {
+		it.each([
+			{ scope: undefined, expected: "Shared rule.\n\nMain rule." },
+			{ scope: "main", expected: "Shared rule.\n\nMain rule." },
+			{ scope: "sub-agent", expected: "Shared rule.\n\nSub-agent rule." },
+			{ scope: "supervisor", expected: "Shared rule.\n\nMain rule.\n\nSupervisor rule." },
+			{ scope: "shared", expected: "Shared rule." },
+		] as const)("should load the $scope rules scope", async ({ scope, expected }) => {
 			const rulesDir = join(agentDir, "rules");
-			mkdirSync(join(rulesDir, "main"), { recursive: true });
-			mkdirSync(join(rulesDir, "child"), { recursive: true });
+			for (const [dir, rule] of [
+				["main", "Main rule."],
+				["sub-agent", "Sub-agent rule."],
+				["supervisor", "Supervisor rule."],
+			]) {
+				mkdirSync(join(rulesDir, dir), { recursive: true });
+				writeFileSync(join(rulesDir, dir, "rule.md"), rule);
+			}
 			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
-			writeFileSync(join(rulesDir, "main", "coordination.md"), "Main rule.");
-			writeFileSync(join(rulesDir, "child", "worker.md"), "Child rule.");
 
-			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			const loader = new DefaultResourceLoader({ cwd, agentDir, rulesScope: scope });
 			await loader.reload();
 
-			expect(loader.getRulesContent()).toBe("Shared rule.\n\nMain rule.");
-		});
-
-		it("should load shared and child rules for child sessions", async () => {
-			const rulesDir = join(agentDir, "rules");
-			mkdirSync(join(rulesDir, "main"), { recursive: true });
-			mkdirSync(join(rulesDir, "child"), { recursive: true });
-			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
-			writeFileSync(join(rulesDir, "main", "coordination.md"), "Main rule.");
-			writeFileSync(join(rulesDir, "child", "worker.md"), "Child rule.");
-
-			const loader = new DefaultResourceLoader({ cwd, agentDir, rulesScope: "child" });
-			await loader.reload();
-
-			expect(loader.getRulesContent()).toBe("Shared rule.\n\nChild rule.");
-		});
-
-		it("should load shared and Architect rules without main rules", async () => {
-			const rulesDir = join(agentDir, "rules");
-			mkdirSync(join(rulesDir, "main"), { recursive: true });
-			mkdirSync(join(rulesDir, "architect"), { recursive: true });
-			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
-			writeFileSync(join(rulesDir, "main", "coordination.md"), "Main rule.");
-			writeFileSync(join(rulesDir, "architect", "review.md"), "Architect rule.");
-
-			const loader = new DefaultResourceLoader({ cwd, agentDir, rulesScope: "architect" });
-			await loader.reload();
-
-			expect(loader.getRulesContent()).toBe("Shared rule.\n\nArchitect rule.");
+			expect(loader.getRulesContent()).toBe(expected);
 		});
 
 		it("should return no rules content when the rules directory is missing", () => {

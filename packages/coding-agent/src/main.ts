@@ -97,6 +97,7 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
+import { mainSessionRulesScope } from "./core/rules-scope.ts";
 import {
 	type CreateAgentSessionOptions,
 	createAgentSession,
@@ -1194,6 +1195,7 @@ export async function main(args: string[], options?: MainOptions) {
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
 				extensionFactories,
+				rulesScope: mainSessionRulesScope(runtimeSettingsManager, sessionManager),
 			},
 		});
 		const { settingsManager, modelRegistry, resourceLoader } = services;
@@ -1261,11 +1263,7 @@ export async function main(args: string[], options?: MainOptions) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
 		}
 
-		return {
-			...created,
-			services,
-			diagnostics,
-		};
+		return { ...created, services, diagnostics };
 	};
 	time("createRuntime");
 	const runtime = await createAgentSessionRuntime(createRuntime, {

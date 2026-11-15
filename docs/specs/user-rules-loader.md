@@ -16,9 +16,9 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.
 - [x] Loads top-level `rules/*.md` for every runtime.
 - [x] Loads `rules/main/*.md` for standalone and orchestrator runtimes.
-- [x] Loads `rules/child/*.md` only for child runtimes.
-- [x] Loads `rules/architect/*.md` for the resident Architect through an explicit scope override.
-- [x] Observer runtimes load only shared top-level rules unless a caller explicitly overrides rule discovery; the resident Architect uses the `architect` scope while retaining its observer execution role.
+- [x] The configured Supervisor session (`supervisor.sessionId` in settings equals the session ID) loads `rules/main/*.md` and then `rules/supervisor/*.md`. A sub-agent never loads Supervisor rules, even when it shares that session ID.
+- [x] Loads `rules/sub-agent/*.md` only for sub-agent (child) runtimes.
+- [x] Observer runtimes, including the resident Architect, load only shared top-level rules unless a caller explicitly overrides rule discovery.
 - [x] Public SDK callers may set `createAgentSession({ rulesScope })`; this optional override takes precedence over the runtime-role-derived default.
 - [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
@@ -50,17 +50,20 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/resource-loader.ts` — Loads shared rules plus the selected `main`, `child`, or `architect` scope.
+- `packages/coding-agent/src/core/rules-scope.ts` — Rule scopes, the subdirectories each loads, and Supervisor-session detection.
+- `packages/coding-agent/src/core/resource-loader.ts` — Loads shared rules plus the selected scope's subdirectories.
 - `packages/coding-agent/src/core/sdk.ts` — Maps runtime roles to rule scopes by default and accepts an explicit rule-scope override.
+- `packages/coding-agent/src/main.ts` — Selects the main or Supervisor scope for each CLI runtime, including after session switches and restarts.
 - `packages/coding-agent/src/core/system-prompt.ts` — Injects loaded rules as a `<user_rules>` block.
 - `packages/coding-agent/src/core/agent-session-services.ts` — Passes `rulesContent` from `ResourceLoader` into `buildSystemPrompt` options.
-- `packages/coding-agent/src/architect/main.ts` — Selects `architect` rules without changing the Architect's observer execution role.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/resource-loader.test.ts` — hierarchy-wide AGENTS precedence and CLAUDE fallback, sorted global rules, scoped loading, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
 - `packages/coding-agent/test/system-prompt.test.ts` — `<user_rules>` injection after project context and no empty tags when no rules content exists.
-- `packages/coding-agent/test/architect-service.test.ts` — resident Architect `architect`-scope override and ordinary observer shared-only behavior.
+- `packages/coding-agent/test/rules-scope.test.ts` — Supervisor, ordinary main, and sub-agent scope selection in `createAgentSession`.
+- `packages/coding-agent/test/suite/regressions/supervisor-rules-scope.test.ts` — a real Pi process loads Supervisor rules only once its session is the configured Supervisor.
+- `packages/coding-agent/test/architect-service.test.ts` — observer runtimes load shared rules only.
 
 ## Known gaps (current cycle)
 

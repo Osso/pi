@@ -20,6 +20,7 @@ import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResul
 import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
+import { RULES_SCOPE_DIRECTORIES, type RulesScope } from "./rules-scope.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import type { Skill } from "./skills.ts";
 import { loadSkills } from "./skills.ts";
@@ -224,8 +225,6 @@ export function loadRulesFromDir(dirPath: string): string | undefined {
 	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
-export type RulesScope = "shared" | "main" | "child" | "architect";
-
 export interface DefaultResourceLoaderOptions {
 	cwd: string;
 	agentDir: string;
@@ -241,7 +240,7 @@ export interface DefaultResourceLoaderOptions {
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
 	noContextFiles?: boolean;
-	/** Rule directories to load in addition to shared top-level rules. Defaults to main. */
+	/** Rule subdirectories to load after the shared top-level rules. Defaults to main. */
 	rulesScope?: RulesScope;
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
@@ -601,15 +600,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
 		const globalRulesDir = join(this.agentDir, "rules");
 		const rulesFiles = loadRulesFilesFromDir(globalRulesDir);
-		if (this.rulesScope !== "shared") {
-			rulesFiles.push(...loadRulesFilesFromDir(join(globalRulesDir, this.rulesScope)));
-		}
+		const scopeDirs = RULES_SCOPE_DIRECTORIES[this.rulesScope];
+		for (const dir of scopeDirs) rulesFiles.push(...loadRulesFilesFromDir(join(globalRulesDir, dir)));
 		if (this.settingsManager.isProjectTrusted()) {
 			const projectRulesDir = join(this.cwd, CONFIG_DIR_NAME, "rules");
 			rulesFiles.push(...loadRulesFilesFromDir(projectRulesDir));
-			if (this.rulesScope !== "shared") {
-				rulesFiles.push(...loadRulesFilesFromDir(join(projectRulesDir, this.rulesScope)));
-			}
+			for (const dir of scopeDirs) rulesFiles.push(...loadRulesFilesFromDir(join(projectRulesDir, dir)));
 		}
 		this.rulesFiles = rulesFiles;
 		this.rulesContent = rulesFiles.length > 0 ? rulesFiles.map((file) => file.content).join("\n\n") : undefined;
