@@ -5,7 +5,12 @@ type ParsedFrontmatter<T extends Record<string, unknown>> = {
 	body: string;
 };
 
-const normalizeNewlines = (value: string): string => value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+// Editors on Windows may save a UTF-8 BOM, which would hide the opening `---`.
+const normalizeNewlines = (value: string): string =>
+	value
+		.replace(/^\uFEFF/, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n");
 
 // Frontmatter needs whole `---` delimiter lines; `----` is a Markdown thematic break, not a delimiter.
 const FRONTMATTER = /^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)/;

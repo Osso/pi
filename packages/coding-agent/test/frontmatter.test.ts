@@ -17,6 +17,14 @@ describe("parseFrontmatter", () => {
 		expect(body).toBe("Line one\nLine two");
 	});
 
+	it("parses frontmatter after a UTF-8 byte order mark", () => {
+		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(
+			"\uFEFF---\r\nname: bom\r\ndescription: BOM skill\r\n---\r\nBody",
+		);
+		expect(frontmatter).toEqual({ name: "bom", description: "BOM skill" });
+		expect(body).toBe("Body");
+	});
+
 	it("throws on invalid YAML frontmatter", () => {
 		const input = "---\nfoo: [bar\n---\nBody";
 		expect(() => parseFrontmatter<Record<string, string>>(input)).toThrow(/at line 1, column 10/);
