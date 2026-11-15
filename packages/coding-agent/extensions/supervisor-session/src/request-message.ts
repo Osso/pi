@@ -70,7 +70,7 @@ export interface SupervisorRequestDisplay {
 	body: string;
 }
 
-/** Splits a Supervisor request prompt into its instructions and a readable request summary. */
+/** Splits a Supervisor request prompt into its instructions and a readable request summary; only the summary is shown. */
 export function formatSupervisorRequestPrompt(prompt: string): SupervisorRequestDisplay {
 	const markerIndex = prompt.indexOf(REQUEST_MARKER);
 	if (markerIndex === -1) return { instructions: prompt, title: "Supervisor request", body: "" };
@@ -106,6 +106,5 @@ export const renderSupervisorRequestMessage: MessageRenderer = (message, _option
 	const box = new Box(1, 0, (text) => theme.bg("customMessageBg", text));
 	box.addChild(new Text(theme.fg("customMessageLabel", theme.bold(`[Supervisor request] ${display.title}`)), 0, 0));
 	if (display.body) box.addChild(new Text(theme.fg("customMessageText", display.body), 0, 0));
-	box.addChild(new Text(theme.fg("dim", display.instructions), 0, 0));
 	return box;
 };
