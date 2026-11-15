@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `pi update` and update checks treating an installed npm package newer than the registry's latest version as outdated and reinstalling the older version ([#8239](https://github.com/earendil-works/pi-mono/pull/8239))
 - Fixed `pi.registerFlag()` accepting default values that do not match the declared flag type, e.g. a `"false"` string default for a boolean flag that then read as truthy ([#8064](https://github.com/earendil-works/pi-mono/issues/8064))
 - Fixed the first model turn after a prompt showing only a static `Thinking...` label before its tool call; it now gets the same `Thought for <duration>` row as later tool calls.
 - Fixed the `/model` selector keeping the previous highlight position when typing a filter instead of highlighting the best match ([#7209](https://github.com/earendil-works/pi-mono/issues/7209))
