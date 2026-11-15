@@ -231,14 +231,12 @@ function getEditHeaderBg(
 	settledError: boolean | undefined,
 	theme: Theme,
 ): (text: string) => string {
-	if (preview) {
-		if ("error" in preview) {
-			return (text: string) => theme.bg("toolErrorBg", text);
-		}
-		return (text: string) => theme.bg("toolSuccessBg", text);
-	}
-	if (settledError) {
+	// A settled execution error outranks a successful preview: the preview only shows the edit could apply.
+	if (settledError || (preview && "error" in preview)) {
 		return (text: string) => theme.bg("toolErrorBg", text);
+	}
+	if (preview) {
+		return (text: string) => theme.bg("toolSuccessBg", text);
 	}
 	return (text: string) => theme.bg("toolPendingBg", text);
 }

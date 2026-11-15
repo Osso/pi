@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed a failed edit keeping the green success header when its diff preview had succeeded (for example a read-only file, or a second edit to the same file in one batch)
 - Fixed the RPC `bash` command bypassing `user_bash` extension handlers, so sandbox routing such as the bwrap extension did not apply to RPC clients ([#7214](https://github.com/earendil-works/pi-mono/pull/7214))
 - Fixed `!`/`!!` commands falling back to local execution when a `user_bash` handler (such as a sandbox router) threw or returned an invalid result; they now fail closed and report the error ([#9068](https://github.com/earendil-works/pi-mono/issues/9068))
 - Fixed concurrent user bash commands: cancelling now aborts every running command, and `isBashRunning` stays true until the last one finishes ([#7103](https://github.com/earendil-works/pi-mono/pull/7103))

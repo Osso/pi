@@ -7,7 +7,7 @@ import { createPyrunToolDefinition } from "../extensions/pyrun/src/index.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 class FakeTerminal implements Terminal {
 	columns = 80;
@@ -247,6 +247,50 @@ describe("edit tool TUI rendering", () => {
 		const rendered = component.render(80).join("\n");
 		expect(rendered).toContain("line 50 changed");
 		expect(rendered).toContain("line 150 changed");
+	});
+
+	it("switches the header to the error background when an edit with a valid preview fails", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-edit-settled-error-"));
+		tempDirs.push(dir);
+		const filePath = join(dir, "readonly-edit.txt");
+		await writeFile(filePath, "hello\n", "utf8");
+
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-settled-error",
+			{ path: filePath, edits: [{ oldText: "hello", newText: "bye" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+		await waitForRender();
+
+		component.setArgsComplete();
+		const previewRender = await waitForRenderedText(
+			() => component.render(80).join("\n"),
+			"bye",
+			() => tui.requestRender(true),
+		);
+		expect(previewRender).toContain(theme.getBgAnsi("toolSuccessBg"));
+
+		component.updateResult(
+			{
+				content: [{ type: "text", text: `Could not edit file: ${filePath}. Error code: EACCES.` }],
+				details: undefined,
+				isError: true,
+			},
+			false,
+		);
+		await waitForRender();
+
+		const settledRender = component.render(80).join("\n");
+		expect(settledRender).toContain(theme.getBgAnsi("toolErrorBg"));
+		expect(settledRender).not.toContain(theme.getBgAnsi("toolSuccessBg"));
 	});
 
 	it("shows a preflight error without rendering a diff when the edits do not apply", async () => {
