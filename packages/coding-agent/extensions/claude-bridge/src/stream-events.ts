@@ -560,7 +560,8 @@ export async function consumeQuery(
 				// The failure itself was recorded above the guard, along with the served
 				// context window. What is left here is the success path: push the result
 				// text when no assistant message already delivered it.
-				if (resultError === undefined && !queryCtx.turnSawStreamEvent && message.subtype === "success") {
+				const textDelivered = queryCtx.turnSawStreamEvent || queryCtx.turnBlocks.some((b) => b.type === "text");
+				if (resultError === undefined && !textDelivered && message.subtype === "success") {
 					ensureTurnStarted(queryCtx);
 					const text = message.result || "";
 					queryCtx.turnBlocks.push({ type: "text", text });

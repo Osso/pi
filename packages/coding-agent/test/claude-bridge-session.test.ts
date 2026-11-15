@@ -74,7 +74,8 @@ describe("bundled Claude session", () => {
 			await session.setModel(model);
 			await session.prompt("Reply using the project sentinel.");
 			const reply = session.messages.filter((message) => message.role === "assistant").at(-1);
-			expect(reply?.content).toContainEqual({ type: "text", text: "Bundled Claude fixture reply." });
+			const replyTexts = reply?.content.flatMap((block) => (block.type === "text" ? [block.text] : []));
+			expect(replyTexts).toEqual(["Bundled Claude fixture reply."]);
 			expect(requests).toContainEqual(
 				expect.objectContaining({
 					tools: ["WebSearch"],

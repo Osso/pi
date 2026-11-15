@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed claude-bridge repeating a non-streamed assistant reply: the final `result` text was added again after the assistant message had already delivered it.
 - Fixed `createAgentSessionServices()` turning an explicit `false` in `extensionFlagValues` into `true` for boolean extension flags.
 - Fixed `RpcClient` skipping the next event listener when a listener unsubscribes while handling an event, which could make `waitForIdle()` time out after `collectEvents()` ([#9990](https://github.com/earendil-works/pi/issues/9990)).
 - Fixed the session picker showing an archived, deleted or renamed session in another scope it had already loaded; a mutation now drops every scope's cached list.
