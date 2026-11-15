@@ -981,14 +981,15 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		else this.archivedLoading = true;
 
 		const seq = scope === "all" ? ++this.allLoadSeq : scope === "archived" ? ++this.archivedLoadSeq : undefined;
+		const latestSeq = () =>
+			scope === "all" ? this.allLoadSeq : scope === "archived" ? this.archivedLoadSeq : undefined;
+		const superseded = () => scope !== this.scope || seq !== latestSeq();
 		this.header.setScope(scope);
 		this.header.setLoading(true);
 		this.requestRender();
 
 		const onProgress = (loaded: number, total: number) => {
-			if (scope !== this.scope) return;
-			if (scope === "all" && seq !== this.allLoadSeq) return;
-			if (scope === "archived" && seq !== this.archivedLoadSeq) return;
+			if (superseded()) return;
 			this.header.setProgress(loaded, total);
 			this.requestRender();
 		};
@@ -1007,9 +1008,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 				this.archivedLoading = false;
 			}
 
-			if (scope !== this.scope) return;
-			if (scope === "all" && seq !== this.allLoadSeq) return;
-			if (scope === "archived" && seq !== this.archivedLoadSeq) return;
+			if (superseded()) return;
 
 			this.header.setLoading(false);
 			this.sessionList.setSessions(sessions, showCwd);
@@ -1019,9 +1018,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 			else if (scope === "all") this.allLoading = false;
 			else this.archivedLoading = false;
 
-			if (scope !== this.scope) return;
-			if (scope === "all" && seq !== this.allLoadSeq) return;
-			if (scope === "archived" && seq !== this.archivedLoadSeq) return;
+			if (superseded()) return;
 
 			const message = err instanceof Error ? err.message : String(err);
 			this.header.setLoading(false);
