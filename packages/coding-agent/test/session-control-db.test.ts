@@ -308,6 +308,27 @@ function enqueueStoredRuntimeMessage(
 	});
 }
 
+/** Stores a main-to-main message, enqueues its transport row, and claims it for "recipient-session". */
+function claimStoredMainMessage(controlDbPath: string, sessionPath: string, messageId: string): number {
+	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+		createdAt: "2026-07-11T00:00:00.000Z",
+		body: messageId,
+		fromAgentId: "main",
+		id: messageId,
+		kind: "message",
+		status: "pending",
+		toAgentId: "main",
+	});
+	const id = enqueueRuntimeMailboxMessage(controlDbPath, {
+		kind: "message",
+		recipient: { agentId: null, sessionId: "recipient-session" },
+		sender: { agentId: null, sessionId: "sender-session" },
+		storeRef: { messageId, sessionPath },
+	});
+	claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+	return id;
+}
+
 type RuntimeMailboxPayloadPreparationOperation = "claim" | "deliver" | "recover";
 
 async function runRuntimeMailboxPayloadPreparationContention(
@@ -967,22 +988,7 @@ describe("session control DB", () => {
 	it("delivers the claimed canonical mailbox row atomically", () => {
 		const sessionPath = "/sessions/atomic-delivery.jsonl";
 		const messageId = "atomic-delivery";
-		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
-			createdAt: "2026-07-11T00:00:00.000Z",
-			body: "atomic delivery",
-			fromAgentId: "main",
-			id: messageId,
-			kind: "message",
-			status: "pending",
-			toAgentId: "main",
-		});
-		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "message",
-			recipient: { agentId: null, sessionId: "recipient-session" },
-			sender: { agentId: null, sessionId: "sender-session" },
-			storeRef: { messageId, sessionPath },
-		});
-		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		const id = claimStoredMainMessage(controlDbPath, sessionPath, messageId);
 		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
 		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
 		const db = createSqliteDatabase(controlDbPath);
@@ -999,22 +1005,7 @@ describe("session control DB", () => {
 	it("rolls back canonical delivery when its row deletion fails", () => {
 		const sessionPath = "/sessions/atomic-rollback.jsonl";
 		const messageId = "atomic-rollback";
-		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
-			createdAt: "2026-07-11T00:00:00.000Z",
-			body: "rollback",
-			fromAgentId: "main",
-			id: messageId,
-			kind: "message",
-			status: "pending",
-			toAgentId: "main",
-		});
-		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "message",
-			recipient: { agentId: null, sessionId: "recipient-session" },
-			sender: { agentId: null, sessionId: "sender-session" },
-			storeRef: { messageId, sessionPath },
-		});
-		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		const id = claimStoredMainMessage(controlDbPath, sessionPath, messageId);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
@@ -1045,22 +1036,7 @@ describe("session control DB", () => {
 	it("does not consume malformed durable mailbox rows", () => {
 		const sessionPath = "/sessions/malformed.jsonl";
 		const messageId = "malformed";
-		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
-			createdAt: "2026-07-11T00:00:00.000Z",
-			body: "malformed",
-			fromAgentId: "main",
-			id: messageId,
-			kind: "message",
-			status: "pending",
-			toAgentId: "main",
-		});
-		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "message",
-			recipient: { agentId: null, sessionId: "recipient-session" },
-			sender: { agentId: null, sessionId: "sender-session" },
-			storeRef: { messageId, sessionPath },
-		});
-		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		const id = claimStoredMainMessage(controlDbPath, sessionPath, messageId);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare("UPDATE multi_agent_mailbox_messages SET data = ? WHERE session_path = ? AND message_id = ?").run(
@@ -1085,22 +1061,7 @@ describe("session control DB", () => {
 	it("deletes a claimed mailbox row by transport ID", () => {
 		const sessionPath = "/sessions/consumed.jsonl";
 		const messageId = "once-delivered";
-		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
-			createdAt: "2026-07-11T00:00:00.000Z",
-			body: "deliver once",
-			fromAgentId: "main",
-			id: messageId,
-			kind: "message",
-			status: "pending",
-			toAgentId: "main",
-		});
-		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "message",
-			recipient: { agentId: null, sessionId: "recipient-session" },
-			sender: { agentId: null, sessionId: "sender-session" },
-			storeRef: { messageId, sessionPath },
-		});
-		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		const id = claimStoredMainMessage(controlDbPath, sessionPath, messageId);
 		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
 		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
 	});
