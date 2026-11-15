@@ -29,6 +29,22 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+function codexModel(overrides: Partial<Model<"openai-codex-responses">> = {}): Model<"openai-codex-responses"> {
+	return {
+		id: "gpt-5.1-codex",
+		name: "GPT-5.1 Codex",
+		api: "openai-codex-responses",
+		provider: "openai-codex",
+		baseUrl: "https://chatgpt.com/backend-api",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 400000,
+		maxTokens: 128000,
+		...overrides,
+	};
+}
+
 function mockToken(accountId = "acc_test"): string {
 	const payload = Buffer.from(
 		JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: accountId } }),
@@ -606,18 +622,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -675,18 +680,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -743,18 +737,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -803,18 +786,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -861,18 +833,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -907,18 +868,7 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } })),
 		);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -1007,18 +957,7 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } })),
 		);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -1125,18 +1064,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -1168,18 +1096,7 @@ describe("openai-codex streaming", () => {
 			),
 		);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -1217,19 +1134,7 @@ describe("openai-codex streaming", () => {
 			}),
 		);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-			headers: { originator: "my-app" },
-		};
+		const model = codexModel({ headers: { originator: "my-app" } });
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -1280,19 +1185,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.5",
-			name: "GPT-5.5",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			thinkingLevelMap: { xhigh: "xhigh" },
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel({ id: "gpt-5.5", name: "GPT-5.5", thinkingLevelMap: { xhigh: "xhigh" } });
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -1430,19 +1323,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: modelId,
-			name: modelId,
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			thinkingLevelMap: { minimal: "low" },
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel({ id: modelId, name: modelId, thinkingLevelMap: { minimal: "low" } });
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -1529,18 +1410,11 @@ describe("openai-codex streaming", () => {
 			});
 			vi.stubGlobal("fetch", fetchMock);
 
-			const model: Model<"openai-codex-responses"> = {
+			const model = codexModel({
 				id: modelId,
 				name: modelId === "gpt-5.5" ? "GPT-5.5" : "GPT-5.1 Codex",
-				api: "openai-codex-responses",
-				provider: "openai-codex",
-				baseUrl: "https://chatgpt.com/backend-api",
-				reasoning: true,
-				input: ["text"],
 				cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 400000,
-				maxTokens: 128000,
-			};
+			});
 
 			const context: Context = {
 				systemPrompt: "You are a helpful assistant.",
@@ -1635,18 +1509,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -1738,18 +1601,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -1832,18 +1684,7 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
 		);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = { systemPrompt: "", messages: [] };
 		const options = { sessionId: "shared-session", transport: "websocket-cached" as const };
 
@@ -1920,18 +1761,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2013,18 +1843,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", ReasoningOnlyWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2137,18 +1956,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2202,18 +2010,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2274,18 +2071,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const result = await streamOpenAICodexResponses(
 			model,
@@ -2347,18 +2133,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2437,18 +2212,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2531,18 +2295,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const sessionId = "aged-ws-session";
 		const firstContext: Context = {
 			systemPrompt: "You are a helpful assistant.",
@@ -2666,18 +2419,7 @@ describe("openai-codex streaming", () => {
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const firstContext: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
@@ -2764,18 +2506,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
@@ -2823,18 +2554,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 
 		const largeText = "compress me ".repeat(400);
 		await streamOpenAICodexResponses(
@@ -2903,18 +2623,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-5.1-codex",
-			name: "GPT-5.1 Codex",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 400000,
-			maxTokens: 128000,
-		};
+		const model = codexModel();
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
