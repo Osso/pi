@@ -51,6 +51,15 @@ describe("wrapTextWithAnsi", () => {
 		});
 	});
 
+	describe("literal newlines", () => {
+		it("closes underline before a literal newline and reopens it after", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[4mabc\ndef\x1b[24m", 10), [
+				"\x1b[4mabc\x1b[24m",
+				"\x1b[4mdef\x1b[24m",
+			]);
+		});
+	});
+
 	describe("background color preservation", () => {
 		it("should preserve background color across wrapped lines without full reset", () => {
 			const bgBlue = "\x1b[44m";

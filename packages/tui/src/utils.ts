@@ -704,15 +704,14 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 	const result: string[] = [];
 	const tracker = new AnsiCodeTracker();
 
-	for (const inputLine of inputLines) {
+	for (const [index, inputLine] of inputLines.entries()) {
 		// Prepend active ANSI codes from previous lines (except for first line)
 		const prefix = result.length > 0 ? tracker.getActiveCodes() : "";
 		const wrappedLines = wrapSingleLine(prefix + inputLine, width);
-		for (const wrappedLine of wrappedLines) {
-			result.push(wrappedLine);
-		}
-		// Update tracker with codes from this line for next iteration
 		updateTrackerFromText(inputLine, tracker);
+		// Close underline and hyperlinks before a literal newline, as at wrap points
+		if (index < inputLines.length - 1) wrappedLines[wrappedLines.length - 1] += tracker.getLineEndReset();
+		result.push(...wrappedLines);
 	}
 
 	return result.length > 0 ? result : [""];
