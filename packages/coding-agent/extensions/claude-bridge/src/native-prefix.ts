@@ -97,10 +97,12 @@ class UserSide {
 	}
 
 	// Results sort by id: CC records each result as it arrives, the conversion
-	// in pi's order, and the order carries no meaning for the conversation.
+	// in pi's order, and the order carries no meaning for the conversation. Texts
+	// join with "\n": the bridge sends a turn of several pi messages as one joined
+	// prompt, which pi's history and a rebuild keep as separate messages.
 	key(): string {
 		const results = [...this.results].sort((a, b) => a[0].localeCompare(b[0]));
-		return JSON.stringify({ results, texts: this.texts, images: this.images });
+		return JSON.stringify({ results, text: this.texts.join("\n"), images: this.images });
 	}
 }
 
@@ -157,7 +159,7 @@ function messageUnits(messages: readonly Message[]): Unit[] {
 /** What a user-side record says: a message's content, or a steer CC queued
  *  mid-turn as an attachment. CC's context attachments and meta messages are its
  *  own rendering, kept but not compared. */
-function userSideContent(record: Rec): unknown {
+export function userSideContent(record: Rec): unknown {
 	if (record.type === "attachment") {
 		const attachment = record.attachment as Rec | undefined;
 		return attachment?.type === "queued_command" ? attachment.prompt : undefined;

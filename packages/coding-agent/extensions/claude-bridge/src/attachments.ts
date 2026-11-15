@@ -10,6 +10,7 @@
 
 import type { ImportAttachment, JsonlRecord } from "cc-session-io";
 import { messageContentToText } from "./convert.ts";
+import { userSideContent } from "./native-prefix.ts";
 
 // Only `@file` expansions are carried. They are the one thing pi genuinely never
 // sees, so a rebuild is the only chance to keep them.
@@ -29,26 +30,43 @@ const CONTENT_BEARING = new Set(["file"]);
 
 export type CarriedAttachment = {
 	attachment: { type: string; [key: string]: unknown };
-	/** Position of the parent among the session's text-bearing user records. */
+	/** Position of the parent's prompt among the session's prompts. */
 	userOrdinal: number;
-	/** That record's text, to verify the ordinal still points at the same turn. */
+	/** That prompt's text, to verify the ordinal still points at the same turn. */
 	parentText: string;
 };
 
 type Rec = Record<string, unknown>;
 
-/** A user record holding a prompt, as opposed to one holding tool results. */
-function userPromptText(record: Rec): string | undefined {
-	if (record.type !== "user") return undefined;
-	const content = (record.message as Rec | undefined)?.content;
-	if (Array.isArray(content) && content.some((b) => (b as Rec)?.type === "tool_result")) return undefined;
-	const text = messageContentToText(content as never);
-	return text ? text : undefined;
+/**
+ * The prompt text user-side content carries: its text outside tool results.
+ *
+ * CC and pi agree on prompts only at this granularity. Each side counts a run of
+ * consecutive prompt-bearing user content as one prompt joined with "\n", the way
+ * the bridge sends a turn of several pi messages and the API merges them. A
+ * repaired message holding a synthetic result and the next prompt counts by its
+ * text, which is what CC keeps after importMessages splits it in two.
+ */
+function promptText(content: unknown): string {
+	const blocks = Array.isArray(content) ? content.filter((block) => (block as Rec)?.type !== "tool_result") : content;
+	return messageContentToText(blocks as never);
+}
+
+/** A user message, or a steer CC queued mid-turn, as pi records one too. */
+function recordPromptText(record: Rec): string {
+	return record.type === "user" || record.type === "attachment" ? promptText(userSideContent(record)) : "";
+}
+
+/** Joins `text` onto the open turn's prompt or starts a new one; returns its ordinal. */
+function addPrompt(prompts: string[], turnOpen: boolean, text: string): number {
+	if (turnOpen && prompts.length) prompts[prompts.length - 1] += `\n${text}`;
+	else prompts.push(text);
+	return prompts.length - 1;
 }
 
 /**
  * Content-bearing attachments in a session, each tagged with where its parent
- * sits among the text-bearing user records.
+ * prompt sits among the session's prompts.
  *
  * The ordinal is the mapping key rather than the record index: a rebuild does not
  * reproduce the old record list one-for-one — `importMessages` splits a message
@@ -62,16 +80,20 @@ function userPromptText(record: Rec): string | undefined {
  */
 export function collectCarriedAttachments(records: readonly JsonlRecord[]): CarriedAttachment[] {
 	const ordinalOf = new Map<string, number>();
-	const textOf = new Map<string, string>();
-	let ordinal = 0;
-	const carried: CarriedAttachment[] = [];
+	const prompts: string[] = [];
+	let turnOpen = false;
+	const carried: Omit<CarriedAttachment, "parentText">[] = [];
 
 	for (const raw of records) {
 		const record = raw as Rec;
-		const prompt = userPromptText(record);
-		if (prompt !== undefined) {
-			ordinalOf.set(record.uuid as string, ordinal++);
-			textOf.set(record.uuid as string, prompt);
+		if (record.type === "assistant") {
+			turnOpen = false;
+			continue;
+		}
+		const text = recordPromptText(record);
+		if (text) {
+			ordinalOf.set(record.uuid as string, addPrompt(prompts, turnOpen, text));
+			turnOpen = true;
 			continue;
 		}
 		if (record.type !== "attachment") continue;
@@ -83,16 +105,14 @@ export function collectCarriedAttachments(records: readonly JsonlRecord[]): Carr
 		// a content-bearing one can chain off a `skill_listing` we ignore.
 		if (parent === null) continue;
 		const inherited = ordinalOf.get(parent);
-		const parentText = textOf.get(parent);
-		if (inherited === undefined || parentText === undefined) continue;
+		if (inherited === undefined) continue;
 		ordinalOf.set(record.uuid as string, inherited);
-		textOf.set(record.uuid as string, parentText);
 
 		const attachment = record.attachment as { type: string; [key: string]: unknown } | undefined;
 		if (!attachment || !CONTENT_BEARING.has(attachment.type)) continue;
-		carried.push({ attachment, userOrdinal: inherited, parentText });
+		carried.push({ attachment, userOrdinal: inherited });
 	}
-	return carried;
+	return carried.map((item) => ({ ...item, parentText: prompts[item.userOrdinal] ?? "" }));
 }
 
 /**
@@ -110,12 +130,19 @@ export function placeCarriedAttachments(
 	carried: readonly CarriedAttachment[],
 	messages: readonly { role: string; content: unknown }[],
 ): { attachments: ImportAttachment[]; skipped: string[] } {
-	const prompts: { index: number; text: string }[] = [];
+	const prompts: string[] = [];
+	// Index of each prompt's last message, which its attachments follow.
+	const lastIndex: number[] = [];
+	let turnOpen = false;
 	messages.forEach((msg, index) => {
-		if (msg.role !== "user") return;
-		if (Array.isArray(msg.content) && msg.content.some((b) => (b as Rec)?.type === "tool_result")) return;
-		const text = messageContentToText(msg.content as never);
-		if (text) prompts.push({ index, text });
+		if (msg.role !== "user") {
+			turnOpen = false;
+			return;
+		}
+		const text = promptText(msg.content);
+		if (!text) return;
+		lastIndex[addPrompt(prompts, turnOpen, text)] = index;
+		turnOpen = true;
 	});
 
 	const attachments: ImportAttachment[] = [];
@@ -123,15 +150,15 @@ export function placeCarriedAttachments(
 	for (const item of carried) {
 		const name = String(item.attachment.filename ?? item.attachment.type);
 		const candidate = prompts[item.userOrdinal];
-		if (!candidate) {
+		if (candidate === undefined) {
 			skipped.push(`${name}: prompt #${item.userOrdinal} is no longer in history`);
 			continue;
 		}
-		if (candidate.text !== item.parentText) {
+		if (candidate !== item.parentText) {
 			skipped.push(`${name}: prompt #${item.userOrdinal} changed`);
 			continue;
 		}
-		attachments.push({ afterIndex: candidate.index, attachment: item.attachment });
+		attachments.push({ afterIndex: lastIndex[item.userOrdinal] as number, attachment: item.attachment });
 	}
 	return { attachments, skipped };
 }

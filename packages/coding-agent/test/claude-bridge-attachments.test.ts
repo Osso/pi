@@ -22,6 +22,7 @@ describe("Claude bridge carried attachments", () => {
 				parentUuid: "a0",
 				attachment: { type: "file", filename: "foo.ts", content: "export const x = 1;" },
 			},
+			{ type: "assistant", uuid: "r0", message: { id: "m0", content: [{ type: "tool_use", id: "call-1" }] } },
 			{
 				type: "user",
 				uuid: "u-tool",
@@ -42,6 +43,7 @@ describe("Claude bridge carried attachments", () => {
 				parentUuid: null,
 				attachment: { type: "file", filename: "orphan.ts", content: "nope" },
 			},
+			{ type: "assistant", uuid: "r1", message: { id: "m1", content: [{ type: "text", text: "Done" }] } },
 			{
 				type: "user",
 				uuid: "u1",
@@ -107,5 +109,109 @@ describe("Claude bridge carried attachments", () => {
 			"changed.ts: prompt #1 changed",
 			"missing.ts: prompt #2 is no longer in history",
 		]);
+	});
+
+	// Each case pairs CC's records with the converted pi history a rebuild imports;
+	// every @file attachment must land after its own prompt.
+	const file = (filename: string) => ({ type: "file", filename, content: filename });
+	const reply = (id: string) => ({
+		type: "assistant",
+		uuid: id,
+		message: { id, content: [{ type: "text", text: "ok" }] },
+	});
+	const carryAcrossRebuild = (records: unknown[], messages: { role: string; content: unknown }[]) =>
+		placeCarriedAttachments(collectCarriedAttachments(records as JsonlRecord[]), messages);
+
+	it("keeps attachments of a turn the bridge sent as one joined prompt", () => {
+		const placed = carryAcrossRebuild(
+			[
+				{ type: "user", uuid: "u0", message: { role: "user", content: "Read @a.ts\nthen summarize" } },
+				{ type: "attachment", uuid: "a0", parentUuid: "u0", attachment: file("a.ts") },
+				reply("r0"),
+				{ type: "user", uuid: "u1", message: { role: "user", content: "Now @b.ts" } },
+				{ type: "attachment", uuid: "a1", parentUuid: "u1", attachment: file("b.ts") },
+			],
+			[
+				{ role: "user", content: "Read @a.ts" },
+				{ role: "user", content: "then summarize" },
+				{ role: "assistant", content: "ok" },
+				{ role: "user", content: "Now @b.ts" },
+			],
+		);
+		expect(placed).toEqual({
+			attachments: [
+				{ afterIndex: 1, attachment: file("a.ts") },
+				{ afterIndex: 3, attachment: file("b.ts") },
+			],
+			skipped: [],
+		});
+	});
+
+	it("counts a steer CC queued mid-turn as the prompt pi records", () => {
+		const placed = carryAcrossRebuild(
+			[
+				{ type: "user", uuid: "u0", message: { role: "user", content: "Go" } },
+				{ type: "assistant", uuid: "r0", message: { id: "r0", content: [{ type: "tool_use", id: "call-1" }] } },
+				{
+					type: "user",
+					uuid: "t0",
+					message: { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1" }] },
+				},
+				{
+					type: "attachment",
+					uuid: "q0",
+					parentUuid: "t0",
+					attachment: { type: "queued_command", prompt: "Also @c.ts" },
+				},
+				{ type: "attachment", uuid: "a0", parentUuid: "q0", attachment: file("c.ts") },
+				reply("r1"),
+				{ type: "user", uuid: "u1", message: { role: "user", content: "Then @d.ts" } },
+				{ type: "attachment", uuid: "a1", parentUuid: "u1", attachment: file("d.ts") },
+			],
+			[
+				{ role: "user", content: "Go" },
+				{ role: "assistant", content: [{ type: "tool_use", id: "call-1" }] },
+				{ role: "user", content: [{ type: "tool_result", tool_use_id: "call-1", content: "ok" }] },
+				{ role: "user", content: "Also @c.ts" },
+				{ role: "assistant", content: "ok" },
+				{ role: "user", content: "Then @d.ts" },
+			],
+		);
+		expect(placed).toEqual({
+			attachments: [
+				{ afterIndex: 3, attachment: file("c.ts") },
+				{ afterIndex: 5, attachment: file("d.ts") },
+			],
+			skipped: [],
+		});
+	});
+
+	it("counts a prompt that repair merged with the synthetic result of an aborted call", () => {
+		const placed = carryAcrossRebuild(
+			[
+				{ type: "user", uuid: "u0", message: { role: "user", content: "Go" } },
+				{ type: "assistant", uuid: "r0", message: { id: "r0", content: [{ type: "tool_use", id: "call-1" }] } },
+				// importMessages split the repaired message into a result record and a prompt record.
+				{
+					type: "user",
+					uuid: "t0",
+					message: { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1" }] },
+				},
+				{ type: "user", uuid: "u1", message: { role: "user", content: "Next @e.ts" } },
+				{ type: "attachment", uuid: "a0", parentUuid: "u1", attachment: file("e.ts") },
+			],
+			[
+				{ role: "user", content: "Go" },
+				{ role: "assistant", content: [{ type: "tool_use", id: "call-1" }] },
+				{
+					role: "user",
+					content: [
+						{ type: "tool_result", tool_use_id: "call-1", content: "[no tool result recorded]" },
+						{ type: "text", text: "Next @e.ts" },
+					],
+				},
+			],
+		);
+		expect(placed).toEqual({ attachments: [{ afterIndex: 2, attachment: file("e.ts") }], skipped: [] });
 	});
 });
