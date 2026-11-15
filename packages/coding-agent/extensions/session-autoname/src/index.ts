@@ -65,10 +65,12 @@ function normalizeName(rawName: string): string {
 		.replace(/[\r\n]+/g, " ")
 		.replace(/\s+/g, " ")
 		.trim();
-	if (collapsed.length <= MAX_NAME_CHARS) return collapsed;
-	const bounded = collapsed.slice(0, MAX_NAME_CHARS + 1);
+	// Count code points, not UTF-16 units, so the bound never splits an emoji.
+	const chars = Array.from(collapsed);
+	if (chars.length <= MAX_NAME_CHARS) return collapsed;
+	const bounded = chars.slice(0, MAX_NAME_CHARS + 1).join("");
 	const lastSpace = bounded.lastIndexOf(" ");
-	return (lastSpace > 0 ? bounded.slice(0, lastSpace) : bounded.slice(0, MAX_NAME_CHARS)).trim();
+	return (lastSpace > 0 ? bounded.slice(0, lastSpace) : chars.slice(0, MAX_NAME_CHARS).join("")).trim();
 }
 
 function errorResult(message: string): AgentToolResult<SetSessionNameDetails> {

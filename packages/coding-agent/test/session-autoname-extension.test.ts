@@ -117,6 +117,18 @@ describe("session naming tool extension", () => {
 		expect(harness.sessionManager.getSessionName()).toBe("Fix footer count");
 	});
 
+	it("bounds a name without spaces at whole characters", async () => {
+		const harness = await createSessionNameHarness();
+		harness.setResponses([nameCall(`a${"😀".repeat(100)}`), endTurn()]);
+
+		await harness.session.prompt("Name it with emoji");
+
+		const expected = `a${"😀".repeat(79)}`;
+		expect(harness.sessionManager.getSessionName()).toBe(expected);
+		const sessionFile = harness.sessionManager.getSessionFile();
+		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile ?? "")?.name).toBe(expected);
+	});
+
 	it("refuses to overwrite a name set outside the tool", async () => {
 		const harness = await createSessionNameHarness();
 		harness.sessionManager.setSessionName("Manual Name");
