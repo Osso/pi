@@ -94,7 +94,14 @@ export function parseArgs(args: string[]): Args {
 		};
 		const ephemeralSessionFlag = EPHEMERAL_SESSION_FLAGS.get(arg);
 
-		if (arg === "--help" || arg === "-h") {
+		if (arg === "--") {
+			// End of options: everything after is a message or @file argument, even when it starts with "-".
+			for (const positional of args.slice(i + 1)) {
+				if (positional.startsWith("@")) result.fileArgs.push(positional);
+				else result.messages.push(positional);
+			}
+			break;
+		} else if (arg === "--help" || arg === "-h") {
 			result.help = true;
 		} else if (arg === "--version" || arg === "-v") {
 			result.version = true;
