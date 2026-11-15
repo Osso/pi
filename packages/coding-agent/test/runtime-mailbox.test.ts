@@ -201,6 +201,16 @@ function createSenderTargetStore(dir: string) {
 	return { controlDbPath, targetSession, senderSession, store };
 }
 
+/** Registers this process as the main-thread mailbox listener for `session`. */
+function registerMainListener(controlDbPath: string, session: SessionManager): void {
+	registerRuntimeMailboxListener(
+		controlDbPath,
+		{ agentId: null, sessionId: session.getSessionId() },
+		process.pid,
+		session.getSessionFile(),
+	);
+}
+
 describe("terminal outbox cleanup schedule", () => {
 	it("runs cleanup initially and then no more than once per hour", () => {
 		const firstCleanupAt = Date.parse("2026-07-16T12:00:00.000Z");
@@ -966,12 +976,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			transcriptSessionId: childSession.getSessionId(),
 		});
 		const child = { agent: running.agent };
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: running.agent.id, sessionId: childSession.getSessionId() },
@@ -1429,12 +1434,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = MultiAgentStore.fromSessionManager(parentSession);
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const id = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Keep this coordination for session acceptance",
 			kind: "message",
@@ -1609,12 +1609,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 			const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 			if (!waitAgents) throw new Error("expected wait_agent tool");
-			registerRuntimeMailboxListener(
-				controlDbPath,
-				{ agentId: null, sessionId: parentSession.getSessionId() },
-				process.pid,
-				parentSession.getSessionFile(),
-			);
+			registerMainListener(controlDbPath, parentSession);
 
 			const signalListenerCount = process.listenerCount("SIGUSR2");
 			let settled = false;
@@ -1663,12 +1658,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
@@ -1723,12 +1713,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("shares transient wake handles with exported interactive steering", async () => {
 		const { controlDbPath, parentSession, store } = openParentStore();
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "interactive-child-session",
 		});
@@ -1791,12 +1776,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("does not wake for steering accepted after the active-agent snapshot", async () => {
 		const { controlDbPath, parentSession, store } = openParentStore();
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const tracked = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "tracked-child-session",
 		});
@@ -1860,12 +1840,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
@@ -1937,12 +1912,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
@@ -2001,12 +1971,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
@@ -2068,12 +2033,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let settled = false;
 		const waiting = waitAgents.execute("wait", {}, undefined, undefined, context).then((result) => {
@@ -2113,12 +2073,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Coordination without active agents",
 			kind: "message",
@@ -2145,12 +2100,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: parentSession.getSessionId() },
-			process.pid,
-			parentSession.getSessionFile(),
-		);
+		registerMainListener(controlDbPath, parentSession);
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
 		const firstId = enqueueStoredRuntimeMessage(controlDbPath, {
