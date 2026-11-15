@@ -592,11 +592,7 @@ describe("openai-codex streaming", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
 
-		const payload = Buffer.from(
-			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
-			"utf8",
-		).toString("base64");
-		const token = `aaa.${payload}.bbb`;
+		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
@@ -964,11 +960,7 @@ describe("openai-codex streaming", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
 
-		const payload = Buffer.from(
-			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
-			"utf8",
-		).toString("base64");
-		const token = `aaa.${payload}.bbb`;
+		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
@@ -1174,11 +1166,7 @@ describe("openai-codex streaming", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
 
-		const payload = Buffer.from(
-			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
-			"utf8",
-		).toString("base64");
-		const token = `aaa.${payload}.bbb`;
+		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
@@ -1315,11 +1303,7 @@ describe("openai-codex streaming", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
 
-		const payload = Buffer.from(
-			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
-			"utf8",
-		).toString("base64");
-		const token = `aaa.${payload}.bbb`;
+		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
