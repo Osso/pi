@@ -13,6 +13,7 @@ import { SessionManager } from "../../../src/core/session-manager.ts";
 import { SettingsManager } from "../../../src/core/settings-manager.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { createTestResourceLoader } from "../../utilities.ts";
+import { fauxProviderConfig } from "../harness.ts";
 
 describe("regression #5596: missing configured theme export", () => {
 	const cleanups: Array<() => void> = [];
@@ -35,22 +36,7 @@ describe("regression #5596: missing configured theme export", () => {
 		const authStorage = AuthStorage.inMemory();
 		authStorage.setRuntimeApiKey(model.provider, "faux-key");
 		const modelRegistry = ModelRegistry.inMemory(authStorage);
-		modelRegistry.registerProvider(model.provider, {
-			baseUrl: model.baseUrl,
-			apiKey: "faux-key",
-			api: faux.api,
-			models: faux.models.map((registeredModel) => ({
-				id: registeredModel.id,
-				name: registeredModel.name,
-				api: registeredModel.api,
-				reasoning: registeredModel.reasoning,
-				input: registeredModel.input,
-				cost: registeredModel.cost,
-				contextWindow: registeredModel.contextWindow,
-				maxTokens: registeredModel.maxTokens,
-				baseUrl: registeredModel.baseUrl,
-			})),
-		});
+		modelRegistry.registerProvider(model.provider, fauxProviderConfig(faux));
 
 		const settingsManager = SettingsManager.inMemory({ theme: "missing-theme" });
 		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));

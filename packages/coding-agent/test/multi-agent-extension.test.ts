@@ -88,7 +88,14 @@ import { createChildSessionMutationFixture } from "./helpers/child-session-mutat
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
-import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
+import {
+	createHarness,
+	fauxProviderConfig,
+	getAssistantTexts,
+	getMessageText,
+	getUserTexts,
+	type Harness,
+} from "./suite/harness.ts";
 import { assertDefined } from "./utilities.ts";
 
 const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
@@ -5377,22 +5384,7 @@ describe("multi-agent extension tools", () => {
 				// Keep print-mode teardown behind the child's completed message persistence.
 				await childShutdown.promise;
 			});
-			pi.registerProvider(model.provider, {
-				api: faux.api,
-				apiKey: "faux-key",
-				baseUrl: model.baseUrl,
-				models: faux.models.map((registeredModel) => ({
-					api: registeredModel.api,
-					baseUrl: registeredModel.baseUrl,
-					contextWindow: registeredModel.contextWindow,
-					cost: registeredModel.cost,
-					id: registeredModel.id,
-					input: registeredModel.input,
-					maxTokens: registeredModel.maxTokens,
-					name: registeredModel.name,
-					reasoning: registeredModel.reasoning,
-				})),
-			});
+			pi.registerProvider(model.provider, fauxProviderConfig(faux));
 		};
 		faux.setResponses([
 			fauxAssistantMessage(

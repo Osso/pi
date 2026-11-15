@@ -11,6 +11,7 @@ import {
 } from "../../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
+import { fauxProviderConfig } from "../harness.ts";
 
 describe("issue #2753 reload stale resource settings", () => {
 	const cleanups: Array<() => void> = [];
@@ -42,21 +43,7 @@ describe("issue #2753 reload stale resource settings", () => {
 				resourceLoaderOptions: {
 					extensionFactories: [
 						(pi) => {
-							pi.registerProvider(faux.getModel().provider, {
-								baseUrl: faux.getModel().baseUrl,
-								apiKey: "faux-key",
-								api: faux.api,
-								models: faux.models.map((registeredModel) => ({
-									id: registeredModel.id,
-									name: registeredModel.name,
-									api: registeredModel.api,
-									reasoning: registeredModel.reasoning,
-									input: registeredModel.input,
-									cost: registeredModel.cost,
-									contextWindow: registeredModel.contextWindow,
-									maxTokens: registeredModel.maxTokens,
-								})),
-							});
+							pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux));
 						},
 					],
 					noSkills: true,

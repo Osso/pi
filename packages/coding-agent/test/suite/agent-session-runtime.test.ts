@@ -33,32 +33,13 @@ import type {
 } from "../../src/index.ts";
 
 import { writeCompactedSessionFixture } from "./compacted-session-fixture.ts";
-import { getMessageText } from "./harness.ts";
+import { fauxProviderConfig, getMessageText } from "./harness.ts";
 
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
 	| SessionShutdownEvent
 	| SessionStartEvent;
-
-/** Registers the faux provider's models through the extension API, as a real provider extension would. */
-function registerFauxModels(pi: ExtensionAPI, faux: ReturnType<typeof registerFauxProvider>): void {
-	pi.registerProvider(faux.getModel().provider, {
-		baseUrl: faux.getModel().baseUrl,
-		apiKey: "faux-key",
-		api: faux.api,
-		models: faux.models.map((registeredModel) => ({
-			id: registeredModel.id,
-			name: registeredModel.name,
-			api: registeredModel.api,
-			reasoning: registeredModel.reasoning,
-			input: registeredModel.input,
-			cost: registeredModel.cost,
-			contextWindow: registeredModel.contextWindow,
-			maxTokens: registeredModel.maxTokens,
-		})),
-	});
-}
 
 describe("AgentSessionRuntime characterization", () => {
 	const cleanups: Array<() => Promise<void> | void> = [];
@@ -107,7 +88,7 @@ describe("AgentSessionRuntime characterization", () => {
 			resourceLoaderOptions: {
 				extensionFactories: [
 					(pi: ExtensionAPI) => {
-						registerFauxModels(pi, faux);
+						pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux));
 						extensionFactory(pi);
 					},
 				],
@@ -684,7 +665,9 @@ describe("AgentSessionRuntime characterization", () => {
 			authStorage,
 			model: faux.getModel(),
 			resourceLoaderOptions: {
-				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
+				extensionFactories: [
+					(pi: ExtensionAPI) => pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux)),
+				],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,
@@ -776,7 +759,9 @@ describe("AgentSessionRuntime characterization", () => {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,
 			resourceLoaderOptions: {
-				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
+				extensionFactories: [
+					(pi: ExtensionAPI) => pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux)),
+				],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,
@@ -868,7 +853,9 @@ describe("AgentSessionRuntime characterization", () => {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,
 			resourceLoaderOptions: {
-				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
+				extensionFactories: [
+					(pi: ExtensionAPI) => pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux)),
+				],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,

@@ -39,6 +39,26 @@ import {
 
 type MessageTextPart = { type: "text"; text: string };
 
+/** Provider config that serves every faux model under the faux provider with the faux API key. */
+export function fauxProviderConfig(faux: FauxProviderRegistration) {
+	return {
+		baseUrl: faux.getModel().baseUrl,
+		apiKey: "faux-key",
+		api: faux.api,
+		models: faux.models.map((registeredModel) => ({
+			id: registeredModel.id,
+			name: registeredModel.name,
+			api: registeredModel.api,
+			reasoning: registeredModel.reasoning,
+			input: registeredModel.input,
+			cost: registeredModel.cost,
+			contextWindow: registeredModel.contextWindow,
+			maxTokens: registeredModel.maxTokens,
+			baseUrl: registeredModel.baseUrl,
+		})),
+	};
+}
+
 export function getMessageText(message: unknown): string {
 	if (!message || typeof message !== "object" || !("content" in message)) {
 		return "";
@@ -154,22 +174,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		modelRegistry = ModelRegistry.create(authStorage, modelsJsonPath);
 	}
 	if (withConfiguredAuth) {
-		modelRegistry.registerProvider(model.provider, {
-			baseUrl: model.baseUrl,
-			apiKey: "faux-key",
-			api: fauxProvider.api,
-			models: fauxProvider.models.map((registeredModel) => ({
-				id: registeredModel.id,
-				name: registeredModel.name,
-				api: registeredModel.api,
-				reasoning: registeredModel.reasoning,
-				input: registeredModel.input,
-				cost: registeredModel.cost,
-				contextWindow: registeredModel.contextWindow,
-				maxTokens: registeredModel.maxTokens,
-				baseUrl: registeredModel.baseUrl,
-			})),
-		});
+		modelRegistry.registerProvider(model.provider, fauxProviderConfig(fauxProvider));
 	}
 
 	const agent = new Agent({

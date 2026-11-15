@@ -24,6 +24,7 @@ import { SessionManager } from "../../../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { createResumeSessionToolDefinition } from "../../../src/core/tools/resume-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../../src/index.ts";
+import { fauxProviderConfig } from "../harness.ts";
 import { type HeadlessPiPaths, withHeadlessPi } from "../headless-pi.ts";
 
 function getText(message: AgentSession["messages"][number]): string {
@@ -179,21 +180,7 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 			resourceLoaderOptions: {
 				extensionFactories: [
 					(pi: ExtensionAPI) => {
-						pi.registerProvider(faux.getModel().provider, {
-							baseUrl: faux.getModel().baseUrl,
-							apiKey: "faux-key",
-							api: faux.api,
-							models: faux.models.map((registeredModel) => ({
-								id: registeredModel.id,
-								name: registeredModel.name,
-								api: registeredModel.api,
-								reasoning: registeredModel.reasoning,
-								input: registeredModel.input,
-								cost: registeredModel.cost,
-								contextWindow: registeredModel.contextWindow,
-								maxTokens: registeredModel.maxTokens,
-							})),
-						});
+						pi.registerProvider(faux.getModel().provider, fauxProviderConfig(faux));
 						extensionFactory?.(pi);
 					},
 				],
