@@ -71,6 +71,21 @@ describe("codex usage extension", () => {
 		expect(text).toContain("weekly usage 28%");
 	});
 
+	it("does not round a usage below 100% up to 100%", () => {
+		const text = formatCodexUsage(
+			mapCodexUsagePayload(
+				usagePayload({
+					rate_limit: {
+						primary_window: { used_percent: 99.96, limit_window_seconds: 18_000, reset_at: 1_800_000_000 },
+						secondary_window: { used_percent: 12.34, limit_window_seconds: 604_800, reset_at: 1_800_604_800 },
+					},
+				}),
+			),
+		);
+		expect(text).toContain("5-hour usage 99.9% of 300m window");
+		expect(text).toContain("weekly usage 12.3% of 10080m window");
+	});
+
 	it("includes additional Codex rate limits", () => {
 		const usage = mapCodexUsagePayload(
 			usagePayload({

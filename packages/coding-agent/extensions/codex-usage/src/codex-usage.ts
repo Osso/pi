@@ -229,7 +229,9 @@ function formatWindow(window: CodexRateLimitWindow): string {
 }
 
 export function formatPercent(value: number): string {
-	return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
+	if (Number.isInteger(value)) return `${value}%`;
+	// Rounding 99.95+ up would report a limit as reached before it is.
+	return value > 99.9 && value < 100 ? "99.9%" : `${value.toFixed(1)}%`;
 }
 
 function formatResetTime(timestampSeconds: number): string {
