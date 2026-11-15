@@ -1895,17 +1895,19 @@ Date.now = () => ${Date.now()};
 			toAgentId: agentId,
 			updatedAt: "2026-07-11T00:01:00.000Z",
 		};
-		const committed = commitMultiAgentSteeringMutation(controlDbPath, {
-			agentId,
-			body: message.body,
-			fromAgentId: message.fromAgentId,
-			owner: { agentId: null, sessionId: "supervisor" },
-			recipient: { agentId, sessionId: "steering-child" },
-			requestedLifecycle: "steering_pending",
-			processIdentity: steeringProcessIdentity,
-			sessionPath,
-			updatedAt: message.updatedAt,
-		});
+		const steer = (updatedAt: string, body = message.body) =>
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body,
+				fromAgentId: message.fromAgentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				recipient: { agentId, sessionId: "steering-child" },
+				requestedLifecycle: "steering_pending",
+				processIdentity: steeringProcessIdentity,
+				sessionPath,
+				updatedAt,
+			});
+		const committed = steer(message.updatedAt);
 
 		expect(committed).toMatchObject({
 			agent: { lifecycle: "steering_pending", revision: 4 },
@@ -2024,19 +2026,7 @@ Date.now = () => ${Date.now()};
 				}),
 			},
 		);
-		expect(
-			commitMultiAgentSteeringMutation(controlDbPath, {
-				agentId,
-				body: message.body,
-				fromAgentId: message.fromAgentId,
-				owner: { agentId: null, sessionId: "supervisor" },
-				recipient: { agentId, sessionId: "steering-child" },
-				requestedLifecycle: "steering_pending",
-				processIdentity: steeringProcessIdentity,
-				sessionPath,
-				updatedAt: "2026-07-11T00:06:45.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(steer("2026-07-11T00:06:45.000Z")).toEqual({ ok: false, error: "mutation_mismatch" });
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId, sessionId: "steering-child" },
@@ -2044,19 +2034,7 @@ Date.now = () => ${Date.now()};
 			undefined,
 			{ runtimeInstanceId: JSON.stringify(steeringProcessIdentity) },
 		);
-		expect(
-			commitMultiAgentSteeringMutation(controlDbPath, {
-				agentId,
-				body: message.body,
-				fromAgentId: message.fromAgentId,
-				owner: { agentId: null, sessionId: "supervisor" },
-				recipient: { agentId, sessionId: "steering-child" },
-				requestedLifecycle: "steering_pending",
-				processIdentity: steeringProcessIdentity,
-				sessionPath,
-				updatedAt: "2026-07-11T00:07:00.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(steer("2026-07-11T00:07:00.000Z")).toEqual({ ok: false, error: "mutation_mismatch" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
 			agents: [{ lifecycle: "waiting_for_input", revision: 6 }],
 			counters: { nextMessageNumber: 2 },
@@ -2079,36 +2057,14 @@ Date.now = () => ${Date.now()};
 				runtimeInstanceId: "stale-sender",
 			},
 		);
-		expect(
-			commitMultiAgentSteeringMutation(controlDbPath, {
-				agentId,
-				body: message.body,
-				fromAgentId: message.fromAgentId,
-				owner: { agentId: null, sessionId: "supervisor" },
-				recipient: { agentId, sessionId: "steering-child" },
-				requestedLifecycle: "steering_pending",
-				processIdentity: steeringProcessIdentity,
-				sessionPath,
-				updatedAt: "2026-07-11T00:08:00.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(steer("2026-07-11T00:08:00.000Z")).toEqual({ ok: false, error: "mutation_mismatch" });
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: "supervisor" },
 			process.pid,
 			sessionPath,
 		);
-		const lateSteering = commitMultiAgentSteeringMutation(controlDbPath, {
-			agentId,
-			body: "Wake after idle",
-			fromAgentId: message.fromAgentId,
-			owner: { agentId: null, sessionId: "supervisor" },
-			recipient: { agentId, sessionId: "steering-child" },
-			requestedLifecycle: "steering_pending",
-			processIdentity: steeringProcessIdentity,
-			sessionPath,
-			updatedAt: "2026-07-11T00:09:00.000Z",
-		});
+		const lateSteering = steer("2026-07-11T00:09:00.000Z", "Wake after idle");
 		expect(lateSteering).toMatchObject({
 			agent: { lifecycle: "steering_pending", revision: 7 },
 			message: { id: "message_2" },
