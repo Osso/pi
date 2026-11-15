@@ -1183,13 +1183,13 @@ Notes:
 
 ## Cross-Provider Handoffs
 
-The library supports seamless handoffs between different LLM providers within the same conversation. This allows you to switch models mid-conversation while preserving context, including thinking blocks, tool calls, and tool results.
+The library supports seamless handoffs between different LLM providers within the same conversation. This allows you to switch models mid-conversation while preserving context, including text, tool calls, and tool results.
 
 When messages from one provider are sent to a different provider, the library automatically transforms them for compatibility:
 
 - **User and tool result messages** are passed through unchanged, except that images become text placeholders for models without image input
-- **Assistant messages from the same provider, API and model** are preserved as-is
-- **Assistant messages from other models** have their thinking blocks converted to plain text; redacted thinking is dropped
+- **Assistant messages from the same provider, API and model** are preserved as-is, including thinking blocks
+- **Assistant messages from other models** have their thinking blocks dropped. Signatures and encrypted reasoning only work with the model that produced them, and readable thinking sent as plain text makes the new model treat it as part of the reply
 - **Tool calls and regular text** are preserved unchanged
 
 ```typescript
@@ -1210,7 +1210,7 @@ const claude = models.getModel('anthropic', 'claude-sonnet-4-5')!;
 context.messages.push({ role: 'user', content: 'What is 25 * 18?', timestamp: Date.now() });
 context.messages.push(await models.completeSimple(claude, context, { reasoning: 'medium' }));
 
-// Switch to GPT-5 - it will see Claude's thinking as plain text
+// Switch to GPT-5 - it sees Claude's answer, but not Claude's thinking
 const gpt5 = models.getModel('openai', 'gpt-5-mini')!;
 context.messages.push({ role: 'user', content: 'Is that calculation correct?', timestamp: Date.now() });
 context.messages.push(await models.complete(gpt5, context));
@@ -1221,7 +1221,7 @@ context.messages.push({ role: 'user', content: 'What was the original question?'
 const geminiResponse = await models.complete(gemini, context);
 ```
 
-All providers can handle messages from other providers — text, tool calls and results (including images), and thinking blocks (transformed to plain text). Errored and aborted assistant messages are left out. This enables flexible workflows: start with a fast model, switch to a more capable one for complex reasoning, or maintain continuity across provider outages.
+All providers can handle messages from other providers — text, tool calls and results (including images), and thinking blocks (dropped when the model changes). Errored and aborted assistant messages are left out. This enables flexible workflows: start with a fast model, switch to a more capable one for complex reasoning, or maintain continuity across provider outages.
 
 ## Context Serialization
 

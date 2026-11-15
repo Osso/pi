@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed thinking blocks from a different model being sent to the new model as plain text after a model switch; they are now dropped, while text and tool calls are kept ([#10995](https://github.com/earendil-works/pi-mono/issues/10995))
 - Fixed malformed final tool-call arguments running the tool with the parsed prefix; finished calls are now parsed strictly and validation reports the received text to the model ([#10897](https://github.com/earendil-works/pi-mono/issues/10897))
 - Fixed "The upstream provider returned an error" responses not being retried ([#10842](https://github.com/earendil-works/pi-mono/issues/10842))
 - Fixed OpenAI Responses and Azure OpenAI Responses requests failing when `maxTokens` is below 16: `max_output_tokens` is now raised to the API minimum of 16 ([#6265](https://github.com/earendil-works/pi-mono/issues/6265))
