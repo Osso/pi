@@ -127,6 +127,7 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
 | `compaction.idle` | boolean | `true` | Compact eligible idle sessions at 90% of assigned API cache TTL; requires `compaction.enabled` |
 | `compaction.thresholdPercent` | number | - | Optional auto-compaction threshold as a percentage of the model context window; finite, greater than 0 and at most 100 |
+| `compaction.backgroundStartTokens` | number | - | Optional context token count that starts speculative background compaction; positive integer. Default: 70% of the model context window. Must be below the normal trigger to take effect |
 | `compaction.reserveTokens` | number | `16384` | Summarization output token budget; also determines the default trigger when no percentage or model threshold is set |
 | `compaction.keepRecentMessages` | number | `20` | Most recent context messages (user, assistant, tool results) kept verbatim; older ones are summarized |
 

@@ -8,6 +8,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
+import { parseBackgroundCompactionStartTokens } from "./compaction-threshold.ts";
 import type { ExtensionRunner } from "./extensions/index.ts";
 import { computeIdleCompactionDueAt } from "./idle-compaction.ts";
 import type { CompactionEntry, SessionEntry } from "./session-manager.ts";
@@ -245,7 +246,13 @@ export class BackgroundCompactionState {
 
 	start(contextTokens: number, contextWindow: number): void {
 		if (Date.now() < this.dependencies.getCooldownUntil()) return;
-		if (contextWindow <= 0 || contextTokens < contextWindow * BACKGROUND_COMPACTION_CONTEXT_RATIO) return;
+		if (contextWindow <= 0) return;
+		const configuredStartTokens =
+			this.dependencies.settingsManager.getMergedSettings().compaction?.backgroundStartTokens;
+		const startTokens =
+			parseBackgroundCompactionStartTokens(configuredStartTokens) ??
+			contextWindow * BACKGROUND_COMPACTION_CONTEXT_RATIO;
+		if (contextTokens < startTokens) return;
 		if (this.cache || this.dependencies.isAutoCompacting() || this.dependencies.isCompacting()) return;
 		const model = this.dependencies.getModel();
 		if (!model) return;

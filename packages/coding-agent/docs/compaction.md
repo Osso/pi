@@ -38,7 +38,7 @@ During a running tool-bearing turn, Pi checks the configured threshold after cur
 
 Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to apply 50% across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
 
-`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentMessages` remains unchanged. The percentage does not change the separate speculative 70% cache boundary or add a UI control.
+`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentMessages` remains unchanged. The percentage does not change the separate speculative cache boundary (70%, or `compaction.backgroundStartTokens`). Normal compaction is checked first, so the speculative boundary takes effect only when it is below the normal trigger or add a UI control.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
@@ -127,7 +127,7 @@ On repeated compactions, the summarized span starts at the previous compaction's
 
 ### Speculative background compaction cache
 
-At 70% of the model context window, Pi may start one cache-only compaction for the current session. Tool-heavy turns can start generation between tool calls as soon as a persisted assistant response crosses that boundary. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
+At 70% of the model context window, or at `compaction.backgroundStartTokens` context tokens when set, Pi may start one cache-only compaction for the current session. Tool-heavy turns can start generation between tool calls as soon as a persisted assistant response crosses that boundary. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
 
 When the result is ready:
 

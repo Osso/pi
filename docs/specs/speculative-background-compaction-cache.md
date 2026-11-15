@@ -6,7 +6,7 @@ Speculative background compaction prepares a compaction result before normal com
 
 ### Cache lifecycle
 
-- [x] Start at most one cache-only compaction when context reaches 70% of the model context window, including between tool calls in one active turn.
+- [x] Start at most one cache-only compaction when context reaches `compaction.backgroundStartTokens` tokens when set (a positive integer; invalid values fail with an explicit error), else 70% of the model context window, including between tool calls in one active turn.
 - [x] Emit `background_compaction_start` when speculative generation begins.
 - [x] Keep background generation from appending session entries or mutating active agent messages/context.
 - [x] Preserve a ready result for normal compaction instead of exposing it as a second context.

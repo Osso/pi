@@ -1823,6 +1823,58 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionCalls).toBe(1);
 	});
 
+	it("starts speculative compaction at compaction.backgroundStartTokens below the threshold", async () => {
+		const releaseCompaction = createDeferred<void>();
+		let compactionCalls = 0;
+		const harness = await createHarness({
+			settings: {
+				compaction: {
+					enabled: true,
+					keepRecentMessages: 1,
+					reserveTokens: 0,
+					thresholdPercent: 50,
+					backgroundStartTokens: 40,
+				},
+			},
+			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						await releaseCompaction.promise;
+						return {
+							compaction: {
+								summary: "speculative summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await sessionInternals._checkCompaction(
+			createAssistant(harness, { stopReason: "stop", totalTokens: 39, timestamp: Date.now() }),
+		);
+		expect(compactionCalls).toBe(0);
+
+		const backgroundCompaction = sessionInternals._checkCompaction(
+			createAssistant(harness, { stopReason: "stop", totalTokens: 40, timestamp: Date.now() + 1 }),
+		);
+		try {
+			await vi.waitFor(() => expect(compactionCalls).toBe(1), { timeout: 100 });
+			expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+		} finally {
+			releaseCompaction.resolve();
+			await backgroundCompaction;
+		}
+	});
+
 	it("installs a completed background compaction cache while idle after the branch advances", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;

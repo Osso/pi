@@ -11,3 +11,14 @@ export function parseCompactionThresholdPercent(value: unknown): number | undefi
 	}
 	return value;
 }
+
+/** Validate the optional absolute token count that starts speculative background compaction. */
+export function parseBackgroundCompactionStartTokens(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+		throw new Error(
+			`Invalid compaction.backgroundStartTokens setting: ${String(value)}. Use a positive integer, or remove the setting.`,
+		);
+	}
+	return value;
+}

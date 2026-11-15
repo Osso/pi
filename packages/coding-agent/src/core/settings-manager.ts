@@ -22,6 +22,7 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface CompactionSettings {
 	thresholdPercent?: number; // optional trigger percentage, greater than 0 and at most 100
+	backgroundStartTokens?: number; // optional context tokens that start speculative background compaction; default: 70% of context window
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentMessages?: number; // default: 20
@@ -942,10 +943,6 @@ export class SettingsManager {
 		return this.settings.compaction?.reserveTokens ?? 16384;
 	}
 
-	getCompactionKeepRecentMessages(): number {
-		return this.settings.compaction?.keepRecentMessages ?? 20;
-	}
-
 	getCompactionSettings(): {
 		enabled: boolean;
 		reserveTokens: number;
@@ -957,7 +954,7 @@ export class SettingsManager {
 			...(thresholdPercent === undefined ? {} : { thresholdPercent }),
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
-			keepRecentMessages: this.getCompactionKeepRecentMessages(),
+			keepRecentMessages: this.settings.compaction?.keepRecentMessages ?? 20,
 		};
 	}
 

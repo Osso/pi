@@ -114,6 +114,7 @@
 
 ### Added
 
+- Added `compaction.backgroundStartTokens`: an absolute context token count that starts speculative background compaction instead of 70% of the context window. It takes effect only below the normal compaction trigger.
 - Added `/mission`, a continuous user-owned objective above the working goal. Whenever the working goal is absent, completed, cleared, or paused by the model, Pi copies the mission into a new goal that cannot be completed. Only `/mission pause` and `/mission clear` stop it; no tool can change it.
 
 - Agent profiles accept `implementAs: "<profile>"`. Their children get a child-only `end_design { handoff }` tool that switches the child's own session to that profile's model and effort from its next request, so one agent can design on a strong model and implement on a cheaper one with its context intact. A second call is rejected.
