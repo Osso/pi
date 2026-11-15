@@ -175,7 +175,10 @@ function parseUpdatedPermissions(value: unknown): PermissionRuleUpdate[] | undef
 			return undefined;
 		}
 
-		const rules = update.rules.filter((rule): rule is string => typeof rule === "string");
+		// Claude Code sends rules as { toolName, ruleContent } objects; plain strings are also accepted.
+		const rules = update.rules
+			.map((rule: unknown) => (isRecord(rule) ? rule.ruleContent : rule))
+			.filter((rule): rule is string => typeof rule === "string");
 		if (rules.length !== update.rules.length) {
 			return undefined;
 		}

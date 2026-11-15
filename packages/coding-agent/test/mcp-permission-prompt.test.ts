@@ -251,6 +251,30 @@ describe("createPermissionPromptHandler", () => {
 		expect(callTool).toHaveBeenCalledTimes(1);
 	});
 
+	it("accepts Claude Code rule objects in updated permissions", async () => {
+		const ruleStore = new PermissionRuleStore();
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue(
+			JSON.stringify({
+				behavior: "allow",
+				updatedInput: { command: "git status" },
+				updatedPermissions: [
+					{
+						type: "addRules",
+						destination: "session",
+						behavior: "allow",
+						rules: [{ toolName: "Bash", ruleContent: "git status" }],
+					},
+				],
+			}),
+		);
+		const handler = createHandler(callTool, { ruleStore });
+
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
+
+		expect(callTool).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not use non-session allow rules to skip follow-up prompts in the same session", async () => {
 		const writer = vi.fn();
 		const ruleStore = new PermissionRuleStore({
