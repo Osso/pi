@@ -25,7 +25,7 @@ function isExpectedGrepReadError(error) {
 function isInsideWorkspace(candidate, workspaceRoot) {
 	const relativePath = path.relative(workspaceRoot, candidate);
 	if (relativePath === "") return true;
-	if (relativePath.startsWith("..")) return false;
+	if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`)) return false;
 	return !path.isAbsolute(relativePath);
 }
 

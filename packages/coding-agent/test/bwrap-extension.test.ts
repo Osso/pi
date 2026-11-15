@@ -431,6 +431,20 @@ console.log(JSON.stringify({
 		expect(JSON.parse(result.stdout)).toEqual({ text: "expected text" });
 	});
 
+	it("worker reads a workspace file whose name starts with two dots", () => {
+		const filePath = join(workspaceDir, "..notes.txt");
+		writeFileSync(filePath, "workspace-only content", "utf8");
+
+		const result = spawnSync(
+			process.execPath,
+			[FS_WORKER_PATH, "readText", JSON.stringify({ path: filePath, workspace: workspaceDir })],
+			{ encoding: "utf8" },
+		);
+
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({ text: "workspace-only content" });
+	});
+
 	it("worker rejects file operations outside the workspace root", () => {
 		const result = spawnSync(
 			process.execPath,
