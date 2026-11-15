@@ -55,6 +55,46 @@ const getSuggestions = (
 ) => provider.getSuggestions(lines, cursorLine, cursorCol, { signal: new AbortController().signal, force });
 
 describe("CombinedAutocompleteProvider", () => {
+	describe("slash commands after leading whitespace", () => {
+		it("completes command names and keeps the whitespace", async () => {
+			const provider = new CombinedAutocompleteProvider([{ name: "model" }], process.cwd());
+			for (const [line, expected] of [
+				[" /", " /model "],
+				["  /mod", "  /model "],
+				["\t/mod", "\t/model "],
+			] as const) {
+				const result = await getSuggestions(provider, [line], 0, line.length);
+				assert.ok(result);
+				assert.equal(result.prefix, line.trimStart());
+				assert.deepStrictEqual(
+					result.items.map((item) => item.value),
+					["model"],
+				);
+				const item = result.items[0];
+				assert.ok(item);
+				const applied = provider.applyCompletion([line], 0, line.length, item, result.prefix);
+				assert.equal(applied.lines[0], expected);
+				assert.equal(applied.cursorCol, expected.length);
+			}
+		});
+
+		it("completes command arguments", async () => {
+			const getArgumentCompletions = (prefix: string) => {
+				assert.equal(prefix, "son");
+				return [{ value: "sonnet", label: "sonnet" }];
+			};
+			const provider = new CombinedAutocompleteProvider([{ name: "model", getArgumentCompletions }], process.cwd());
+			const line = "  /model son";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+			assert.ok(result);
+			assert.equal(result.prefix, "son");
+			const item = result.items[0];
+			assert.ok(item);
+			const applied = provider.applyCompletion([line], 0, line.length, item, result.prefix);
+			assert.equal(applied.lines[0], "  /model sonnet");
+		});
+	});
+
 	describe("extractPathPrefix", () => {
 		it("extracts / from 'hey /' when forced", async () => {
 			const provider = new CombinedAutocompleteProvider([], "/tmp");
