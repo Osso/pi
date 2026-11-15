@@ -265,9 +265,8 @@ export class Markdown implements Component {
 		// Update cache
 		this.cachedText = this.text;
 		this.cachedWidth = width;
-		this.cachedLines = result;
-
-		return result.length > 0 ? result : [""];
+		this.cachedLines = result.length > 0 ? result : [""];
+		return this.cachedLines;
 	}
 
 	/**

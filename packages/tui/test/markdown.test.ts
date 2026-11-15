@@ -37,6 +37,13 @@ describe("Markdown component", () => {
 			assert.ok(!lines.some((line) => line.includes("<!--")), "Should not render HTML comments");
 		});
 
+		it("should return the same lines from the cache for text with no visible output", () => {
+			const markdown = new Markdown("<!-- hidden -->", 0, 0, defaultMarkdownTheme);
+
+			assert.deepStrictEqual(markdown.render(40), [""]);
+			assert.deepStrictEqual(markdown.render(40), [""]);
+		});
+
 		it("should render non-comment HTML as plain text", () => {
 			const markdown = new Markdown("<span>visible</span>", 0, 0, defaultMarkdownTheme);
 
