@@ -577,6 +577,31 @@ describe("active slice session loading", () => {
 		expect(serializedIds).toEqual(["kept-1", "compaction-1", "after-1"]);
 	});
 
+	it("forks the path to an entry before the compaction cutoff", () => {
+		const file = join(tempDir, "fork-before-cutoff.jsonl");
+		const entries = [
+			{ type: "session", version: 3, id: "session-1", timestamp: "2025-01-01T00:00:00Z", cwd: tempDir },
+			messageEntry("old-1", null, "summarized"),
+			messageEntry("old-2", "old-1", "also summarized"),
+			messageEntry("kept-1", "old-2", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const forked = SessionManager.forkFrom(file, tempDir, join(tempDir, "forks"), { id: "forked-old" }, "old-2");
+
+		expect(forked.getEntries().map((entry) => entry.id)).toEqual(["old-1", "old-2"]);
+	});
+
 	it("uses the latest compaction on the active branch", () => {
 		const file = join(tempDir, "multiple-compactions.jsonl");
 		const entries = [

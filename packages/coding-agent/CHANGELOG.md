@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed forking a compacted session from an entry before the compaction cutoff, such as `spawn_agent` with inherited context after a mid-turn compaction, copying the post-compaction slice instead of the path to that entry
 - Fixed `grep` truncating a long match line in the middle of an emoji, which left half a surrogate pair before `... [truncated]`
 - Fixed `grep` dropping the directory from match paths under a directory whose name starts with `..`, such as `..cfg/x.txt`
 - Fixed `grep` showing `[Omitted long matching line]` for matches on lines over 10KB, such as minified files, instead of the first 500 characters, and printing earlier matches again when a matching line was not valid UTF-8

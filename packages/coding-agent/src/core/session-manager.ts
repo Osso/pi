@@ -2021,7 +2021,11 @@ export class SessionManager {
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
-		const sourceEntries = loadSessionFileEntries(resolvedSourcePath).fileEntries;
+		let sourceEntries = loadSessionFileEntries(resolvedSourcePath).fileEntries;
+		// A fork point before the compaction cutoff is outside the loaded active slice.
+		if (fromEntryId && !sourceEntries.some((entry) => entry.type !== "session" && entry.id === fromEntryId)) {
+			sourceEntries = withSeekableSessionTranscript(resolvedSourcePath, loadEntriesFromFile);
+		}
 		if (sourceEntries.length === 0) {
 			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
 		}
@@ -2033,13 +2037,9 @@ export class SessionManager {
 		migrateToCurrentVersion(sourceEntries);
 
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(resolvedTargetCwd);
-		if (!existsSync(dir)) {
-			mkdirSync(dir, { recursive: true });
-		}
+		mkdirSync(dir, { recursive: true });
 
-		if (options?.id !== undefined) {
-			assertValidSessionId(options.id);
-		}
+		if (options?.id !== undefined) assertValidSessionId(options.id);
 		const newSessionId = options?.id ?? createSessionId();
 		const timestamp = new Date().toISOString();
 		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
@@ -2057,9 +2057,8 @@ export class SessionManager {
 		writeFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`, { flag: "wx" });
 
 		const sessionEntries = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
-		let entriesToCopy = sessionEntries;
-		if (fromEntryId === null) entriesToCopy = [];
-		else if (fromEntryId) entriesToCopy = buildSessionPath(sessionEntries, fromEntryId);
+		const entriesToCopy =
+			fromEntryId === null ? [] : fromEntryId ? buildSessionPath(sessionEntries, fromEntryId) : sessionEntries;
 		for (const [index, entry] of entriesToCopy.entries()) {
 			const forkedEntry = index === 0 ? { ...entry, parentId: null } : entry;
 			appendFileSync(newSessionFile, `${serializeSessionEntryForPersistence(forkedEntry)}\n`);
