@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed `NO_PROXY` matching so `example.com` and `.example.com` entries also bypass the proxy for subdomains and the root domain, and bracketed IPv6 entries with ports match ([#8737](https://github.com/earendil-works/pi-mono/pull/8737) by [@MeiSiristhebest](https://github.com/MeiSiristhebest))
 - Fixed model and caller headers being unable to override the OpenAI Codex `originator` and `User-Agent` defaults ([#10429](https://github.com/earendil-works/pi-mono/pull/10429))
 - Fixed thinking blocks from a different model being sent to the new model as plain text after a model switch; they are now dropped, while text and tool calls are kept ([#10995](https://github.com/earendil-works/pi-mono/issues/10995))
 - Fixed malformed final tool-call arguments running the tool with the parsed prefix; finished calls are now parsed strictly and validation reports the received text to the model ([#10897](https://github.com/earendil-works/pi-mono/issues/10897))
