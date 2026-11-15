@@ -29,6 +29,14 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+/** A one-turn context; the Codex request does not read user message timestamps. */
+function sayHelloContext(): Context {
+	return {
+		systemPrompt: "You are a helpful assistant.",
+		messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+	};
+}
+
 function codexModel(overrides: Partial<Model<"openai-codex-responses">> = {}): Model<"openai-codex-responses"> {
 	return {
 		id: "gpt-5.1-codex",
@@ -624,10 +632,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" });
 		let sawTextDelta = false;
@@ -677,10 +682,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const retries: Array<{ attempt: number; maxAttempts?: number; delayMs?: number; reason: string }> = [];
 		const streamResult = streamOpenAICodexResponses(model, context, {
@@ -731,10 +733,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const result = await Promise.race([
 			streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" }).result(),
@@ -776,10 +775,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const result = await Promise.race([
 			streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" }).result(),
@@ -822,10 +818,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const result = await streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -857,10 +850,7 @@ describe("openai-codex streaming", () => {
 		);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -946,10 +936,7 @@ describe("openai-codex streaming", () => {
 		);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 		const controller = new AbortController();
 		const events: string[] = [];
 
@@ -1021,10 +1008,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, sessionId, transport: "sse" });
 		await streamResult.result();
@@ -1052,10 +1036,7 @@ describe("openai-codex streaming", () => {
 		);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		await streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1090,10 +1071,7 @@ describe("openai-codex streaming", () => {
 		);
 
 		const model = codexModel({ headers: { originator: "my-app" } });
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		await streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1137,10 +1115,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel({ id: "gpt-5.5", name: "GPT-5.5", thinkingLevelMap: { xhigh: "xhigh" } });
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		await streamSimpleOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1184,10 +1159,7 @@ describe("openai-codex streaming", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		await streamSimpleOpenAICodexResponses(OPENAI_CODEX_MODELS["gpt-5.6-sol"], context, {
 			apiKey: token,
@@ -1239,10 +1211,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel({ id: modelId, name: modelId, thinkingLevelMap: { minimal: "low" } });
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const streamResult = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1326,10 +1295,7 @@ describe("openai-codex streaming", () => {
 				cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
 			});
 
-			const context: Context = {
-				systemPrompt: "You are a helpful assistant.",
-				messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-			};
+			const context = sayHelloContext();
 
 			const result = await streamOpenAICodexResponses(model, context, {
 				apiKey: token,
@@ -1388,10 +1354,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		// No sessionId provided
 		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" });
@@ -1459,10 +1422,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		await streamSimpleOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1582,10 +1542,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1645,10 +1602,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", ReasoningOnlyWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const controller = new AbortController();
 		const resultPromise = streamOpenAICodexResponses(model, context, {
@@ -1738,10 +1692,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1792,10 +1743,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1896,10 +1844,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -1956,10 +1901,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -2021,10 +1963,7 @@ describe("openai-codex streaming", () => {
 
 		const model = codexModel();
 		const sessionId = "aged-ws-session";
-		const firstContext: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const firstContext = sayHelloContext();
 
 		const first = await streamOpenAICodexResponses(model, firstContext, {
 			apiKey: token,
@@ -2125,10 +2064,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("WebSocket", MockWebSocket);
 
 		const model = codexModel();
-		const firstContext: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-		};
+		const firstContext = sayHelloContext();
 
 		const first = await streamOpenAICodexResponses(model, firstContext, {
 			apiKey: token,
@@ -2212,10 +2148,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const resultPromise = streamOpenAICodexResponses(model, context, {
 			apiKey: token,
@@ -2329,10 +2262,7 @@ describe("openai-codex streaming", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
-		const context: Context = {
-			systemPrompt: "You are a helpful assistant.",
-			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
-		};
+		const context = sayHelloContext();
 
 		const retryTimeoutDelays = () =>
 			setTimeoutSpy.mock.calls
