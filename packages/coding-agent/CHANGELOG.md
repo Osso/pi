@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed a settings write dropping changes that another Pi process saved while the settings file was first being created; the write now re-reads the file after taking the lock.
 - Fixed a detached Pyrun evaluation failing a foreground `pi.*` bridge call when it read the bridge response file while the response line was still being written; the runner now keeps an unfinished line until its newline arrives.
 - Fixed periodic checks restarting the audit countdown on every Pi restart or reload; the next audit now comes one interval after the latest audit started, and an overdue audit runs right after restart.
 - Fixed Supervisor goal reviews having no evidence of whether a session's nonblocking `ask_questions` request was still open; reviews now receive the unanswered requests as `openQuestions`.

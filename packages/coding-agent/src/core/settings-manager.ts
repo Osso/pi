@@ -270,31 +270,20 @@ export class FileSettingsStorage implements SettingsStorage {
 
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
 		const path = scope === "global" ? this.globalSettingsPath : this.projectSettingsPath;
-		const dir = dirname(path);
-
 		let release: (() => void) | undefined;
 		try {
-			// Only create directory and lock if file exists or we need to write
-			const fileExists = existsSync(path);
-			if (fileExists) {
+			// Lock before reading an existing file; create the directory and lock only when writing a new one.
+			if (existsSync(path)) release = this.acquireLockSyncWithRetry(path);
+			let next = fn(release ? readFileSync(path, "utf-8") : undefined);
+			if (next !== undefined && !release) {
+				mkdirSync(dirname(path), { recursive: true });
 				release = this.acquireLockSyncWithRetry(path);
+				// Another process can create the file before this lock is taken; merge into its content.
+				if (existsSync(path)) next = fn(readFileSync(path, "utf-8"));
 			}
-			const current = fileExists ? readFileSync(path, "utf-8") : undefined;
-			const next = fn(current);
-			if (next !== undefined) {
-				// Only create directory when we actually need to write
-				if (!existsSync(dir)) {
-					mkdirSync(dir, { recursive: true });
-				}
-				if (!release) {
-					release = this.acquireLockSyncWithRetry(path);
-				}
-				writeFileSync(path, next, "utf-8");
-			}
+			if (next !== undefined) writeFileSync(path, next, "utf-8");
 		} finally {
-			if (release) {
-				release();
-			}
+			release?.();
 		}
 	}
 }
