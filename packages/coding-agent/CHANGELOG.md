@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed image resizing returning a PNG whenever it fit the size limit, even when the JPEG was many times smaller; photos are now sent as the smaller format ([#11551](https://github.com/earendil-works/pi-mono/issues/11551))
 - Fixed `done()` from an overlay `ctx.ui.custom()` closing the topmost overlay instead of its own, which left the finished overlay on screen and the other dialog's promise unresolved ([#10648](https://github.com/earendil-works/pi-mono/issues/10648))
 - Fixed a late image conversion from a partial tool result replacing the final tool image in interactive mode ([#8577](https://github.com/earendil-works/pi-mono/issues/8577))
 - Fixed `sendCustomMessage` with `triggerTurn: false` starting another turn when sent while the agent is streaming; the message is now only recorded ([#8022](https://github.com/earendil-works/pi-mono/pull/8022))
