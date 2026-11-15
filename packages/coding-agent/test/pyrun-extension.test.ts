@@ -275,6 +275,33 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	};
 }
 
+function testMultiAgentStore(): MultiAgentStore {
+	return new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+}
+
+function storeWithScout() {
+	const store = testMultiAgentStore();
+	const spawned = legacyMultiAgentStore(store).spawnAgent({
+		agentType: "scout",
+		cwd: "/repo/project",
+		displayName: "Scout",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	return { store, spawned };
+}
+
+function persistedMultiAgentStore(tempDir: string) {
+	const store = testMultiAgentStore();
+	const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+	store.setPersistenceSessionManager(sessionManager);
+	return { store, sessionManager };
+}
+
+function multiAgentPyrunHarness(store: MultiAgentStore) {
+	return createPyrunHarness({ piRequestHandlers: [createMultiAgentPiRequestHandler({ store })] });
+}
+
 function persistBackgroundStore(store: MultiAgentStore | undefined): void {
 	if (!store || store.getPersistenceTarget()) return;
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-store-"));
@@ -1774,7 +1801,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					stopReason: "toolUse",
 				}),
 			);
-			const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+			const store = testMultiAgentStore();
 			store.setPersistenceSessionManager(sessionManager);
 			let childSessionManager: SessionManager | undefined;
 			const createChildSession = createProductionChildAgentSessionFactory({
@@ -1831,10 +1858,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	);
 
 	it("inherits context for Pyrun pi.agents.spawn requests without an explicit context", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
-		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
-		store.setPersistenceSessionManager(sessionManager);
+		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
 		const contexts: string[] = [];
 		const createChildSession = vi.fn(async ({ context }: { context: string }) => {
 			contexts.push(context);
@@ -1855,10 +1879,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("rejects Pyrun pi.agents.spawn requests with invalid context through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
-		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
-		store.setPersistenceSessionManager(sessionManager);
+		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
 		const createChildSession = vi.fn(async () => ({
 			messages: [fauxAssistantMessage("done")],
 			prompt: async () => {},
@@ -1881,10 +1902,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		["missing", { context: "fresh" }],
 		["non-string", { context: "fresh", prompt: 42 }],
 	])("rejects Pyrun pi.agents.spawn requests with %s prompt", async (_case, params) => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
-		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
-		store.setPersistenceSessionManager(sessionManager);
+		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
 		const createChildSession = vi.fn(async () => ({
 			messages: [fauxAssistantMessage("done")],
 			prompt: async () => {},
@@ -1915,10 +1933,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("returns null from Pyrun pi.agents.wait through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
-		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
-		store.setPersistenceSessionManager(sessionManager);
+		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
 				createMultiAgentPiRequestHandler({
@@ -1963,17 +1978,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("responds to Pyrun pi.agents.current requests through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const { store, spawned } = storeWithScout();
 		store.selectAgentView(spawned.agent.id);
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
 
@@ -1981,20 +1988,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("returns main thread from Pyrun pi.agents.current when selected view is inactive", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const { store, spawned } = storeWithScout();
 		expect(
 			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		store.selectAgentView(spawned.agent.id);
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
 
@@ -2005,10 +2004,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("returns main thread from Pyrun pi.agents.current when no agent is selected", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const store = testMultiAgentStore();
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
 
@@ -2018,16 +2015,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("selects child and main thread from Pyrun pi.agents.select through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const { store, spawned } = storeWithScout();
+		const harness = multiAgentPyrunHarness(store);
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
 		const main = await harness.evaluate({ code: "pi.agents.select('main')" });
@@ -2040,19 +2029,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("selects completed agents for persistent read-only viewing from Pyrun", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const { store, spawned } = storeWithScout();
 		expect(
 			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const harness = multiAgentPyrunHarness(store);
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
 
@@ -2110,16 +2091,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("accepts no-arg Pyrun pi.agents.list requests with null params", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const { store, spawned } = storeWithScout();
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({ code: "pi.agents.list()" });
 
@@ -2141,16 +2114,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("sends agent messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "scout",
-			cwd: "/repo/project",
-			displayName: "Scout",
-			permission: { narrowed: true, policy: "on-request" },
-		});
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const { store, spawned } = storeWithScout();
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({
 			code: "pi.messages.send({'toAgentId': 'agent_1', 'message': 'review this'})",
@@ -2169,10 +2134,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("sends runtime session messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const harness = createPyrunHarness({
-			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
-		});
+		const store = testMultiAgentStore();
+		const harness = multiAgentPyrunHarness(store);
 
 		const result = await harness.evaluate({
 			code: "pi.messages.send({'toAgentId': 'main', 'toSessionId': 'target-session', 'message': 'hello session'})",
