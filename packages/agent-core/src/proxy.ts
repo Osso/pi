@@ -209,6 +209,14 @@ export function streamProxy(model: Model<Api>, context: Context, options: ProxyS
 			reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
+			let sawTerminalEvent = false;
+			const processLine = (line: string): void => {
+				const proxyEvent = parseProxyEventLine(line);
+				const event = proxyEvent ? processProxyEvent(proxyEvent, partial) : undefined;
+				if (!event) return;
+				if (event.type === "done" || event.type === "error") sawTerminalEvent = true;
+				stream.push(event);
+			};
 
 			while (true) {
 				const { done, value } = await reader.read();
@@ -223,29 +231,21 @@ export function streamProxy(model: Model<Api>, context: Context, options: ProxyS
 				buffer = lines.pop() || "";
 
 				for (const line of lines) {
-					const proxyEvent = parseProxyEventLine(line);
-					if (proxyEvent) {
-						const event = processProxyEvent(proxyEvent, partial);
-						if (event) {
-							stream.push(event);
-						}
-					}
+					processLine(line);
 				}
 			}
 
 			buffer += decoder.decode();
 			if (buffer.trim()) {
-				const proxyEvent = parseProxyEventLine(buffer);
-				if (proxyEvent) {
-					const event = processProxyEvent(proxyEvent, partial);
-					if (event) {
-						stream.push(event);
-					}
-				}
+				processLine(buffer);
 			}
 
 			if (options.signal?.aborted) {
 				throw new Error("Request aborted by user");
+			}
+			if (!sawTerminalEvent) {
+				// A clean EOF without done/error means the server dropped the response mid-stream.
+				throw new Error("Connection closed by proxy server before the response completed");
 			}
 
 			stream.end();

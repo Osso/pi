@@ -95,4 +95,32 @@ describe("streamProxy", () => {
 		expect(nonObjectResult.stopReason).toBe("error");
 		expect(nonObjectResult.errorMessage).toMatch(/expected JSON object with string type/);
 	});
+
+	// Regression test for https://github.com/earendil-works/pi/issues/8996
+	it("emits an error instead of hanging when the stream ends without a terminal event", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				sseResponse([
+					'data: {"type":"start"}\n',
+					'data: {"type":"text_start","contentIndex":0}\n',
+					'data: {"type":"text_delta","contentIndex":0,"delta":"partial"}\n',
+				]),
+			),
+		);
+
+		const stream = streamProxy(
+			testModel,
+			{ messages: [] },
+			{ authToken: "token", proxyUrl: "https://proxy.example.test" },
+		);
+		const events: string[] = [];
+		for await (const event of stream) events.push(event.type);
+		const result = await stream.result();
+
+		expect(events).toEqual(["start", "text_start", "text_delta", "error"]);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("Connection closed by proxy server");
+		expect(result.content).toEqual([{ type: "text", text: "partial" }]);
+	});
 });

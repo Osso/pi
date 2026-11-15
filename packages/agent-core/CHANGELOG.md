@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed `streamProxy` leaving `result()` pending when the proxy closed the stream without a `done` or `error` event; it now ends with an error ([#8996](https://github.com/earendil-works/pi-mono/issues/8996)).
 - Fixed harness branch summaries dropping the read and modified file lists from earlier compaction entries.
 - Fixed `afterToolCall` returning `details: null` keeping the tool's original details instead of replacing them.
 - Fixed parallel tool execution starting tools whose preflight finished before a later preflight aborted the run ([#8935](https://github.com/earendil-works/pi-mono/issues/8935)).
