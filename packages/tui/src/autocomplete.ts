@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { existsSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
-import { basename, dirname, join } from "path";
+import { basename, dirname, isAbsolute, join, relative } from "path";
 import { fuzzyFilter } from "./fuzzy.ts";
 
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
@@ -117,17 +117,22 @@ function buildCompletionValue(
 	return `${openQuote}${path}${closeQuote}`;
 }
 
-// Use fd to walk directory tree (fast, respects .gitignore)
+// Use fd to walk directory tree (fast, respects the project .gitignore)
 async function walkDirectoryWithFd(
 	baseDir: string,
+	projectDir: string,
 	fdPath: string,
 	query: string,
 	maxResults: number,
 	signal: AbortSignal,
 ): Promise<Array<{ path: string; isDirectory: boolean }>> {
+	// Walk a project subdirectory from the project root so root .gitignore patterns apply at their own level.
+	const scope = toDisplayPath(relative(projectDir, baseDir));
+	const inProject = scope !== "" && !scope.startsWith("..") && !isAbsolute(scope);
+	const fdRoot = inProject ? projectDir : baseDir;
 	const args = [
 		"--base-directory",
-		baseDir,
+		fdRoot,
 		"--max-results",
 		String(maxResults),
 		"--type",
@@ -145,18 +150,13 @@ async function walkDirectoryWithFd(
 		".git/**",
 	];
 
-	const projectIgnoreFile = join(baseDir, ".gitignore");
-	if (existsSync(projectIgnoreFile)) {
-		args.push("--ignore-file", projectIgnoreFile);
-	}
+	const projectIgnoreFile = join(fdRoot, ".gitignore");
+	if (existsSync(projectIgnoreFile)) args.push("--ignore-file", projectIgnoreFile);
 
-	if (toDisplayPath(query).includes("/")) {
-		args.push("--full-path");
-	}
+	if (toDisplayPath(query).includes("/")) args.push("--full-path");
 
-	if (query) {
-		args.push(buildFdPathQuery(query));
-	}
+	if (query || inProject) args.push(query ? buildFdPathQuery(query) : ".");
+	if (inProject) args.push(scope);
 
 	return await new Promise((resolve) => {
 		if (signal.aborted) {
@@ -178,9 +178,7 @@ async function walkDirectoryWithFd(
 		};
 
 		const onAbort = () => {
-			if (child.exitCode === null) {
-				child.kill("SIGKILL");
-			}
+			if (child.exitCode === null) child.kill("SIGKILL");
 		};
 
 		signal.addEventListener("abort", onAbort, { once: true });
@@ -201,7 +199,7 @@ async function walkDirectoryWithFd(
 			const results: Array<{ path: string; isDirectory: boolean }> = [];
 
 			for (const line of lines) {
-				const displayLine = toDisplayPath(line);
+				const displayLine = toDisplayPath(line).slice(inProject ? scope.length + 1 : 0);
 				const hasTrailingSeparator = displayLine.endsWith("/");
 				const normalizedPath = hasTrailingSeparator ? displayLine.slice(0, -1) : displayLine;
 				if (normalizedPath === ".git" || normalizedPath.startsWith(".git/") || normalizedPath.includes("/.git/")) {
@@ -733,7 +731,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			const scopedQuery = this.resolveScopedFuzzyQuery(query);
 			const fdBaseDir = scopedQuery?.baseDir ?? this.basePath;
 			const fdQuery = scopedQuery?.query ?? query;
-			const entries = await walkDirectoryWithFd(fdBaseDir, this.fdPath, fdQuery, 100, options.signal);
+			const entries = await walkDirectoryWithFd(fdBaseDir, this.basePath, this.fdPath, fdQuery, 100, options.signal);
 			if (options.signal.aborted) {
 				return [];
 			}

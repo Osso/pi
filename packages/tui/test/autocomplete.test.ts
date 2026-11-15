@@ -227,6 +227,28 @@ describe("CombinedAutocompleteProvider", () => {
 			}
 		});
 
+		test("applies the project .gitignore to directory-scoped @ queries", async () => {
+			setupFolder(baseDir, {
+				files: {
+					".gitignore": "*.log\n/build\n",
+					"sub/x.log": "x",
+					"sub/y.ts": "x",
+					"sub/build/z.ts": "x",
+					"build/b.ts": "x",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			for (const [line, expected] of [
+				["@sub/", ["@sub/build/", "@sub/build/z.ts", "@sub/y.ts"]],
+				["@sub/x", []],
+				["@sub/z", ["@sub/build/z.ts"]],
+			] as const) {
+				const result = await getSuggestions(provider, [line], 0, line.length);
+				assert.deepStrictEqual((result?.items ?? []).map((item) => item.value).sort(), [...expected], line);
+			}
+		});
+
 		test("filters are case insensitive", async () => {
 			setupFolder(baseDir, {
 				dirs: ["src"],
