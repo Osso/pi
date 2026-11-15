@@ -21,6 +21,20 @@ describe("Git URL Parsing", () => {
 			});
 		});
 
+		it("should parse git:// URLs", () => {
+			expect(parseGitUrl("git://github.com/user/repo@v1")).toMatchObject({
+				host: "github.com",
+				path: "user/repo",
+				ref: "v1",
+				repo: "git://github.com/user/repo",
+			});
+			expect(parseGitUrl("git://git.example.com/user/repo")).toMatchObject({
+				host: "git.example.com",
+				path: "user/repo",
+				repo: "git://git.example.com/user/repo",
+			});
+		});
+
 		it("should parse protocol URL with ref", () => {
 			const result = parseGitUrl("https://github.com/user/repo@v1.0.0");
 			expect(result).toMatchObject({

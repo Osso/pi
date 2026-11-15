@@ -171,7 +171,8 @@ function parseGenericGitUrl(url: string): GitSource | null {
  */
 export function parseGitUrl(source: string): GitSource | null {
 	const trimmed = source.trim();
-	const hasGitPrefix = trimmed.startsWith("git:");
+	// "git://" is the git protocol, not the "git:" shorthand prefix.
+	const hasGitPrefix = trimmed.startsWith("git:") && !trimmed.startsWith("git://");
 	const url = hasGitPrefix ? trimmed.slice(4).trim() : trimmed;
 
 	if (!hasGitPrefix && !/^(https?|ssh|git):\/\//i.test(url)) {

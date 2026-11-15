@@ -261,6 +261,7 @@
 
 ### Fixed
 
+- Fixed `pi install git://host/user/repo` being parsed as the `git:` shorthand, which produced a broken `https:////` clone URL or treated the source as a local path
 - Fixed `pyrun_eval` error results showing `Error: Error:` when the Pyrun runner already prefixed the evaluation error
 - Fixed `/tree` keeping an entry visible and selected in the labeled-only view after its label was cleared; label edits now reapply the filter.
 - Fixed `/scoped-models` throwing `Missing selected model at index -1` when reordering a model while a search filter was active; the moved model now stays selected.
