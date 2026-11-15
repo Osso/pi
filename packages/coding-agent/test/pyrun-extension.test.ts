@@ -1858,7 +1858,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	);
 
 	it("inherits context for Pyrun pi.agents.spawn requests without an explicit context", async () => {
-		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
+		const { store } = persistedMultiAgentStore(tempDir);
 		const contexts: string[] = [];
 		const createChildSession = vi.fn(async ({ context }: { context: string }) => {
 			contexts.push(context);
@@ -1879,7 +1879,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("rejects Pyrun pi.agents.spawn requests with invalid context through the multi-agent handler", async () => {
-		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
+		const { store } = persistedMultiAgentStore(tempDir);
 		const createChildSession = vi.fn(async () => ({
 			messages: [fauxAssistantMessage("done")],
 			prompt: async () => {},
@@ -1933,7 +1933,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("returns null from Pyrun pi.agents.wait through the multi-agent handler", async () => {
-		const { store, sessionManager } = persistedMultiAgentStore(tempDir);
+		const { store } = persistedMultiAgentStore(tempDir);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
 				createMultiAgentPiRequestHandler({
