@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed deeply nested blockquotes (a long run of `>`) rendering exponentially many lines and crashing with `RangeError: Maximum call stack size exceeded` ([#11272](https://github.com/earendil-works/pi-mono/issues/11272))
 - Fixed a Markdown component whose text renders no visible lines, such as only an HTML comment, returning `[""]` on the first render and `[]` from the cache afterwards, which changed its height between frames
 - Fixed Markdown rendering without a blank line between a list and a directly following heading, code fence or blockquote
 - Fixed `@` file completion scoped to a project subdirectory (such as `@packages/`) listing files that the project root `.gitignore` excludes

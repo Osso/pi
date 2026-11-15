@@ -443,15 +443,14 @@ export class Markdown implements Component {
 				const quoteStyle = (text: string) => this.theme.quote(this.theme.italic(text));
 				const quoteStylePrefix = this.getStylePrefix(quoteStyle);
 				const applyQuoteStyle = (line: string): string => {
-					if (!quoteStylePrefix) {
-						return quoteStyle(line);
-					}
+					if (!quoteStylePrefix) return quoteStyle(line);
 					const lineWithReappliedStyle = line.replace(/\x1b\[0m/g, `\x1b[0m${quoteStylePrefix}`);
 					return quoteStyle(lineWithReappliedStyle);
 				};
 
-				// Calculate available width for quote content (subtract border "│ " = 2 chars)
-				const quoteContentWidth = Math.max(1, width - 2);
+				// Without room for a border ("│ " + 1 column), nest bare: re-wrapping at width 1 grows output exponentially.
+				const hasBorder = width >= 3;
+				const quoteContentWidth = hasBorder ? width - 2 : width;
 
 				// Blockquotes contain block-level tokens (paragraph, list, code, etc.), so render
 				// children with renderToken() instead of renderInlineTokens().
@@ -462,18 +461,20 @@ export class Markdown implements Component {
 				};
 				const quoteTokens = token.tokens || [];
 				const renderedQuoteLines: string[] = [];
-				for (let i = 0; i < quoteTokens.length; i++) {
-					const quoteToken = quoteTokens[i];
-					if (!quoteToken) throw new Error(`Missing blockquote token at index ${i}`);
-					const nextQuoteToken = quoteTokens[i + 1];
-					renderedQuoteLines.push(
-						...this.renderToken(quoteToken, quoteContentWidth, nextQuoteToken?.type, quoteInlineStyleContext),
-					);
+				for (const [i, quoteToken] of quoteTokens.entries()) {
+					const nextType = quoteTokens[i + 1]?.type;
+					for (const line of this.renderToken(quoteToken, quoteContentWidth, nextType, quoteInlineStyleContext)) {
+						renderedQuoteLines.push(line);
+					}
 				}
 
 				// Avoid rendering an extra empty quote line before the outer blockquote spacing.
 				while (renderedQuoteLines.length > 0 && renderedQuoteLines[renderedQuoteLines.length - 1] === "") {
 					renderedQuoteLines.pop();
+				}
+				if (!hasBorder) {
+					for (const line of renderedQuoteLines) lines.push(line);
+					break;
 				}
 
 				for (const quoteLine of renderedQuoteLines) {
@@ -483,9 +484,7 @@ export class Markdown implements Component {
 						lines.push(this.theme.quoteBorder("│ ") + wrappedLine);
 					}
 				}
-				if (nextTokenType && nextTokenType !== "space") {
-					lines.push(""); // Add spacing after blockquotes (unless space token follows)
-				}
+				if (nextTokenType && nextTokenType !== "space") lines.push(""); // spacing unless a space token follows
 				break;
 			}
 
