@@ -61,15 +61,21 @@ export function estimateMessageTokens(message: Message): number {
 }
 
 function getLastAssistantUsageInfo(messages: readonly Message[]): { usage: Usage; index: number } | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (!message) throw new Error(`Missing message at index ${i}`);
-		if (message.role !== "assistant") continue;
-		const assistant = message as AssistantMessage;
-		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") continue;
-		if (calculateContextTokens(assistant.usage) > 0) return { usage: assistant.usage, index: i };
+	let latestPrefixTimestamp = Number.NEGATIVE_INFINITY;
+	let usageInfo: { usage: Usage; index: number } | undefined;
+	for (const [index, message] of messages.entries()) {
+		if (message.role === "assistant") {
+			const assistant = message as AssistantMessage;
+			// A newer message inserted before this response (e.g. a compaction summary) makes its usage stale.
+			const usageAppliesToPrefix = assistant.timestamp >= latestPrefixTimestamp;
+			const completed = assistant.stopReason !== "aborted" && assistant.stopReason !== "error";
+			if (usageAppliesToPrefix && completed && calculateContextTokens(assistant.usage) > 0) {
+				usageInfo = { usage: assistant.usage, index };
+			}
+		}
+		latestPrefixTimestamp = Math.max(latestPrefixTimestamp, message.timestamp);
 	}
-	return undefined;
+	return usageInfo;
 }
 
 function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
