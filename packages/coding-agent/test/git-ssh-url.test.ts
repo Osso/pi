@@ -35,6 +35,14 @@ describe("Git URL Parsing", () => {
 			});
 		});
 
+		it("should accept uppercase URL schemes", () => {
+			expect(parseGitUrl("HTTPS://github.com/user/repo")).toMatchObject({
+				host: "github.com",
+				path: "user/repo",
+				repo: "https://github.com/user/repo",
+			});
+		});
+
 		it("should parse protocol URL with ref", () => {
 			const result = parseGitUrl("https://github.com/user/repo@v1.0.0");
 			expect(result).toMatchObject({

@@ -173,9 +173,12 @@ export function parseGitUrl(source: string): GitSource | null {
 	const trimmed = source.trim();
 	// "git://" is the git protocol, not the "git:" shorthand prefix.
 	const hasGitPrefix = trimmed.startsWith("git:") && !trimmed.startsWith("git://");
-	const url = hasGitPrefix ? trimmed.slice(4).trim() : trimmed;
+	// URL schemes are case-insensitive; the prefix checks below compare lowercase.
+	const url = (hasGitPrefix ? trimmed.slice(4).trim() : trimmed).replace(/^[a-z]+:\/\//i, (scheme) =>
+		scheme.toLowerCase(),
+	);
 
-	if (!hasGitPrefix && !/^(https?|ssh|git):\/\//i.test(url)) {
+	if (!hasGitPrefix && !/^(https?|ssh|git):\/\//.test(url)) {
 		return null;
 	}
 

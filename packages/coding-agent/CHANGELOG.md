@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `pi install` with an uppercase URL scheme such as `HTTPS://github.com/user/repo` producing a broken `https://HTTPS://` clone URL
 - Fixed `/usage` showing a usage just below the limit, such as 99.96%, as `100.0%`, which also pushed the account table columns out of line
 - Fixed `set_session_name` cutting an emoji in half when bounding a long name without spaces, which stored a broken character in the session name
 - Fixed a pasted clipboard image being deleted before the model could read it when the prompt was queued into a turn that was already running
