@@ -5,8 +5,7 @@
 // context attachments (`environment`, `date`, `total_tokens_reminder`, mid-turn
 // `queued_command` steers, ...), `caller` on tool_use blocks, block-shaped tool
 // results. A full reconversion drops all of it, so the rebuilt prompt diverges at
-// messages[0] and the next request re-caches the whole conversation
-// (diag/AUDIT.md, "a rebuild re-caches the whole conversation").
+// messages[0] and the next request re-caches the whole conversation.
 //
 // So a rebuild keeps CC's own records for the longest prefix that still says what
 // pi's history says, and converts only what follows. "Says the same" compares the

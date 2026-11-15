@@ -112,8 +112,7 @@ export function buildFreshQueryOptions(input: FreshQueryOptionsInput): {
 		// includeGitInstructions:false drops the gitStatus block from the preset.
 		// That block is the trailing suffix of the cached system block, and a
 		// git-state transition (new file, staging, commit) rewrites it — busting
-		// the prompt cache for the whole conversation from there on (see
-		// diag/probe-git-cache.mjs). The bridge re-invokes CC per turn, so this
+		// the prompt cache for the whole conversation from there on. The bridge re-invokes CC per turn, so this
 		// hit on every transition. Cost here is nil: the setting also strips
 		// CC's git-workflow guidance from its Bash tool prompt, but the provider
 		// path enables only native WebSearch, so Bash's definitions never ship.
@@ -129,7 +128,7 @@ export function buildFreshQueryOptions(input: FreshQueryOptionsInput): {
 		},
 		extraArgs,
 		// Ends CC's turn after the tool batch that ended pi's run, without another model
-		// request (pinned by tests/int-cc-contracts.mjs). Other batches continue as usual.
+		// request. Other batches continue as usual.
 		hooks: { PostToolBatch: [{ hooks: [async () => (queryCtx.turnEnded ? { continue: false } : {})] }] },
 		...(effort ? { effort } : {}),
 		...(mcpServers ? { mcpServers } : {}),

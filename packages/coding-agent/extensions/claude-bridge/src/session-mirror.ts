@@ -436,13 +436,12 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string): void 
 //
 // Why reuse the sessionId across rebuilds:
 //   CC re-reads the JSONL on every --resume call — no in-process UUID
-//   caching. Validated in tests/exp-session-clear.mjs, including the case
-//   where CC had appended its own tool_use/tool_result records between
+//   caching. This holds even when
+//   CC had appended its own tool_use/tool_result records between
 //   rebuilds. Preserving the UUID means stable log correlation across
 //   provider switches and no orphaned session files.
 //
-// Log strings still say "Case 1/2/3/4" so existing diagnostics (int-cache.sh,
-// int-session-resume.mjs) keep grepping the same anchors.
+// Log strings still say "Case 1/2/3/4" so log searches keep the same anchors.
 /** The "(none)" bucket's mirror when a shorter context is an unrelated short caller, not a rewrite. */
 function findShorterUnownedMirror(
 	sharedSession: SessionState | null,

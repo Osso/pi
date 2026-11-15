@@ -39,7 +39,7 @@ export function steerMissedSession(c: QueryContext, text: string): void {
  *  follow-up semantics.
  *
  *  Both the post-tool-call drain and the FIFO ordering are CC CLI internals,
- *  not SDK contract — tests/int-tool-message.mjs is the tripwire if they move. */
+ *  not SDK contract, so a Claude Code update can change them. */
 export async function deliverToolResults(
 	c: QueryContext,
 	results: McpResult[],

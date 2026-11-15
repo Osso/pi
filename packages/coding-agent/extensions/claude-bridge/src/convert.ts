@@ -170,7 +170,7 @@ export function convertPiMessages(
 			// R_X, aborted turn, R_Y — would then start a second results message for
 			// R_Y. repairToolPairing consumes both pending ids at the first one, stubs
 			// Y there and drops the real R_Y as unmatched, destroying the parallel
-			// result this merge exists to preserve. unit-import.mjs pins the shape.
+			// result this merge exists to preserve.
 			if (!content.length) {
 				dropped.abortedTurns++;
 				continue;
@@ -192,8 +192,7 @@ export function convertPiMessages(
 			// applies the repair itself, so this cannot be opted out of by skipping
 			// our own call. (Claude Code's live writer splits a turn across records
 			// — one per content block, one per result — so the single-message shape
-			// is repairToolPairing's requirement, not a copy of CC's own layout;
-			// tests/int-cc-contracts.mjs pins both facts.)
+			// is repairToolPairing's requirement, not a copy of CC's own layout.)
 			//
 			// Collecting into the turn's first result message rather than the
 			// immediately preceding one also handles a steer landing mid-execution,
@@ -207,7 +206,7 @@ export function convertPiMessages(
 			// Both hoists reorder the steer against wall-clock: Claude sees results
 			// that were still running when the steer arrived. Claude Code normalizes
 			// to the same order — it records a mid-turn steer as an `attachment`, and
-			// reorderAttachmentsForAPI (claude-code-rip src/utils/messages.ts:1481)
+			// reorderAttachmentsForAPI (Claude Code src/utils/messages.ts)
 			// bubbles attachments up to the nearest assistant or tool_result message
 			// and re-inserts them after it. The on-disk form differs, the order does not.
 			const block: ToolResultBlock = {

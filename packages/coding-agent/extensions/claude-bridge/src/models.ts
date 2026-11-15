@@ -96,7 +96,7 @@ export type ClaudeCodeRuntimeModel = {
 	contextWindow: number;
 };
 
-// Measured Claude Agent SDK behavior - see diag/CONTEXT-SIZE.md:
+// Measured Claude Agent SDK behavior:
 // - The `[1m]` suffix is the only reliable way to request 1M context through
 //   the SDK; bare ids serve 200K.
 // - An unentitled `[1m]` id is rejected outright (400/429), failing every turn
@@ -106,7 +106,7 @@ export type ClaudeCodeRuntimeModel = {
 //   requests, or pi's status bar and compaction threshold misreport.
 // [1m] ids verified to serve 1M on every plan (sonnet-5-5 measured on Pro with
 // and without Extra Usage; opus-5-5 on Max per its run notes). A new model
-// serves 200K until someone measures it (diag/context-size.mjs) and adds it
+// serves 200K until someone measures it and adds it
 // here. Known exception unrelated to long context: fable-5 is not included
 // with Pro account without Extra Usage.
 const MEASURED_ONE_M = new Set([
@@ -150,7 +150,7 @@ export function resolveClaudeCodeRuntimeModel(
 			contextWindow: useOneM ? ONE_M_CONTEXT : TWO_HUNDRED_K_CONTEXT,
 		};
 	}
-	// No measured row: bare id at 200K, the safe default (see diag/CONTEXT-SIZE.md).
+	// No measured row: bare id at 200K, the safe default.
 	return { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
 }
 
@@ -161,7 +161,7 @@ export function claudeCodeModelId(model: { id: string }, settings: LongContextSe
 // Produce the model metadata registered with pi. The registered contextWindow must
 // match the window the bridge actually requests from Claude Code, or pi's status
 // bar and auto-compaction threshold will misreport. The runtime policy is based
-// on measured SDK behavior - see diag/CONTEXT-SIZE.md
+// on the measured SDK behavior above MEASURED_ONE_M.
 export function applyLongContext<T extends { id: string; name: string; contextWindow?: number | null }>(
 	models: T[],
 	settings: LongContextSettings,

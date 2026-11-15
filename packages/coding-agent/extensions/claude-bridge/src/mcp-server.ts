@@ -32,7 +32,7 @@ import type { McpResult } from "./extract-tool-results.ts";
 // counting calls mispairs results as soon as the two diverge.
 //
 // This is a Claude Code extension, not part of the MCP spec — CC sets it in
-// `src/services/mcp/client.ts` (see reference-code/claude-code-rip). If CC ever
+// its MCP client (`src/services/mcp/client.ts`). If CC ever
 // stops sending it, every tool call fails with the error below rather than
 // silently pairing results to the wrong call, which is the intended tradeoff.
 const TOOL_USE_ID_META = "claudecode/toolUseId";

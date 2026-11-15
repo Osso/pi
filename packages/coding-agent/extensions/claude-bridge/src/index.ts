@@ -296,7 +296,7 @@ const promptCaptures = sharedPromptCaptures((diagnostic) => {
  *  MCP handler Claude Code is still waiting on; a live prompt stream is an unresolved
  *  ack. The activeQueryContexts leak was present on every single happy-path run and
  *  no test noticed, because nothing asserted that anything ends clean — so assert it
- *  where the real sessions are, and let diag/audit-warnings.mjs scan for it. */
+ *  where the real sessions are. */
 function reportLeaks(label: string): void {
 	const pendingCalls = [...activeQueryContexts].reduce((n, c) => n + c.pendingToolCalls.size, 0);
 	const liveStreams = [...activeQueryContexts].filter((c) => c.promptStream !== null).length;

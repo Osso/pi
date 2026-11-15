@@ -449,9 +449,8 @@ export async function consumeQuery(
 
 	for await (const message of sdkQuery) {
 		// CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message consumeQuery
-		// sees, one JSON object per line. Used by tests/lib/record-sdk-streams.mjs to
-		// capture replay fixtures, so unit tests assert against message shapes Claude
-		// Code really emitted rather than ones we imagined.
+		// sees, one JSON object per line, to capture replay fixtures, so unit tests
+		// assert against message shapes Claude Code really emitted rather than ones we imagined.
 		const recordStreamPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
 		if (recordStreamPath) appendFileSync(recordStreamPath, `${JSON.stringify(message)}\n`);
 		if (wasAborted()) break;
