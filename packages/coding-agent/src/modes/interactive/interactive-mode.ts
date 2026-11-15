@@ -2192,6 +2192,7 @@ export class InteractiveMode {
 	}
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
+		const session = this.session;
 		this.clearChildAgentView();
 		this.multiAgentStore?.clearSelectedAgentView();
 		this.unsubscribe?.();
@@ -2201,11 +2202,11 @@ export class InteractiveMode {
 		if (options.renderBeforeBind) {
 			this.renderCurrentSessionState();
 			this.subscribeToAgent();
-			await this.bindCurrentSessionExtensions();
-		} else {
-			await this.bindCurrentSessionExtensions();
-			this.subscribeToAgent();
 		}
+		await this.bindCurrentSessionExtensions();
+		// A newer rebind replaced the session while extensions were binding; it owns the subscription.
+		if (this.session !== session) return;
+		if (!options.renderBeforeBind) this.subscribeToAgent();
 		await this.updateAvailableProviderCount();
 		this.updateEditorBorderColor();
 		this.updateTerminalTitle();
