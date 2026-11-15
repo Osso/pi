@@ -38,7 +38,6 @@ import {
 } from "./isolated-summary.ts";
 import { createToolServer } from "./mcp-server.ts";
 import { buildModels, claudeCodeModelId } from "./models.ts";
-import { setAskClaudeQueryImpl } from "./prompt-and-wait.ts";
 import { type PromptCapture, projectPromptCapture, sharedPromptCaptures } from "./prompt-capture.ts";
 import { makePromptStream, type PromptStream, userMessage } from "./prompt-stream.ts";
 import { abandonedQueries, deliverToolResults, discardRewrittenQuery, drainForAbort } from "./query-lifecycle.ts";
@@ -82,12 +81,9 @@ import { piUI, setPiUI } from "./ui-state.ts";
 // see the "--- Provider ---" block in activate() below.
 const ACTIVE_STREAM_SIMPLE_KEY = Symbol.for("claude-bridge:activeStreamSimple");
 
-// Claude Code's own builtin tools, for the AskClaude path where CC really runs
-// them. The provider enables only native WebSearch, not these tools.
 // MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
 const MODELS = buildModels(getModels("anthropic"));
 const quotaRetrySessions = new Set<string | null>();
-let askClaudeToolName = "AskClaude";
 
 async function resumeAfterAccountRecheck(
 	stream: AssistantMessageEventStream,
@@ -177,9 +173,6 @@ function replayOnNextAccount(queryCtx: QueryContext): boolean {
 
 // --- Error handling ---
 
-// AskClaude mode presets — controls which CC tools are blocked per mode.
-// Only block tools that can't work (no pi TUI for user interaction).
-// Other CC tools (Agent, SendMessage, RemoteTrigger, Tasks, etc.) are intentionally not blocked.
 // The SDK's query(), or a test double (see setQuery). The compact/summary
 // path calls the real query() directly — its subprocess must never be swapped
 // out from under a real compaction.
@@ -192,9 +185,6 @@ export const __test = {
 	},
 	setIsolatedQuery(fn: typeof query | null) {
 		setIsolatedQueryImpl(fn);
-	},
-	setAskClaudeQuery(fn: typeof query | null) {
-		setAskClaudeQueryImpl(fn);
 	},
 	resetAccountProfiles() {
 		resetAccountProfiles();
@@ -261,8 +251,8 @@ function retainPendingToolFailure(c: QueryContext): void {
 	});
 }
 
-// Defaults that silently cost the user something (no Opus 1M on Max, no
-// AskClaude tool) are announced once. Deferred to the first bridge query rather
+// Defaults that silently cost the user something (no Opus 1M on Max) are
+// announced once. Deferred to the first bridge query rather
 // than session_start: the notice persists a flag to the global config, and
 // firing it on startup would write that file for every pi session that merely
 // has this extension installed. One message, because consecutive info notifies
@@ -354,10 +344,7 @@ function contextForToolResults(results: McpResult[]): QueryContext | undefined {
 	return undefined;
 }
 
-function resolveMcpTools(
-	context: Context,
-	excludeToolName?: string,
-): {
+function resolveMcpTools(context: Context): {
 	mcpTools: Tool[];
 	customToolNameToSdk: Map<string, string>;
 	customToolNameToPi: Map<string, string>;
@@ -369,7 +356,7 @@ function resolveMcpTools(
 	if (!context.tools) return { mcpTools, customToolNameToSdk, customToolNameToPi };
 
 	for (const tool of context.tools) {
-		if (tool.name === excludeToolName || tool.name === "web_search") continue;
+		if (tool.name === "web_search") continue;
 		const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
 		mcpTools.push(tool);
 		customToolNameToSdk.set(tool.name, sdkName);
@@ -584,7 +571,7 @@ function streamClaudeAgentSdk(
 
 	// Resolve this before claiming or resetting shared query state. A failure must not
 	// leave a stream claimed on a context that nobody can finish.
-	const { mcpTools, customToolNameToSdk, customToolNameToPi } = resolveMcpTools(context, askClaudeToolName);
+	const { mcpTools, customToolNameToSdk, customToolNameToPi } = resolveMcpTools(context);
 	const queryInputs = prepareQueryInputs(
 		model,
 		context,
@@ -709,9 +696,6 @@ export default function (pi: ExtensionAPI) {
 		},
 		clearPendingToolFailures() {
 			pendingToolFailures.clear();
-		},
-		setAskClaudeToolName(name) {
-			askClaudeToolName = name;
 		},
 		streamClaudeAgentSdk,
 		activeStreamSimpleKey: ACTIVE_STREAM_SIMPLE_KEY,

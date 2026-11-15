@@ -45,7 +45,7 @@ describe("Claude bridge message conversion", () => {
 			},
 		] satisfies PiMessage[];
 
-		const { anthropicMessages } = convertPiMessages(messages);
+		const { anthropicMessages } = convertPiMessages(messages, new Map());
 
 		expect(anthropicMessages).toEqual([
 			{
@@ -57,7 +57,9 @@ describe("Claude bridge message conversion", () => {
 			},
 			{
 				role: "assistant",
-				content: [{ type: "tool_use", id: "call-1", name: "Read", input: { path: "image.png" } }],
+				content: [
+					{ type: "tool_use", id: "call-1", name: "mcp__custom-tools__read", input: { path: "image.png" } },
+				],
 			},
 			{
 				role: "user",

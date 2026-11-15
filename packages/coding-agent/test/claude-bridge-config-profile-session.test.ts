@@ -30,20 +30,13 @@ describe("claude bridge config", () => {
 		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
 		writeFileSync(
 			join(agentDir, "claude-bridge.json"),
-			JSON.stringify({
-				provider: { plan: "pro", strictMcpConfig: true },
-				askClaude: { enabled: true, defaultMode: "read" },
-			}),
+			JSON.stringify({ provider: { plan: "pro", strictMcpConfig: true } }),
 		);
-		writeFileSync(
-			join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"),
-			JSON.stringify({ provider: { plan: "max" }, askClaude: { enabled: false } }),
-		);
+		writeFileSync(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"), JSON.stringify({ provider: { plan: "max" } }));
 
 		expect(loadConfig(cwd)).toEqual({
 			startupNoticeShown: undefined,
 			provider: { plan: "max", strictMcpConfig: true },
-			askClaude: { enabled: false, defaultMode: "read" },
 		});
 	});
 });

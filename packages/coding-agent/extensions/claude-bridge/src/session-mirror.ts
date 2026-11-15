@@ -73,7 +73,7 @@ function readPreviousSession(sessionId: string, cwd: string): JsonlRecord[] {
 }
 
 /** The session key a pi session's provider calls address. Unattributed calls
- *  (no options.sessionId — AskClaude's direct sync, or a host that omits it)
+ *  (a host that omits options.sessionId)
  *  share the "(none)" bucket: they cannot be told apart, so they share the
  *  pre-existing single-slot semantics. */
 function sessionKey(piSessionId: string | null | undefined): string {
@@ -214,7 +214,7 @@ export function sponsorMarkRebuildForSession(piSession: string | null, event: st
 function convertAndImportMessages(
 	session: Session,
 	messages: Context["messages"],
-	customToolNameToSdk?: Map<string, string>,
+	customToolNameToSdk: Map<string, string>,
 	native: readonly JsonlRecord[] = [],
 	modelId?: string,
 ): Session {
@@ -467,7 +467,7 @@ export function deleteEphemeralSession(
 export function syncSharedSession(
 	messages: Context["messages"],
 	cwd: string,
-	customToolNameToSdk?: Map<string, string>,
+	customToolNameToSdk: Map<string, string>,
 	modelId?: string,
 	piSessionId?: string | null,
 ): SyncResult {
@@ -505,7 +505,7 @@ export function syncSharedSession(
 			return { sessionId: sharedSession.sessionId };
 		}
 	}
-	// The unowned "(none)" bucket can serve short AskClaude/reentrant contexts
+	// The unowned "(none)" bucket can serve short reentrant contexts
 	// unrelated to its longer conversation. Start clean and preserve that bucket;
 	// completion deletes the ephemeral session (see preserveSharedSession).
 	// A session-owned mirror instead rebuilds below from pi's authoritative history:

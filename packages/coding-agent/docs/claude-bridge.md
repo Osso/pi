@@ -1,6 +1,6 @@
 # Claude bridge
 
-Pi includes the first-party Claude bridge; no separate bridge installation is required. It uses the Claude Agent SDK for the `claude-bridge` provider and the optional AskClaude tool. Existing Claude authentication and bridge configuration remain in use. Pi skips a duplicate external bridge without changing user settings.
+Pi includes the first-party Claude bridge; no separate bridge installation is required. It uses the Claude Agent SDK for the `claude-bridge` provider. Existing Claude authentication and bridge configuration remain in use. Pi skips a duplicate external bridge without changing user settings.
 
 The bridge derives from pi-claude-bridge by Eli Dickinson, originally based on claude-agent-sdk-pi by Prateek Sunal. The original MIT license follows this guide.
 
@@ -8,7 +8,7 @@ The bridge derives from pi-claude-bridge by Eli Dickinson, originally based on c
 
 The npm package pins Claude Agent SDK 0.3.293; npm installs its platform-specific optional executable. Compiled Pi distributions ship the SDK executable at `<package-dir>/claude/claude` (or `claude.exe` on Windows), with Anthropic license notices. `provider.pathToClaudeCodeExecutable`, when configured, takes precedence. Update Pi to update the bundled bridge and SDK; existing bridge settings remain in place and are not rewritten to remove an external installation.
 
-The bridge also requires `@anthropic-ai/sdk` 0.124.0 for SDK types, `@modelcontextprotocol/sdk` 1.32.2 for MCP tool integration, `cc-session-io` 0.4.0 for Claude session transcripts, and `change-case` 5.4.4 for name conversion.
+The bridge also requires `@anthropic-ai/sdk` 0.124.0 for SDK types, `@modelcontextprotocol/sdk` 1.32.2 for MCP tool integration, and `cc-session-io` 0.4.0 for Claude session transcripts.
 
 ## Provider
 
@@ -32,37 +32,12 @@ For expired tokens, the existing Claude helper finishes and configured-profile p
 
 Requires Pi's built-in `/usage` dispatcher emitting `claude-bridge:usage-request`; the bridge handles that event rather than registering a competing slash command. `/usage reset` and other arguments are unsupported for Claude: the bridge cannot reset subscription quota or consume reset credits.
 
-## AskClaude Tool
-
-Opt-in: set `askClaude.enabled` to `true` (see [Configuration](#configuration)). Available when using any non-claude-bridge provider. Pi's LLM can delegate tasks to Claude Code and wait for it to answer a question or perform a task. Examples of how to use:
-
-- "Ask Claude to plan a fix"
-- "If you get stuck, ask claude for help"
-- "Ask claude to review the plan in @foo.md, implement it, then ask an isolated=true claude to review the implementation"
-- "Ask claude to poke holes in this theory"
-
-Delegated calls don't read global `CLAUDE.md` files or Claude Code's skill listing, and always get Claude Code's own system prompt.
-
-### Parameters
-
-- **`prompt`** — the question or task for Claude Code
-- **`mode`** — `read` (default, read files and search/fetch on web), `none`, or `full` (read+write+bash, disable this mode with `allowFullMode: false` in config)
-- **`model`** — `opus` (default), `sonnet`, `haiku`, or a full model ID
-- **`thinking`** — effort level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`
-- **`isolated`** — when `true`, Claude gets a clean session with no conversation history (default: `false`)
-
 ## Configuration
 
 Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config directory, usually `.pi/claude-bridge.json` (project; merged over global).
 
 ```json
 {
-  "askClaude": {
-    "enabled": true,
-    "allowFullMode": true,
-    "defaultIsolated": false,
-    "description": "Custom tool description override"
-  },
   "provider": {
     "plan": "max",
     "longContextExtraUsage": false,
@@ -71,16 +46,6 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
   }
 }
 ```
-
-`askClaude`:
-- `enabled` — register the AskClaude tool (default `false`). If it's unset, the startup notice below points this out once.
-- `name` — override the tool's pi-side name (default `"AskClaude"`)
-- `label` — override the TUI label (default `"Ask Claude Code"`)
-- `description` — override the tool description. Default when `allowFullMode: true`: *"Delegate to Claude Code for a second opinion or analysis (code review, architecture questions, debugging theories), or to autonomously handle a task. Defaults to read-only mode — use full mode when the user wants to delegate a task that requires changes. Prefer to handle straightforward tasks yourself."*
-- `defaultMode` — `"read"` (default), `"none"`, or `"full"`
-- `defaultIsolated` — start each call in a fresh session (default `false`)
-- `allowFullMode` — allow `mode: "full"`; set `false` to lock it out
-- `appendSkills` — forward pi's skills block into the system prompt (default `true`)
 
 `provider`:
 - `accountProfiles` — explicit ordered list of existing named credential profiles; enables provider rotation on subscription quota rejection or the exact organization-disabled error (see below). Unset by default.
@@ -114,15 +79,15 @@ Rejected profiles are skipped until their reported reset time, then become eligi
 
 Selection, dated rejections, and successful quota observations are shared through `account-state/`; each process writes only its own file. Observation time, not file rewrite time, lets recovered capacity supersede stale denials from other live processes. A denial recorded at or after a quota check began wins over its delayed successful response. Cancellation neither restores nor rejects a profile. Reset deadlines from before a successful recovery do not carry into later denials, regardless of peer-file order. Existing state files retain their denial evidence on read. Undated denials remain process-local until reset/restart or successful live rechecking. If all refreshed profiles are still unavailable, the error remains `Claude account profiles exhausted. No eligible account remains.` Regular provider quota and exact organization-disabled failures still use Pi's retry handling. Generic errors do not restore eligibility or record quota denials.
 
-**Limits:** `accountProfiles` applies to normal provider turns and isolated one-off calls (compaction summaries, session titles), which retry on the next eligible account within the call after a quota rejection or the exact organization-disabled failure. AskClaude does not use this rotation path. Invalid or missing profile credentials fail the call rather than silently choosing another account.
+**Limits:** `accountProfiles` applies to normal provider turns and isolated one-off calls (compaction summaries, session titles), which retry on the next eligible account within the call after a quota rejection or the exact organization-disabled failure. Invalid or missing profile credentials fail the call rather than silently choosing another account.
 
-**Startup notice:** the first session lists `provider.plan` and `askClaude.enabled` if unset, then records `startupNoticeShown` in the global config so it doesn't nag again.
+**Startup notice:** the first session points out `provider.plan` if unset, then records `startupNoticeShown` in the global config so it doesn't nag again.
 
 **Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Overriding `contextWindow` or other fields requires changing the bridge model metadata — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
 
 ## Session working directory
 
-The bridge uses the calling Pi session's working directory for provider and AskClaude calls. Project configuration follows that directory.
+The bridge uses the calling Pi session's working directory for provider calls. Project configuration follows that directory.
 
 ## Debugging
 
@@ -131,7 +96,7 @@ Configured-profile OAuth observations use a private normal-operation trace, inde
 Set `CLAUDE_BRIDGE_DEBUG=1` to enable debug output:
 
 - **Bridge log** at `claude-bridge.log` in pi's agent dir (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) — provider calls, session sync decisions, tool results, CC stderr. Override location with `CLAUDE_BRIDGE_DEBUG_PATH`.
-- **Per-query CC CLI logs** at `cc-cli-logs/<timestamp>-<tag>-<seq>.log` in the same directory — the subprocess's own debug stream; tag is `provider` or `askclaude`. Shows CC's view of session loading, API requests, and tool calls.
+- **Per-query CC CLI logs** at `cc-cli-logs/<timestamp>-<tag>-<seq>.log` in the same directory — the subprocess's own debug stream; tag is `provider`. Shows CC's view of session loading, API requests, and tool calls.
 
 When filing a bug about a session-resume failure (e.g. "No conversation found"), the most useful attachments are the `syncResult:` lines from the bridge log plus the matching `cc-cli-logs/` file for the failing query.
 

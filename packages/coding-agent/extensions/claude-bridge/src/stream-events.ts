@@ -11,29 +11,11 @@ import {
 import { debug } from "./diagnostics.ts";
 import { describeRateLimitFailure, resultErrorText } from "./isolated-summary.ts";
 import type { QueryContext } from "./query-state.ts";
-import { MCP_TOOL_PREFIX } from "./skills.ts";
-
 import { piUI } from "./ui-state.ts";
 
 // --- Provider helpers: tool name mapping ---
 
-const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
-	read: "read",
-	write: "write",
-	edit: "edit",
-	bash: "bash",
-};
-
-// AskClaude path: CC runs its own tools, so builtin names are real.
-export function mapToolName(name: string): string {
-	const normalized = name.toLowerCase();
-	const builtin = SDK_TO_PI_TOOL_NAME[normalized];
-	if (builtin) return builtin;
-	if (normalized.startsWith(MCP_TOOL_PREFIX)) return name.slice(MCP_TOOL_PREFIX.length);
-	return name;
-}
-
-// Provider path: only the pi tools we serve over MCP reach pi. Native WebSearch
+// Only the pi tools we serve over MCP reach pi. Native WebSearch
 // runs inside CC; other unserved names (`bash`, `Bash`, `Edit`, foreign MCP tools)
 // are rejected by CC and retried without dispatching to our MCP server.
 // Neither kind may reach pi. Forwarding an unserved call ran a tool CC never

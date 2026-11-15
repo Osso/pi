@@ -10,7 +10,6 @@ import {
 import { claudeCodeSettings } from "./config.ts";
 import { debug, makeCliDebugOptions } from "./diagnostics.ts";
 import { CC_CHILD_ENV } from "./isolated-summary.ts";
-import { CLAUDE_MD_EXCLUDES, REASONING_TO_EFFORT } from "./prompt-and-wait.ts";
 import type { PromptStream } from "./prompt-stream.ts";
 import { abandonedQueries, drainForAbort } from "./query-lifecycle.ts";
 import { activeQueryContexts, type QueryContext } from "./query-state.ts";
@@ -29,6 +28,16 @@ type ProviderAccount = ReturnType<typeof prepareProviderAccount>;
 // Pi reasoning levels → CC SDK effort levels
 
 const VALID_EFFORTS = new Set<string>(["low", "medium", "high", "xhigh", "max"]);
+const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
+	minimal: "low",
+	low: "low",
+	medium: "medium",
+	high: "high",
+	xhigh: "max",
+};
+
+// Pi's appended system prompt carries the project context; CC must not load its own copy.
+const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
 
 export interface FreshQueryOptionsInput {
 	model: Model<Api>;
@@ -108,7 +117,6 @@ export function buildFreshQueryOptions(input: FreshQueryOptionsInput): {
 		// hit on every transition. Cost here is nil: the setting also strips
 		// CC's git-workflow guidance from its Bash tool prompt, but the provider
 		// path enables only native WebSearch, so Bash's definitions never ship.
-		// AskClaude keeps CC's native tools and its guidance — unaffected.
 		settings: {
 			...claudeCodeSettings(providerSettings),
 			claudeMdExcludes: CLAUDE_MD_EXCLUDES,

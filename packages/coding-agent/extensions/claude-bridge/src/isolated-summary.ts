@@ -26,9 +26,9 @@ import { debug, makeCliDebugOptions } from "./diagnostics.ts";
 import { claudeCodeModelId, type LongContextSettings } from "./models.ts";
 import { ACCOUNTS_EXHAUSTED, newAssistantOutput, type QueryContext } from "./query-state.ts";
 
-// Applied to every Claude Code subprocess the bridge spawns — provider, AskClaude
-// and the compact summary. One place, so a guard is added once rather than three
-// times, and so a missing one is visible.
+// Applied to every Claude Code subprocess the bridge spawns — provider and the
+// compact summary. One place, so a guard is added once rather than twice, and so
+// a missing one is visible.
 //
 // - ENABLE_CLAUDEAI_MCP_SERVERS=0: keep the user's claude.ai-connected MCP servers
 //   out of a pi session, which serves its own tools.

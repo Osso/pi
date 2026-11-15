@@ -1,32 +1,20 @@
 import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { Text } from "@earendil-works/pi-tui";
 import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
 import { compact } from "../../../src/core/compaction/compaction.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import { buildSessionContext } from "../../../src/core/session-manager.ts";
-import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
 import {
 	configureAccountRuntime,
 	errorMessage,
 	providerSettings,
 	registerClaudeUsageListener,
 } from "./account-runtime.ts";
-import {
-	askClaudeCallTags,
-	askClaudeToolDescription,
-	buildAskClaudeParams,
-	resolveAskClaudeDefaults,
-	resolveAskClaudeMode,
-} from "./askclaude-schema.ts";
-import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
 import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 import { loadConfig } from "./config.ts";
 import { PROVIDER_ID } from "./convert.ts";
 import { debug, moduleInstanceId } from "./diagnostics.ts";
 import { isolatedStreamFn, longContextSettings, setLongContextSettings } from "./isolated-summary.ts";
 import { applyLongContext, type buildModels } from "./models.ts";
-import type { PromptCaptureStore } from "./prompt-and-wait.ts";
-import { getAskClaudeQueryImpl, promptAndWait } from "./prompt-and-wait.ts";
+import type { PromptCaptures } from "./prompt-capture.ts";
 import { closeActiveQueries } from "./query-lifecycle.ts";
 import {
 	historyRewrittenBySession,
@@ -40,7 +28,6 @@ export interface ExtensionRegistrationDependencies {
 	models: ReturnType<typeof buildModels>;
 	pendingNotices: string[];
 	setPiMode(mode: ExtensionContext["mode"]): void;
-	setAskClaudeToolName(name: string): void;
 	clearPendingToolFailures(): void;
 	streamClaudeAgentSdk: (
 		model: Model<Api>,
@@ -49,16 +36,13 @@ export interface ExtensionRegistrationDependencies {
 		allowQuotaRecheck?: boolean,
 	) => AssistantMessageEventStream;
 	activeStreamSimpleKey: symbol;
-	promptCaptures: PromptCaptureStore;
+	promptCaptures: PromptCaptures;
 	closeEndedTurn: (piSessionId: string | null, runMessages: Context["messages"]) => Promise<void>;
 	reportLeaks(label: string): void;
 	branchSummaryOutcome(
 		result: BranchSummaryResult,
 	): { cancel: true } | { summary: { summary: string; details: unknown } };
 }
-
-const PREVIEW_MAX_CHARS = 1000;
-const PREVIEW_MAX_LINES = 6;
 
 // --- Extension registration ---
 
@@ -94,8 +78,6 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 			dependencies.pendingNotices.push(
 				'Are you using a Max plan? You need to set provider.plan to "max" to unlock 1M context in Opus.',
 			);
-		if (config.askClaude?.enabled === undefined)
-			dependencies.pendingNotices.push("The AskClaude tool is opt-in only. Set askClaude.enabled to use it.");
 	}
 
 	// Reset shared session on pi session lifecycle events
@@ -141,7 +123,7 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 					customPrompt?: string;
 					appendSystemPrompt?: string;
 					contextFiles?: { path: string; content: string }[];
-					skills?: Parameters<PromptCaptureStore["record"]>[1]["skills"];
+					skills?: Parameters<PromptCaptures["record"]>[1]["skills"];
 					sections?: Record<string, string>;
 					selectedTools?: string[];
 			  }
@@ -339,143 +321,6 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 			}
 			debug(`provider: registry lacks ${PROVIDER_ID}, registering (module=${moduleInstanceId})`);
 			pi.registerProvider(PROVIDER_ID, providerConfig);
-		});
-	}
-
-	// --- AskClaude tool ---
-
-	const askConf = config.askClaude;
-	const askDefaults = resolveAskClaudeDefaults(askConf);
-	dependencies.setAskClaudeToolName(askConf?.name ?? "AskClaude");
-
-	if (askConf?.enabled) {
-		const askClaudeParams = buildAskClaudeParams(askDefaults);
-		pi.registerTool<typeof askClaudeParams>({
-			name: askConf?.name ?? "AskClaude",
-			label: askConf?.label ?? "Ask Claude Code",
-			description: askClaudeToolDescription(askDefaults, askConf?.description),
-			parameters: askClaudeParams,
-			renderCall(args, theme) {
-				let text = theme.fg("mdLink", theme.bold("AskClaude "));
-				const tags = askClaudeCallTags(args, askDefaults);
-				if (tags.length) text += `${theme.fg("accent", `[${tags.join(", ")}]`)} `;
-				const truncated =
-					args.prompt.length > PREVIEW_MAX_CHARS ? args.prompt.substring(0, PREVIEW_MAX_CHARS) : args.prompt;
-				const lines = truncated.split("\n").slice(0, PREVIEW_MAX_LINES);
-				text += theme.fg("muted", `"${lines.join("\n")}"`);
-				if (args.prompt.length > PREVIEW_MAX_CHARS || args.prompt.split("\n").length > PREVIEW_MAX_LINES)
-					text += theme.fg("dim", " …");
-				return new Text(text, 0, 0);
-			},
-			renderResult(result, { expanded, isPartial }, theme) {
-				if (isPartial) {
-					const status = result.content[0]?.type === "text" ? result.content[0].text : "working...";
-					return new Text(theme.fg("mdLink", "◉ Claude Code ") + theme.fg("muted", status), 0, 0);
-				}
-
-				const details = result.details as
-					| { prompt?: string; executionTime?: number; actions?: string; error?: boolean }
-					| undefined;
-				const body = result.content[0]?.type === "text" ? result.content[0].text : "";
-
-				let text = details?.error ? theme.fg("error", "✗ Claude Code error") : theme.fg("mdLink", "✓ Claude Code");
-
-				if (details?.executionTime) text += ` ${theme.fg("dim", `${(details.executionTime / 1000).toFixed(1)}s`)}`;
-				if (details?.actions) text += ` ${theme.fg("muted", details.actions)}`;
-
-				if (expanded) {
-					if (details?.prompt) text += `\n${theme.fg("dim", `Prompt: ${details.prompt}`)}`;
-					if (details?.prompt && body) text += `\n${theme.fg("dim", "─".repeat(40))}`;
-					if (body) text += `\n${theme.fg("toolOutput", body)}`;
-				} else {
-					const truncated = body.length > PREVIEW_MAX_CHARS ? body.substring(0, PREVIEW_MAX_CHARS) : body;
-					const lines = truncated.split("\n").slice(0, PREVIEW_MAX_LINES);
-					if (lines.length) text += `\n${theme.fg("toolOutput", lines.join("\n"))}`;
-					if (body.length > PREVIEW_MAX_CHARS || body.split("\n").length > PREVIEW_MAX_LINES)
-						text += `\n${theme.fg("dim", `… (${keyHint("app.tools.expand", "to expand")})`)}`;
-				}
-
-				return new Text(text, 0, 0);
-			},
-			async execute(_id, params, signal, onUpdate, ctx) {
-				// Guard: circular delegation
-				if (ctx.model?.baseUrl === "claude-bridge") {
-					debug("askClaude: blocked circular delegation (active provider is claude-bridge)");
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: "Error: AskClaude cannot be used when the active provider is claude-bridge — you're already running through Claude Code.",
-							},
-						],
-						details: { error: true },
-					};
-				}
-
-				const mode = resolveAskClaudeMode(params.mode, askDefaults);
-				const isolated = params.isolated ?? askDefaults.isolated;
-				const toolCalls = new Map<string, ToolCallState>();
-				const start = Date.now();
-
-				const progressInterval = setInterval(() => {
-					const elapsed = ((Date.now() - start) / 1000).toFixed(0);
-					const summary = buildActionSummary(toolCalls, ctx.cwd);
-					const status = summary ? `${elapsed}s — ${summary}` : `${elapsed}s — working...`;
-					onUpdate?.({
-						content: [{ type: "text", text: status }],
-						details: { prompt: params.prompt, executionTime: Date.now() - start },
-					});
-				}, 1000);
-
-				try {
-					const result = await promptAndWait(
-						{
-							models: dependencies.models,
-							promptCaptures: dependencies.promptCaptures,
-							query: getAskClaudeQueryImpl(),
-						},
-						ctx.cwd,
-						params.prompt,
-						mode,
-						toolCalls,
-						signal,
-						{
-							systemPrompt: ctx.getSystemPrompt(),
-							appendSkills: askConf?.appendSkills,
-							model: params.model,
-							thinking: params.thinking,
-							isolated,
-							context: isolated
-								? undefined
-								: (buildSessionContext(ctx.sessionManager.getBranch()).messages as Context["messages"]),
-							piSessionId: ctx.sessionManager.getSessionId(),
-						},
-					);
-					clearInterval(progressInterval);
-					onUpdate?.({ content: [{ type: "text", text: "" }], details: {} });
-					const executionTime = Date.now() - start;
-					const actions = buildActionSummary(toolCalls, ctx.cwd);
-
-					const text = actions
-						? `${result.responseText}\n\n[Claude Code actions: ${actions}]`
-						: result.responseText;
-					return {
-						content: [{ type: "text" as const, text }],
-						details: { prompt: params.prompt, executionTime, actions },
-					};
-				} catch (err) {
-					clearInterval(progressInterval);
-					debug(
-						`askClaude error: mode=${mode}, model=${params.model ?? "default"}, isolated=${isolated}, elapsed=${((Date.now() - start) / 1000).toFixed(1)}s, error=`,
-						err,
-					);
-					const msg = errorMessage(err);
-					return {
-						content: [{ type: "text" as const, text: `Error: ${msg}` }],
-						details: { prompt: params.prompt, executionTime: Date.now() - start, error: true },
-					};
-				}
-			},
 		});
 	}
 }

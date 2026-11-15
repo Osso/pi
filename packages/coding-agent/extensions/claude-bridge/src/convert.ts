@@ -10,19 +10,9 @@ import type {
 	ToolResultBlock,
 	UserContentBlock,
 } from "cc-session-io";
-import { pascalCase } from "change-case";
 import { MCP_TOOL_PREFIX } from "./skills.ts";
 
 export const PROVIDER_ID = "claude-bridge";
-
-// Pi tool names under Claude Code's builtin names. Only ever correct on the
-// AskClaude path, where CC runs its own tools — see mapPiToolNameToSdk.
-export const PI_TO_SDK_TOOL_NAME: Record<string, string> = {
-	read: "Read",
-	write: "Write",
-	edit: "Edit",
-	bash: "Bash",
-};
 
 export function sanitizeToolId(id: string, cache: Map<string, string>): string {
 	const existing = cache.get(id);
@@ -32,25 +22,15 @@ export function sanitizeToolId(id: string, cache: Map<string, string>): string {
 	return clean;
 }
 
-/** A pi tool name as the name a rebuilt transcript has to call it by.
- *
- *  Whether a map is passed is what distinguishes the two query shapes, because
- *  they need opposite answers:
- *
- *  - **With a map — the provider path.** Pi tool calls are served over MCP;
- *    native WebSearch stays inside CC, outside pi history. A pi tool's name is
- *    `mcp__custom-tools__<pi name>` by construction (resolveMcpTools). The map
- *    is consulted first only because it carries the served tool's exact casing.
- *    A name it lacks is a tool pi ran that we do not serve now — AskClaude,
- *    excluded on purpose, or an extension since disabled — and naming that after
- *    a Claude Code builtin would tell the model a builtin it cannot call is
- *    available and was already used. That is the prompt condition behind the
- *    phantom-call deadlock fixed in 122914dd, and the read direction refuses the
- *    same names for the same reason (piToolNameFor in index.ts).
- *  - **Without a map — the AskClaude path.** CC runs its own tools there, so
- *    builtin names are real, matching mapToolName in the other direction.
- */
-export function mapPiToolNameToSdk(name: string, customToolNameToSdk?: Map<string, string>): string {
+/** A pi tool name as the name a rebuilt transcript has to call it by:
+ *  `mcp__custom-tools__<pi name>` by construction (resolveMcpTools). The map is
+ *  consulted first only because it carries the served tool's exact casing. A
+ *  name it lacks is a tool pi ran that we do not serve now (an extension since
+ *  disabled); naming it after a Claude Code builtin would tell the model a
+ *  builtin it cannot call is available and was already used. That is the prompt
+ *  condition behind the phantom-call deadlock fixed in 122914dd, and the read
+ *  direction refuses the same names for the same reason (piToolNameFor). */
+export function mapPiToolNameToSdk(name: string, customToolNameToSdk: Map<string, string>): string {
 	if (!name) return "";
 	const normalized = name.toLowerCase();
 	// Pi history holds pi tool names. Our own SDK prefix can only reach here by
@@ -59,7 +39,6 @@ export function mapPiToolNameToSdk(name: string, customToolNameToSdk?: Map<strin
 	if (normalized.startsWith(MCP_TOOL_PREFIX)) {
 		throw new Error(`mapPiToolNameToSdk: "${name}" is already an SDK tool name — pi history holds pi tool names`);
 	}
-	if (!customToolNameToSdk) return PI_TO_SDK_TOOL_NAME[normalized] ?? pascalCase(name);
 	return customToolNameToSdk.get(name) ?? customToolNameToSdk.get(normalized) ?? `${MCP_TOOL_PREFIX}${name}`;
 }
 
@@ -115,7 +94,7 @@ export type DroppedContent = {
 /** Convert pi message array to Anthropic API format. */
 export function convertPiMessages(
 	messages: PiMessage[],
-	customToolNameToSdk?: Map<string, string>,
+	customToolNameToSdk: Map<string, string>,
 ): { anthropicMessages: SessionMessage[]; sanitizedIds: Map<string, string>; dropped: DroppedContent } {
 	const anthropicMessages: SessionMessage[] = [];
 	const sanitizedIds = new Map();
