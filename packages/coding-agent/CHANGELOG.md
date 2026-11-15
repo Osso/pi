@@ -261,6 +261,7 @@
 
 ### Fixed
 
+- Fixed a pasted clipboard image being deleted before the model could read it when the prompt was queued into a turn that was already running
 - Fixed `pi install git://host/user/repo` being parsed as the `git:` shorthand, which produced a broken `https:////` clone URL or treated the source as a local path
 - Fixed `pyrun_eval` error results showing `Error: Error:` when the Pyrun runner already prefixed the evaluation error
 - Fixed `/tree` keeping an entry visible and selected in the labeled-only view after its label was cleared; label edits now reapply the filter.

@@ -1259,7 +1259,7 @@ export class InteractiveMode {
 					InteractiveMode.prototype.renderPreparedUserMessage.call(this, message);
 				},
 			});
-			this.clipboardTempFiles.cleanupReferencedIn(userInput);
+			this.clipboardTempFiles.cleanupReferencedIn(userInput, this.session);
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 			this.showError(errorMessage);
