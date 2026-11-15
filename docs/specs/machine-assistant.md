@@ -1,6 +1,6 @@
 # Machine Assistant
 
-The machine assistant is a persistent, user-facing Pi conversation responsible for reminders, bounded machine-maintenance duties, and the permanent agent-server-to-laptop contact role for one OS user on one machine. This is a design under discussion, not an implemented or deployed service. [Reminders](reminders.md) defines the shared follow-up records; this document defines their delivery owner and the assistant's authority.
+The machine assistant is a persistent, user-facing Pi conversation responsible for reminders, bounded machine-maintenance duties, and the permanent agent-server-to-laptop contact role for one OS user on one machine. This is a design under discussion, not an implemented or deployed service. Reminders are [llm-tasks](https://github.com/Osso/llm-tasks/blob/master/docs/specs/http-api.md) tasks with a due time on the shared tracker `tasks.sakuin.org`; this document defines their delivery owner and the assistant's authority.
 
 **2026-11-14 decision:** the machine assistant and the Supervisor merge into one full-UI interactive Pi session on agent-server that keeps the name Supervisor. Requirements for typed decisions and question answering live in [Supervisor service](supervisor-service.md#interactive-supervisor-session-planned-replacement-of-the-resident); the duties below move to that session.
 
@@ -9,7 +9,7 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 ### Identity and state
 
 - [ ] Maintain one dedicated persistent assistant conversation per user and machine, rather than assigning maintenance to every interactive project session.
-- [ ] Keep shared reminders in Pi-owned control-DB records, as specified in [Reminders](reminders.md).
+- [x] Keep reminders as tasks with a due time in the shared [llm-tasks](https://github.com/Osso/llm-tasks/blob/master/docs/specs/http-api.md) tracker (2026-11-15: replaced Pi's control-DB reminders table and `reminders` tool; agents use `lt create --due`, `lt update --due`, `lt due`).
 - [ ] Preserve the assistant conversation and durable state across process restarts.
 - [ ] Keep active implementation steps, test checklists, and session progress in `PLAN.md`, not in the reminder queue.
 
@@ -22,11 +22,11 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 
 ### Duties and authority
 
-- [x] Deliver ordinary reminders without treating their text as authorization to execute work. The session named by `reminders.deliverySessionId` posts each due reminder once, starts a turn and sends one desktop alert; see [Reminders](reminders.md#delivery-and-manual-access).
+- [x] Deliver ordinary reminders without treating their text as authorization to execute work. The Supervisor session delivers each due task once and starts a turn; see [Supervisor service](supervisor-service.md#reminder-delivery). No desktop alert: the Supervisor runs on agent-server.
 - [ ] Perform the approved security follow-up as a read-only advisory check against known software inventory, reporting relevant findings and unknown exposure. Do not patch, restart services, or change configuration as part of this duty.
 - [ ] Support automatic disk cleanup only within categories approved by the user. No category is approved yet.
 - [ ] Permit proactive read-only inspection for other local machine problems and proposals for new duties. Discovery does not authorize a new corrective action.
-- [ ] Allow agents to infer useful durable reminders without requiring an explicit user command, and report each addition, as specified in [Reminders](reminders.md).
+- [ ] Allow agents to infer useful durable reminders without requiring an explicit user command, and report each addition.
 
 ### Reporting
 
@@ -53,12 +53,12 @@ interactive Pi conversation named `Assistant` was started on `aso`
 (session `01a176f1-7bde-768f-a290-68e6a80ec3f3`, cwd `/home/osso`) in a WezTerm tab,
 with an opening brief restating the duties, limits, reserved decisions and the
 09:00 security follow-up. It is pinned at the top of the Super+A switcher through
-`~/.config/agent-switcher/pinned`. It has no supervision or restart restoration. Due
-reminders wake it: the Reminders delivery timer runs in this session (`reminders.deliverySessionId`).
+`~/.config/agent-switcher/pinned`. It has no supervision or restart restoration. Since
+2026-11-15 reminders no longer wake it; the Supervisor session delivers them.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/suite/reminders.test.ts`: due reminders are delivered only in the `reminders.deliverySessionId` session, once, with one turn and one alert. All other requirements remain unchecked.
+- `packages/coding-agent/test/suite/supervisor-due-tasks.test.ts`: due tasks are delivered only in the Supervisor session with `supervisor.tasksUrl`, once, and acknowledged after the entry is written. All other requirements remain unchecked.
 
 ## Known gaps (current cycle)
 
@@ -75,4 +75,4 @@ reminders wake it: the Reminders delivery timer runs in this session (`reminders
 - Unrestricted machine modification: authority is limited to approved duties and cleanup categories.
 - Automatic security remediation: the approved security duty is read-only.
 - Reading all project transcripts or inheriting their active goals merely because the assistant is persistent: no such access requirement was approved.
-- Cross-machine reminder synchronization or remote administrative authority: the current design is machine-local.
+- Remote administrative authority: the current design is machine-local. Reminders are shared across machines through the tracker.

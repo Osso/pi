@@ -42,7 +42,13 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 - [x] Keep `userMessages` and other bounded evidence in request payloads; requests stay self-contained.
 - [x] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (the last 30 messages: user and assistant text, tool calls and results, each clipped to 600 characters). Reads of another host's session travel over the relay as a read request with a correlated reply; the relay on that host answers, so stopped or busy sessions can be read. Inspected text is untrusted evidence, not instructions.
-- [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+- [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+
+### Reminder delivery
+
+- [x] With `supervisor.tasksUrl` set, the Supervisor session polls the [llm-tasks](https://github.com/Osso/llm-tasks/blob/master/docs/specs/http-api.md) `GET /tasks/due` route every minute (bearer token: first line of `~/.config/llm-tasks/token`; actor `<hostname>-supervisor`). It does not poll at session start, so a resumed interrupted turn runs first. Other sessions never poll.
+- [x] Each due task not already pending in this process becomes one `reminder` custom message (follow-up, starts a turn) stating the task ID, title, due time, description, and that it is context, not authorization: forward it with `send_agent_message` or report it to the user.
+- [x] After a check and at every `agent_end`, a pending reminder whose message entry is written is acknowledged with `POST /tasks/{id}/delivered` and its due time. 409 (rescheduled, closed, or already acknowledged) drops it; other failures keep it pending and notify an error. A run that ends without the entry releases it; process exit releases all. Checks run one at a time and each request times out after 30 s.
 
 ### Removed resident console
 
@@ -204,6 +210,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/suite/supervisor-due-tasks.test.ts` — due llm-tasks reminders delivered once and acknowledged with their due time after the entry is written, 409 acknowledgement dropped without retry, no polling outside the Supervisor session or without `supervisor.tasksUrl`.
 - `packages/coding-agent/test/suite/supervisor-session.test.ts` — typed response recording, missing-response error, approval interrupting and resuming a user turn, tool allow-list and KB-only writes, other sessions unaffected.
 - `packages/coding-agent/test/suite/supervisor-questions.test.ts` — Supervisor answer closes the asker's panel with reasons, local answer cancels the row, escalation opens a Supervisor panel whose answer returns as a user answer, nonblocking answers arrive through the inbox.
 - `packages/coding-agent/test/suite/headless-supervisor-session.test.ts` — real Pi process serves queued requests and reruns a claimed request after restart.

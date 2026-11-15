@@ -252,6 +252,7 @@ Sandbox profiles resolve by precedence: session override, project setting, then 
 |---------|------|---------|-------------|
 | `supervisor.sessionId` | string | - | Session ID of the interactive Supervisor. Required for typed Supervisor requests. |
 | `supervisor.host` | string | - | Host of the Supervisor session when it runs remotely; requests and replies use the relay. |
+| `supervisor.tasksUrl` | string | - | llm-tasks server whose due tasks (reminders) the Supervisor session delivers; token from `~/.config/llm-tasks/token`. Read only in the Supervisor session. |
 | `supervisorModel` | string | - | Global `provider/modelId` for the separate stateless instruction-veto evaluator. When unset, it uses `gpt-6.1-sol` on authenticated Codex providers. This does not select the interactive Supervisor session's model. |
 
 ```json

@@ -111,10 +111,8 @@ export type PackageSource =
 
 export interface Settings {
 	relay?: RelaySettings;
-	/** `deliverySessionId`: the machine-assistant session that delivers due reminders. */
-	reminders?: { deliverySessionId?: string };
-	/** Interactive Supervisor session serving typed requests; `host` when it runs on another machine. */
-	supervisor?: { sessionId?: string; host?: string };
+	/** Interactive Supervisor session; `host` when remote; `tasksUrl`: llm-tasks server whose due tasks it delivers. */
+	supervisor?: { sessionId?: string; host?: string; tasksUrl?: string };
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;

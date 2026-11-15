@@ -27,6 +27,7 @@ import {
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import { SUPERVISOR_REQUEST_POLICY, type SupervisorEvaluator } from "../../../src/supervisor/service.ts";
+import { DueTaskDelivery, type DueTaskOptions, readLlmTasksToken } from "./due-tasks.ts";
 import { createInspectSessionTool } from "./inspect-session-tool.ts";
 import { renderSupervisorRequestMessage } from "./request-message.ts";
 
@@ -42,7 +43,6 @@ export const SUPERVISOR_SESSION_TOOL_NAMES = [
 	"inspect_session",
 	"send_agent_message",
 	"ask_questions",
-	"reminders",
 	"end_turn",
 ];
 
@@ -283,8 +283,12 @@ class SupervisorSessionServer {
 	}
 }
 
-export default function supervisorSessionExtension(pi: ExtensionAPI): void {
+export default function supervisorSessionExtension(pi: ExtensionAPI, options: Partial<DueTaskOptions> = {}): void {
 	const server = new SupervisorSessionServer(pi);
+	const dueTasks = new DueTaskDelivery(pi, {
+		intervalMs: options.intervalMs ?? 60_000,
+		readToken: options.readToken ?? readLlmTasksToken,
+	});
 	pi.registerMessageRenderer(SUPERVISOR_REQUEST_MESSAGE_TYPE, renderSupervisorRequestMessage);
 	pi.registerToolGate((event, ctx) => {
 		if (!isSupervisorSession(ctx)) return undefined;
@@ -293,9 +297,19 @@ export default function supervisorSessionExtension(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event, ctx) =>
 		isSupervisorSession(ctx) ? { systemPrompt: `${event.systemPrompt}\n\n${SUPERVISOR_REQUEST_POLICY}` } : undefined,
 	);
-	pi.on("session_start", (_event, ctx) => server.start(ctx));
-	pi.on("session_shutdown", () => server.stop());
-	pi.on("agent_end", (_event, ctx) => server.onAgentEnd(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		const tasksUrl = ctx.settingsManager?.getMergedSettings().supervisor?.tasksUrl;
+		dueTasks.start(ctx, isSupervisorSession(ctx) ? tasksUrl : undefined);
+		await server.start(ctx);
+	});
+	pi.on("session_shutdown", async () => {
+		dueTasks.stop();
+		await server.stop();
+	});
+	pi.on("agent_end", async (_event, ctx) => {
+		server.onAgentEnd(ctx);
+		await dueTasks.settle(ctx);
+	});
 	pi.on("runtime_mailbox", (event, ctx) => {
 		const controlDbPath = ctx.controlDbPath;
 		const ingested =

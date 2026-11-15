@@ -47,7 +47,6 @@ import loopExtension from "../extensions/loop/src/index.ts";
 import periodicChecksExtension from "../extensions/periodic-checks/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import { resolvePyrunRunnerCommand } from "../extensions/pyrun/src/runner.ts";
-import remindersExtension from "../extensions/reminders/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import safeExtension from "../extensions/safe/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
@@ -735,7 +734,6 @@ function createFirstPartyExtensionFactories(
 		...optionalFirstPartyExtensionFactory("pyrun", resolvePyrunRunnerCommand(), pyrunFactory),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("periodic-checks", periodicChecksExtension),
-		firstPartyExtensionFactory("reminders", remindersExtension),
 		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),
