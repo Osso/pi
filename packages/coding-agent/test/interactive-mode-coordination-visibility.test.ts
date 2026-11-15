@@ -386,4 +386,31 @@ describe("coordination visibility", () => {
 		expect(internals.compactionQueuedMessages).toEqual([{ mode: "followUp", text: mailboxText }]);
 		expect(harness.session.getQueuedMessagePreviews()).toEqual({ steering: [], followUp: [] });
 	});
+
+	test("periodic audit reports render as their tag line while other mailbox text stays whole", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const { view, openSettings } = createView(harness);
+		const tag = "[periodic-checks: 2 dirty repos · build cache 1.9 GB · 3 agents running]";
+		const auditText = formatRuntimeMailboxPrompt(
+			{ ...mailbox, body: `${tag}\ngame-engine untracked: cache/, user-data/` },
+			"recipient-session",
+		);
+		const audit = createRuntimeMailboxUserMessage(auditText, "extension");
+		view.addMessageToChat(audit);
+		const compact = render(view.chatContainer);
+		expect(compact).toContain(tag);
+		expect(compact).not.toContain("untracked");
+		expect(compact).not.toContain("From:");
+		expect(getMessageText(audit)).toBe(auditText);
+
+		const { view: other } = createView(harness);
+		other.addMessageToChat(createRuntimeMailboxUserMessage(`${auditText}\n\n${mailboxText}`, "extension"));
+		other.addMessageToChat(createRuntimeMailboxUserMessage(auditText, "interactive"));
+		const whole = render(other.chatContainer);
+		expect(whole.match(/untracked: cache/g)).toHaveLength(2);
+		expect(whole).toContain("child failed: owner exited");
+		toggle(openSettings());
+		expect(render(view.chatContainer)).toBe("");
+	});
 });

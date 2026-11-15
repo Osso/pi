@@ -260,6 +260,7 @@
 - Added read-only `--export-terminal <file-or-id> --export-columns <columns>` to render the current compaction-aware history (summary and retained/current active-branch messages, excluding the pre-compaction archive and discarded branches) as collapsed SGR-only ANSI text on stdout without provider/extension startup or session/settings writes. Unresolved session IDs exit `4`; other failures exit `1`. Existing HTML export and live history rendering are unchanged. See [terminal history export](docs/terminal-history-export.md).
 - Added an interactive Supervisor session configured by `supervisor.sessionId` and optional `supervisor.host`. Typed requests and replies use the relay for remote sessions; requests fail explicitly without a configured session ID.
 - Added Supervisor `inspect_session` for bounded local or remote session evidence, and Supervisor answers or escalation for `ask_questions`.
+- Added a compact tag line to periodic-checks audit reports. Interactive chat shows a delivered report only as `[periodic-checks: <fact> · <fact> · …]`; the full report stays in the transcript and model context.
 
 ### Fixed
 

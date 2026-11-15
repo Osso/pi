@@ -223,7 +223,7 @@ import { type FilterMode, TreeSelectorComponent } from "./components/tree-select
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
-import { isCoordinationMessage, isCoordinationPreview } from "./coordination-visibility.ts";
+import { compactCoordinationText, isCoordinationMessage, isCoordinationPreview } from "./coordination-visibility.ts";
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
@@ -4892,7 +4892,7 @@ export class InteractiveMode {
 				break;
 			}
 			case "user": {
-				const textContent = this.getUserMessageText(message);
+				const textContent = compactCoordinationText(this.getUserMessageText(message), coordination);
 				if (textContent) {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));

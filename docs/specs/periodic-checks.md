@@ -28,6 +28,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - [x] Pending spawn suppresses overlap until settlement, including rejection or unsuccessful dispatch. A stored child named `periodic-checks-audit` blocks overlap until `completed`, `failed`, or `aborted`, including restored children after reload. Unrelated children do not block dispatch.
 - [x] Child termination permits the next scheduled tick, not immediate dispatch; main `agent_end` does not release overlap. Reload/shutdown/replacement fence late spawn results from new pending locks and diagnostics. Dispatch failures notify explicitly with session, checklist, and failure context.
 - [ ] Each audit rereads the checklist, limits findings to its requested scope, and reports missing checklist or unavailable evidence. Send findings through `send_agent_message` to `main` with the originating parent session ID; inspect the result and report delivery failure explicitly.
+- [x] Audit findings start with one line `[periodic-checks: <fact> · <fact> · …]` that names each reported fact in a few words, followed by details and evidence. Main's interactive chat shows a delivered mailbox message that holds one such report only as its tag line; batched mailbox messages, typed input, the transcript, and model context keep the full text. `hideCoordinationMessages` hides the tag too.
 - [x] Audit instructions direct checklist items about main's behavior, delegation, or child agents to `list_agents` and `search_parent_session_history`, because `search_current_session_history` only searches the audit's own session.
 - [x] Audit instructions prohibit corrections, nested spawning, builds, cleanup, blocking, cancellation, steering, edits, deployment, operational mutation, or restarting main. Authorized main work continues independently.
 
@@ -41,10 +42,12 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 
 - `packages/coding-agent/extensions/periodic-checks/src/index.ts` — checklist discovery, metadata validation, scheduling, status/manual commands, direct dispatch, and report-only audit prompt.
 - `packages/coding-agent/src/main.ts` — first-party registration.
+- `packages/coding-agent/src/modes/interactive/coordination-visibility.ts` — compact tag display of delivered audit reports.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension and command inventory, including bundled periodic-checks and exit-command.
+- `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — audit reports render as their tag line; batched and typed text stays whole.
 - `packages/coding-agent/test/periodic-checks-extension.test.ts` — runs the ported native Node scheduler suite against the bundled source.
 - `packages/coding-agent/test/fixtures/periodic-checks/test_periodic_scheduler.mjs` — metadata, discovery, timing, status, and manual-run behavior.
 - `packages/coding-agent/test/fixtures/periodic-checks/periodic_scheduler_dispatch.mjs` — direct dispatch, overlap, busy/pending commands, failure feedback, and late-result fencing.
