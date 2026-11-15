@@ -189,6 +189,26 @@ function createParentChildStore(dir: string) {
 	return { controlDbPath, parentSession, childSession, store };
 }
 
+/** A reserved child runtime with registered parent and child listeners, plus the steering and wait tools. */
+function createSteeringFixture(dir: string) {
+	const { controlDbPath, parentSession, childSession, store } = createParentChildStore(dir);
+	const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+		transcriptSessionId: childSession.getSessionId(),
+	});
+	registerMainListener(controlDbPath, parentSession);
+	registerRuntimeMailboxListener(
+		controlDbPath,
+		{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+		process.pid,
+	);
+	const tools = collectMultiAgentTools(store);
+	const steerAgent = tools.get("steer_agent");
+	const waitAgents = tools.get("wait_agent");
+	if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+	const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+	return { controlDbPath, parentSession, childSession, store, runtime, steerAgent, waitAgents, context };
+}
+
 /** Sender and target main sessions sharing one control DB, with the store persisted through the sender. */
 function createSenderTargetStore(dir: string) {
 	const controlDbPath = getControlDbPath(dir);
@@ -1654,21 +1674,8 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("wakes an active wait_agent naturally after successful steering", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
-		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
-			transcriptSessionId: childSession.getSessionId(),
-		});
-		registerMainListener(controlDbPath, parentSession);
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-			process.pid,
-		);
-		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agent");
-		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
-		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const { controlDbPath, parentSession, childSession, store, runtime, steerAgent, waitAgents, context } =
+			createSteeringFixture(tempDir);
 		const controller = new AbortController();
 		const waiting = waitAgents.execute("wait", {}, controller.signal, undefined, context);
 		await Promise.resolve();
@@ -1836,21 +1843,8 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("does not retain a stale wake when steering succeeds without an active wait", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
-		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
-			transcriptSessionId: childSession.getSessionId(),
-		});
-		registerMainListener(controlDbPath, parentSession);
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-			process.pid,
-		);
-		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agent");
-		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
-		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const { controlDbPath, childSession, store, runtime, steerAgent, waitAgents, context } =
+			createSteeringFixture(tempDir);
 
 		await steerAgent.execute(
 			"steer-before-wait",
@@ -1908,21 +1902,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("preserves completion when steering wakes wait_agent during a terminal race", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
-		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
-			transcriptSessionId: childSession.getSessionId(),
-		});
-		registerMainListener(controlDbPath, parentSession);
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-			process.pid,
-		);
-		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agent");
-		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
-		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const { store, runtime, steerAgent, waitAgents, context } = createSteeringFixture(tempDir);
 		const firstWait = waitAgents.execute("wait-race", {}, undefined, undefined, context);
 		await Promise.resolve();
 
@@ -1967,21 +1947,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("returns terminal state when steering terminalizes before wake_up observation", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
-		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
-			transcriptSessionId: childSession.getSessionId(),
-		});
-		registerMainListener(controlDbPath, parentSession);
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-			process.pid,
-		);
-		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agent");
-		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
-		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const { store, runtime, steerAgent, waitAgents, context } = createSteeringFixture(tempDir);
 		const waiting = waitAgents.execute("wait-terminal-precedence", {}, undefined, undefined, context);
 		await Promise.resolve();
 
