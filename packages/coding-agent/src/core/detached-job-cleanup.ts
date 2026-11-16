@@ -46,14 +46,19 @@ export function cleanupDetachedJobArtifacts(
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
 	const errors: string[] = [];
 	const now = options.now ?? Date.now();
-	const { candidates, ownersByPath, staleRowsWithoutDirectory } = collectTerminalArtifactCandidates(
+	const terminal = collectTerminalArtifactCandidates(
 		controlDbPath,
 		options.artifactRoot,
 		processReferences,
 		errors,
 		now - DETACHED_ARTIFACT_MAX_AGE_MS,
 	);
-	candidates.push(...collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors));
+	const { ownersByPath, staleRowsWithoutDirectory } = terminal;
+	// Array spread, not push(...): a backlog of foreground directories exceeds the call argument limit.
+	const candidates = [
+		...terminal.candidates,
+		...collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors),
+	];
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -91,14 +96,25 @@ function deleteSelectedArtifactDirectories(
 	onDirectoryQuarantined?: (quarantinePath: string) => void,
 ): Omit<DetachedJobCleanupResult, "deletedAgentRows"> {
 	const candidatesByPath = new Map(candidates.map((candidate) => [candidate.directoryPath, candidate]));
+	const quarantined = pathsToDelete
+		.filter((directoryPath) => candidatesByPath.has(directoryPath))
+		.flatMap((directoryPath) => quarantineArtifactDirectory(directoryPath, errors, onDirectoryQuarantined) ?? []);
+	// One /proc scan for the whole batch: the scan dominates cleanup time and a backlog holds many thousand jobs.
+	const processReferences = quarantined.length > 0 ? readLinuxProcessReferences() : undefined;
 	const deletedDirectories: string[] = [];
 	let deletedBytes = 0;
-	for (const directoryPath of pathsToDelete) {
-		const candidate = candidatesByPath.get(directoryPath);
-		if (!candidate) continue;
-		if (deleteUnreferencedArtifactDirectory(directoryPath, errors, onDirectoryQuarantined)) {
+	for (const { directoryPath, quarantinePath } of quarantined) {
+		try {
+			if (!processReferences || directoryHasLiveReference(realpathSync(quarantinePath), processReferences)) {
+				restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
+				continue;
+			}
+			rmSync(quarantinePath, { force: true, recursive: true });
 			deletedDirectories.push(directoryPath);
-			deletedBytes += candidate.byteSize;
+			deletedBytes += candidatesByPath.get(directoryPath)?.byteSize ?? 0;
+		} catch (error) {
+			restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
+			errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
 		}
 	}
 	return {
@@ -109,11 +125,17 @@ function deleteSelectedArtifactDirectories(
 	};
 }
 
-function deleteUnreferencedArtifactDirectory(
+interface QuarantinedDirectory {
+	directoryPath: string;
+	quarantinePath: string;
+}
+
+/** Rename the job directory away from its canonical path, so no new process can open it before the reference scan. */
+function quarantineArtifactDirectory(
 	directoryPath: string,
 	errors: string[],
 	onDirectoryQuarantined?: (quarantinePath: string) => void,
-): boolean {
+): QuarantinedDirectory | undefined {
 	const quarantinePath = join(
 		dirname(directoryPath),
 		`${QUARANTINE_PREFIX}${basename(directoryPath)}-${randomUUID()}`,
@@ -122,27 +144,18 @@ function deleteUnreferencedArtifactDirectory(
 		const directory = lstatSync(directoryPath);
 		if (!directory.isDirectory() || directory.isSymbolicLink()) {
 			errors.push(`Refused to delete non-directory detached artifact path: ${directoryPath}`);
-			return false;
+			return undefined;
 		}
 		renameSync(directoryPath, quarantinePath);
 		onDirectoryQuarantined?.(quarantinePath);
-		if (quarantinedDirectoryHasLiveReference(quarantinePath)) {
-			renameSync(quarantinePath, directoryPath);
-			return false;
-		}
-		rmSync(quarantinePath, { force: true, recursive: true });
-		return true;
+		return { directoryPath, quarantinePath };
 	} catch (error) {
 		restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
-		if (isMissingPathError(error)) return false;
-		errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
-		return false;
+		if (!isMissingPathError(error)) {
+			errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
+		}
+		return undefined;
 	}
-}
-
-function quarantinedDirectoryHasLiveReference(quarantinePath: string): boolean {
-	const processReferences = readLinuxProcessReferences();
-	return !processReferences || directoryHasLiveReference(realpathSync(quarantinePath), processReferences);
 }
 
 function restoreQuarantinedDirectory(quarantinePath: string, directoryPath: string, errors: string[]): void {

@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Detached-job cleanup scans `/proc` once per batch instead of once per deleted directory; deleting 3000 expired directories took 100 s and now takes under 1 s
 - Detached-job cleanup now also removes job directories of Bash and Pyrun calls that completed in the foreground; they had no agent row, were never pruned, and grew to about 15 GiB on a long-used install
 - Extensions load from their real path, so an extension installed as a symlink into a pnpm store resolves its dependencies from the store ([#8092](https://github.com/earendil-works/pi-mono/issues/8092))
 - HTML export turns OSC 8 hyperlinks in custom tool output into links (http, https and mailto only) and drops other terminal control sequences, which were written into the page as raw text ([#12052](https://github.com/earendil-works/pi-mono/pull/12052))

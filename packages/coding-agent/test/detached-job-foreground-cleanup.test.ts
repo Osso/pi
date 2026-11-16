@@ -81,6 +81,22 @@ describe("foreground job directory cleanup", () => {
 		expect(existsSync(referenced)).toBe(true);
 	});
 
+	it("deletes a backlog of thousands of expired job directories in one pass within seconds", () => {
+		const root = createRoot();
+		const now = Date.now();
+		const backlog = Array.from({ length: 3_000 }, (_, index) =>
+			writeForegroundJob(root, `bash_backlog_${index}`, { completedAt: now - 48 * HOUR_MS }),
+		);
+
+		const started = Date.now();
+		const result = cleanupDetachedJobArtifacts(getControlDbPath(root), { artifactRoot: root, now });
+
+		expect(Date.now() - started).toBeLessThan(10_000);
+		expect(result.errors).toEqual([]);
+		expect(result.deletedDirectories).toHaveLength(backlog.length);
+		expect(backlog.some((directory) => existsSync(directory))).toBe(false);
+	}, 120_000);
+
 	it("counts recent foreground job directories toward the two GiB cap, oldest first", () => {
 		const root = createRoot();
 		const now = Date.now();
