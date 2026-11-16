@@ -183,6 +183,12 @@ function seedCompactableSession(harness: Harness): void {
 describe("AgentSession compaction characterization", () => {
 	const harnesses: Harness[] = [];
 
+	async function createTrackedHarness(options?: Parameters<typeof createHarness>[0]): Promise<Harness> {
+		const harness = await createHarness(options);
+		harnesses.push(harness);
+		return harness;
+	}
+
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
@@ -192,7 +198,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("manually compacts using an extension-provided summary", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -207,7 +213,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.prompt("one");
 		await harness.session.prompt("two");
@@ -227,7 +232,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("uses an extension compaction result when built-in compaction is disabled", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -241,7 +246,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 
@@ -252,10 +256,9 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not use local compaction when disabled and no extension result exists", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 
@@ -268,7 +271,7 @@ describe("AgentSession compaction characterization", () => {
 	it.each([undefined, {}])(
 		"does not invoke local compaction when a disabled handler returns %s and surfaces an explicit failure",
 		async (handlerResult) => {
-			const harness = await createHarness({
+			const harness = await createTrackedHarness({
 				settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 				extensionFactories: [
 					(pi) => {
@@ -276,7 +279,6 @@ describe("AgentSession compaction characterization", () => {
 					},
 				],
 			});
-			harnesses.push(harness);
 			seedCompactableSession(harness);
 			const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 
@@ -288,7 +290,7 @@ describe("AgentSession compaction characterization", () => {
 	);
 
 	it("does not use local compaction when a disabled compaction handler throws", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -298,7 +300,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 
@@ -310,7 +311,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("runs compaction extensions during disabled auto-compaction", async () => {
 		let extensionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -327,7 +328,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
@@ -341,11 +341,10 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("surfaces disabled auto-compaction failure when no extension provides a result", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			models: [{ id: "faux-1", contextWindow: 2_000_000 }],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
@@ -362,7 +361,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("reports kept suffix tokens independently from remote compaction result size", async () => {
 		const compactedResultTokens = 999_999;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 2 } },
 			extensionFactories: [
 				(pi) => {
@@ -377,7 +376,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.prompt("one");
 		await harness.session.prompt("two");
@@ -394,7 +392,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("manually compacts using the purpose-built compaction hook before local compaction", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -414,7 +412,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.prompt("one");
 		await harness.session.prompt("two");
@@ -448,23 +445,20 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("throws when compacting without a model", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.session.agent.state.model = undefined as unknown as Model<Api>;
 
 		await expect(harness.session.compact()).rejects.toThrow("No model selected");
 	});
 
 	it("throws when compacting without configured auth", async () => {
-		const harness = await createHarness({ withConfiguredAuth: false });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ withConfiguredAuth: false });
 
 		await expect(harness.session.compact()).rejects.toThrow(`No API key found for ${harness.getModel().provider}.`);
 	});
 
 	it("manually compacts with a custom streamFn when registry auth is absent", async () => {
-		const harness = await createHarness({ withConfiguredAuth: false });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ withConfiguredAuth: false });
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "summary from custom stream");
 
@@ -482,7 +476,7 @@ describe("AgentSession compaction characterization", () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionEnded = false;
 		let promptStartedBeforeCompactionEnd = false;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -499,7 +493,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.session.subscribe((event) => {
 			if (event.type === "compaction_end" && event.reason === "manual") {
 				compactionEnded = true;
@@ -529,8 +522,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("auto-compacts with a custom streamFn when registry auth is absent", async () => {
-		const harness = await createHarness({ withConfiguredAuth: false });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ withConfiguredAuth: false });
 		seedCompactableSession(harness);
 		const getStreamCallCount = useSummaryStreamFn(harness, "auto summary from custom stream");
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
@@ -548,7 +540,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("manually compacts when a hook clears the externally visible abort controller", async () => {
 		const sessionInternalsRef: { current?: SessionWithCompactionAbortInternals } = {};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -559,7 +551,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		sessionInternalsRef.current = harness.session as unknown as SessionWithCompactionAbortInternals;
 		seedCompactableSession(harness);
 
@@ -572,7 +563,7 @@ describe("AgentSession compaction characterization", () => {
 		const sessionInternalsRef: { current?: SessionWithCompactionAbortInternals } = {};
 		const replacementController = new AbortController();
 		replacementController.abort();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -583,7 +574,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		sessionInternalsRef.current = harness.session as unknown as SessionWithCompactionAbortInternals;
 		seedCompactableSession(harness);
 		const sessionInternals = requireSessionInternals(sessionInternalsRef);
@@ -599,7 +589,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("cancels in-progress manual compaction when abortCompaction is called", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -611,7 +601,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.prompt("one");
 		await harness.session.prompt("two");
@@ -625,7 +614,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("resumes after threshold compaction when only agent-level queued messages exist", async () => {
 		vi.useFakeTimers();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -640,7 +629,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([fauxCompletedTurn("one"), fauxCompletedTurn("two")]);
 		await harness.session.prompt("first");
 		await harness.session.prompt("second");
@@ -659,7 +647,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("continues after manual compaction aborts an unanswered user turn", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -674,7 +662,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const now = Date.now();
 		harness.sessionManager.appendMessage({
 			role: "user",
@@ -721,7 +708,7 @@ describe("AgentSession compaction characterization", () => {
 				return { content: [{ type: "text", text: "started" }], details: {} };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			tools: [compactTool],
 			extensionFactories: [
@@ -737,7 +724,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		sessionRef.current = harness.session;
 		harness.setResponses([
 			fauxCompletedTurn("old request complete"),
@@ -763,7 +749,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not continue after manual compaction when latest assistant completed", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
@@ -778,7 +764,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([fauxCompletedTurn("first complete"), fauxCompletedTurn("complete")]);
 
 		await harness.session.prompt("first done turn");
@@ -790,8 +775,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not retry request-buffer overflow recovery more than once", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const overflowMessage = createAssistant(harness, {
 			stopReason: "error",
@@ -816,10 +800,9 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("caps repeated rate-limited automatic compaction instead of spinning", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const compactionErrors: string[] = [];
@@ -856,7 +839,7 @@ describe("AgentSession compaction characterization", () => {
 	it("compacts and retries request-buffer overflow without ordinary auto-retry", async () => {
 		let compactionCalls = 0;
 		let retryContextChecked = false;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
 			extensionFactories: [
 				(pi) => {
@@ -867,7 +850,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([
 			async () => {
@@ -905,7 +887,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("compacts and retries a pool member's context overflow", async () => {
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			fauxProvider: { api: "faux-pool-member", provider: "faux-pool-member" },
 			models: [{ id: "member" }],
 			pools: { overflow: ["faux-pool-member/member"] },
@@ -919,7 +901,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const pool = harness.session.modelRegistry.find("pool", "overflow");
 		if (!pool) throw new Error("Missing pool/overflow");
 		await harness.session.setModel(pool);
@@ -948,7 +929,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("compacts once and reports bounded failure after repeated request-buffer overflow", async () => {
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
 			extensionFactories: [
 				(pi) => {
@@ -959,7 +940,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([
 			async () =>
@@ -1000,7 +980,7 @@ describe("AgentSession compaction characterization", () => {
 
 	it("preserves the overflow retry bound after a zero-output length response", async () => {
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			models: [{ id: "faux-1", contextWindow: 200_000 }],
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
 			extensionFactories: [
@@ -1018,7 +998,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		// The faux provider estimates usage from text, so set the provider's full-window usage at message end.
 		harness.session.subscribe((event) => {
 			if (event.type !== "message_end" || event.message.role !== "assistant") return;
@@ -1065,10 +1044,9 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("surfaces request-buffer compaction failure without issuing a retry", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1, reserveTokens: 5_000 } },
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([
 			fauxAssistantMessage("", {
@@ -1105,7 +1083,7 @@ describe("AgentSession compaction characterization", () => {
 		};
 		let compactionCalls = 0;
 		let retryContextChecked = false;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 4, reserveTokens: 5_000 } },
 			models: [{ id: "faux-1", contextWindow: 30_000, maxTokens: 100 }],
 			tools: [repeatedResultTool],
@@ -1118,7 +1096,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const toolCycles = Array.from({ length: 24 }, () =>
 			fauxAssistantMessage(fauxToolCall("repeated_result", {}), { stopReason: "toolUse" }),
 		);
@@ -1173,7 +1150,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("compacts successful overflow responses without retrying", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 1, maxTokens: 100 }],
 			extensionFactories: [
@@ -1189,7 +1166,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.session.setActiveToolsByName([]);
 		const successfulOverflow = createAssistant(harness, { stopReason: "stop", totalTokens: 2 });
@@ -1208,8 +1184,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("ignores stale pre-compaction assistant usage on pre-prompt checks", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const staleTimestamp = Date.now() - 10_000;
 		const staleAssistant = createAssistant(harness, {
@@ -1247,8 +1222,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("triggers threshold compaction for error messages using the last successful usage", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const successfulAssistant = createAssistant(harness, {
 			stopReason: "stop",
@@ -1275,8 +1249,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not trigger threshold compaction for error messages when no prior usage exists", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const errorAssistant = createAssistant(harness, {
 			stopReason: "error",
@@ -1296,8 +1269,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not trigger threshold compaction when only kept pre-compaction usage exists", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const preCompactionTimestamp = Date.now() - 10_000;
 		const keptAssistant = createAssistant(harness, {
@@ -1342,8 +1314,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("requests retry when threshold compaction follows a length-truncated turn", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const lengthAssistant = createAssistant(harness, {
 			stopReason: "length",
@@ -1361,8 +1332,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not retry a length-truncated turn on pre-prompt compaction checks", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const lengthAssistant = createAssistant(harness, {
 			stopReason: "length",
@@ -1379,7 +1349,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("compacts and resumes a length-truncated turn", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
 			extensionFactories: [
@@ -1395,7 +1365,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([
 			delayedResponse("truncated output", { stopReason: "length" }),
@@ -1427,8 +1396,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("resets the length-recovery guard on the next user prompt", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		sessionInternals._lengthRecoveryAttempted = true;
 		// A "length"-stopped reply cannot reset the guard itself, so a cleared flag
@@ -1441,7 +1409,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not resume a second consecutive length-truncated turn", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
 			extensionFactories: [
@@ -1457,7 +1425,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([
 			delayedResponse("first truncated", { stopReason: "length" }),
@@ -1480,7 +1447,7 @@ describe("AgentSession compaction characterization", () => {
 			const generationStarted = createDeferred<void>();
 			const generationEnded = createDeferred<void>();
 			const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-			const harness = await createHarness({
+			const harness = await createTrackedHarness({
 				settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 				models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
 				extensionFactories: [
@@ -1509,7 +1476,6 @@ describe("AgentSession compaction characterization", () => {
 					},
 				],
 			});
-			harnesses.push(harness);
 			seedCompactableSession(harness);
 			const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
@@ -1544,7 +1510,7 @@ describe("AgentSession compaction characterization", () => {
 		// between the 70% background trigger (7,000) and the threshold (9,000) with wide margins.
 		const contextWindow = 10_000;
 		const reserveTokens = 1_000;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 2, reserveTokens } },
 			models: [{ id: "faux-1", contextWindow, maxTokens: 100 }],
 			tools: [compactableTool],
@@ -1557,7 +1523,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const historyTimestamp = Date.now() - 1_000;
 		harness.sessionManager.appendMessage({
 			role: "user",
@@ -1623,7 +1588,7 @@ describe("AgentSession compaction characterization", () => {
 			parameters: Type.Object({}),
 			execute: async () => ({ content: [{ type: "text", text: "second tool" }], details: {} }),
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			models: [{ id: "faux-1", contextWindow, maxTokens: 100 }],
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens } },
 			tools: [blockedTool, secondTool],
@@ -1637,7 +1602,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const historyTimestamp = Date.now() - 1000;
 		harness.sessionManager.appendMessage({
 			role: "user",
@@ -1719,7 +1683,7 @@ describe("AgentSession compaction characterization", () => {
 	it("starts exactly one speculative compaction when context crosses 70%", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
 			extensionFactories: [
@@ -1732,7 +1696,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const entriesBefore = structuredClone(harness.sessionManager.getEntries());
 		const messagesBefore = structuredClone(harness.session.messages);
@@ -1768,7 +1731,7 @@ describe("AgentSession compaction characterization", () => {
 	it("starts speculative compaction at compaction.backgroundStartTokens below the threshold", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: {
 				compaction: {
 					enabled: true,
@@ -1789,7 +1752,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
@@ -1813,7 +1775,7 @@ describe("AgentSession compaction characterization", () => {
 	it("installs a completed background compaction cache while idle after the branch advances", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
 			extensionFactories: [
@@ -1826,7 +1788,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
@@ -1864,7 +1825,7 @@ describe("AgentSession compaction characterization", () => {
 		const secondTurnStarted = createDeferred<void>();
 		const releaseSecondTurn = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 6000, maxTokens: 100 }],
 			extensionFactories: [
@@ -1877,7 +1838,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.sessionManager.appendMessage(
 			createAssistant(harness, { stopReason: "stop", totalTokens: 1, timestamp: Date.now() }),
@@ -1977,7 +1937,7 @@ describe("AgentSession compaction characterization", () => {
 	])("discards a ready background cache after $name without compacting below threshold", async ({ mutate }) => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [
 				{ id: "faux-1", contextWindow: 100, maxTokens: 100 },
@@ -1993,7 +1953,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const speculativeCompaction = sessionInternals._checkCompaction(
@@ -2014,7 +1973,7 @@ describe("AgentSession compaction characterization", () => {
 	it("does not install or replace a stale background cache after branch navigation below threshold", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
 			extensionFactories: [
@@ -2027,7 +1986,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const branchTargetId = harness.sessionManager.getBranch()[1]?.id;
@@ -2054,7 +2012,7 @@ describe("AgentSession compaction characterization", () => {
 		let activeCompactions = 0;
 		let maxActiveCompactions = 0;
 		let compactionCalls = 0;
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 20 } },
 			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
 			extensionFactories: [
@@ -2078,7 +2036,6 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		seedCompactableSession(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 		const backgroundCompaction = sessionInternals._checkCompaction(

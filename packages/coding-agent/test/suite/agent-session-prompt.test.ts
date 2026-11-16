@@ -23,6 +23,12 @@ describe("AgentSession prompt characterization", () => {
 	const harnesses: Harness[] = [];
 	const tempDirs: string[] = [];
 
+	async function createTrackedHarness(options?: Parameters<typeof createHarness>[0]): Promise<Harness> {
+		const harness = await createHarness(options);
+		harnesses.push(harness);
+		return harness;
+	}
+
 	function createDeferred(): { promise: Promise<void>; resolve: () => void } {
 		let resolve!: () => void;
 		const promise = new Promise<void>((promiseResolve) => {
@@ -44,8 +50,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("does not start a continuation for an empty transcript", async () => {
-		const harness = await createHarness({ withConfiguredAuth: false });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ withConfiguredAuth: false });
 
 		harness.setResponses([fauxAssistantMessage("unexpected")]);
 
@@ -56,8 +61,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("continues after a completed assistant response without queued messages", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		const initialAssistant = fauxAssistantMessage("done");
 		harness.session.agent.state.messages = [initialAssistant];
 		harness.setResponses([fauxAssistantMessage("continued"), fauxEndTurn("characterization complete")]);
@@ -73,8 +77,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("prompts while idle and records a single text response", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 
 		harness.setResponses([fauxAssistantMessage("hello"), fauxEndTurn("characterization complete")]);
 
@@ -93,8 +96,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("delivers agent_start to listeners added after a self-unsubscribing listener", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.setResponses([fauxEndTurn("listener characterization complete")]);
 
 		const unsubscribe = harness.session.subscribe((event) => {
@@ -111,8 +113,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("steers the model to end_turn after consecutive identical assistant turns without persisting the instruction", async () => {
-		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ initialActiveToolNames: ["end_turn"] });
 		expect(harness.session.getActiveToolNames()).toContain("end_turn");
 		let guardPrompt = "";
 		harness.setResponses([
@@ -160,8 +161,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("terminates when the model repeats after the duplicate-turn guard", async () => {
-		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ initialActiveToolNames: ["end_turn"] });
 		harness.setResponses([
 			fauxAssistantMessage({ type: "text", text: "same response", textSignature: "signature-1" }),
 			fauxAssistantMessage({ type: "text", text: "same response", textSignature: "signature-2" }),
@@ -182,14 +182,13 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("applies duplicate-turn guard to child runtimes without persisting the instruction", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			initialActiveToolNames: [],
 			excludedToolNames: ["end_turn"],
 			multiAgentAgentId: "child-1",
 			multiAgentParentSessionId: "parent-1",
 			multiAgentRuntimeRole: "child",
 		});
-		harnesses.push(harness);
 		expect(harness.session.getActiveToolNames()).toContain("end_turn");
 		let sawGuard = false;
 		harness.setResponses([
@@ -216,8 +215,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("injects the guard when end_turn was filtered from the initial active tools", async () => {
-		const harness = await createHarness({ initialActiveToolNames: [], excludedToolNames: ["end_turn"] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ initialActiveToolNames: [], excludedToolNames: ["end_turn"] });
 		expect(harness.session.getActiveToolNames()).toContain("end_turn");
 		let sawGuard = false;
 		harness.setResponses([
@@ -244,8 +242,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("resets duplicate detection when assistant content changes", async () => {
-		const harness = await createHarness({ initialActiveToolNames: [] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ initialActiveToolNames: [] });
 		let sawGuard = false;
 		harness.setResponses([
 			fauxAssistantMessage("first"),
@@ -279,8 +276,7 @@ describe("AgentSession prompt characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({ tools: [echoTool], initialActiveToolNames: ["echo"] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [echoTool], initialActiveToolNames: ["echo"] });
 		let sawGuard = false;
 		harness.setResponses([
 			fauxAssistantMessage("same response"),
@@ -302,8 +298,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("resets duplicate detection after new user input", async () => {
-		const harness = await createHarness({ initialActiveToolNames: [] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ initialActiveToolNames: [] });
 		let sawGuard = false;
 		harness.setResponses([
 			fauxAssistantMessage("same response"),
@@ -339,8 +334,7 @@ describe("AgentSession prompt characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({ tools: [echoTool] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [echoTool] });
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("echo", { text: "hello" }), { stopReason: "toolUse" }),
@@ -383,8 +377,7 @@ describe("AgentSession prompt characterization", () => {
 				};
 			},
 		});
-		const harness = await createHarness({ tools: [makeTool("slow", 25), makeTool("fast", 0)] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [makeTool("slow", 25), makeTool("fast", 0)] });
 
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("slow", { value: "a" }), fauxToolCall("fast", { value: "b" })], {
@@ -404,8 +397,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("preserves image attachments in the provider context", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		let sawImage = false;
 
 		harness.setResponses([
@@ -460,8 +452,7 @@ describe("AgentSession prompt characterization", () => {
 				diagnostics: [],
 			}),
 		};
-		const harness = await createHarness({ resourceLoader });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ resourceLoader });
 		let expandedPrompt = "";
 
 		harness.setResponses([
@@ -495,8 +486,7 @@ describe("AgentSession prompt characterization", () => {
 			...createTestResourceLoader(),
 			getPrompts: () => ({ prompts: [template], diagnostics: [] }),
 		};
-		const harness = await createHarness({ resourceLoader });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ resourceLoader });
 		let expandedPrompt = "";
 
 		harness.setResponses([
@@ -514,7 +504,7 @@ describe("AgentSession prompt characterization", () => {
 
 	it("dispatches extension commands without consuming a provider response", async () => {
 		const commandRuns: string[] = [];
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.registerCommand("testcmd", {
@@ -526,7 +516,6 @@ describe("AgentSession prompt characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("should stay queued")]);
 
 		await harness.session.prompt("/testcmd hello world");
@@ -542,8 +531,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("rejects unknown slash commands instead of sending them to the provider", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.setResponses([fauxAssistantMessage("should not run")]);
 
 		await expect(harness.session.prompt("/does-not-exist hello")).rejects.toThrow(
@@ -554,7 +542,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("does not duplicate a handled extension command already recorded by the editor", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.registerCommand("testcmd", {
@@ -564,7 +552,6 @@ describe("AgentSession prompt characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const controlDbPath = getControlDbPath(harness.tempDir);
 		recordPromptHistoryEntry(controlDbPath, "/testcmd hello world");
 
@@ -574,8 +561,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("sendUserMessage while idle triggers a turn", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 
 		harness.setResponses([fauxAssistantMessage("response"), fauxEndTurn("characterization complete")]);
 
@@ -594,7 +580,7 @@ describe("AgentSession prompt characterization", () => {
 
 	it("does not report streamingBehavior to input handlers while idle", async () => {
 		const inputEvents: InputEvent[] = [];
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.on("input", (event) => {
@@ -603,7 +589,6 @@ describe("AgentSession prompt characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("ok")]);
 
 		await harness.session.prompt("idle", { streamingBehavior: "followUp" });
@@ -631,7 +616,7 @@ describe("AgentSession prompt characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [waitTool],
 			extensionFactories: [
 				(pi) => {
@@ -641,7 +626,6 @@ describe("AgentSession prompt characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -667,8 +651,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("manual compaction waits for a prompt that holds the turn-start arbiter", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.setResponses([fauxAssistantMessage("prompt")]);
 		harness.session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "previous" }], timestamp: Date.now() },
@@ -711,8 +694,7 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("queues a prompt when a trigger-turn custom message races compaction preflight", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.setResponses([fauxAssistantMessage("custom"), fauxAssistantMessage("prompt")]);
 		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
 
@@ -750,8 +732,7 @@ describe("AgentSession prompt characterization", () => {
 	it.each(["steer", "followUp"] as const)(
 		"queues a %s prompt when compaction preflight races another prompt",
 		async (streamingBehavior) => {
-			const harness = await createHarness();
-			harnesses.push(harness);
+			const harness = await createTrackedHarness();
 			harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
 			harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
 
@@ -811,8 +792,7 @@ describe("AgentSession prompt characterization", () => {
 				return { content: [{ type: "text", text: "released" }], details: {} };
 			},
 		};
-		const harness = await createHarness({ tools: [waitTool] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [waitTool] });
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("continued"),
@@ -880,8 +860,7 @@ describe("AgentSession prompt characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({ tools: [waitTool] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [waitTool] });
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -908,16 +887,14 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("throws when prompting without a model", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
+		const harness = await createTrackedHarness();
 		harness.session.agent.state.model = undefined as unknown as Model<Api>;
 
 		await expect(harness.session.prompt("hi")).rejects.toThrow("No model selected.");
 	});
 
 	it("throws when prompting without configured auth", async () => {
-		const harness = await createHarness({ withConfiguredAuth: false });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ withConfiguredAuth: false });
 
 		await expect(harness.session.prompt("hi")).rejects.toThrow(
 			`No API key found for ${harness.getModel().provider}.`,

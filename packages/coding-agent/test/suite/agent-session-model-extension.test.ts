@@ -63,6 +63,12 @@ function createEchoTool(execute: AgentTool["execute"] = echoText): AgentTool {
 describe("AgentSession model and extension characterization", () => {
 	const harnesses: Harness[] = [];
 	const hookScriptDirs: string[] = [];
+
+	async function createTrackedHarness(options?: Parameters<typeof createHarness>[0]): Promise<Harness> {
+		const harness = await createHarness(options);
+		harnesses.push(harness);
+		return harness;
+	}
 	const originalClaudeBashHook = process.env.PI_CLAUDE_BASH_HOOK;
 
 	afterEach(() => {
@@ -174,7 +180,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("setModel saves the model in control metadata and emits model_select", async () => {
 		const modelEvents: string[] = [];
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			persistedSession: true,
 			models: [
 				{ id: "faux-1", name: "One", reasoning: true },
@@ -188,7 +194,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		const nextModel = harness.getModel("faux-2");
 		if (!nextModel) throw new Error("Expected faux-2 model");
 
@@ -248,13 +253,12 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("cycles through scoped models and preserves the scoped thinking preference", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			models: [
 				{ id: "faux-1", name: "One", reasoning: true },
 				{ id: "faux-2", name: "Two", reasoning: false },
 			],
 		});
-		harnesses.push(harness);
 		const modelOne = harness.getModel("faux-1");
 		const modelTwo = harness.getModel("faux-2");
 		if (!modelOne || !modelTwo) throw new Error("Expected faux models");
@@ -274,7 +278,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("cycles only the persisted enabled model scope and never all enabled models", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			models: [
 				{ id: "faux-1", name: "One", reasoning: true },
 				{ id: "faux-2", name: "Two", reasoning: true },
@@ -282,7 +286,6 @@ describe("AgentSession model and extension characterization", () => {
 			],
 			settings: { enabledModels: ["faux-1", "faux-2"] },
 		});
-		harnesses.push(harness);
 
 		await harness.session.cycleModel();
 		expect(harness.session.model?.id).toBe("faux-2");
@@ -301,8 +304,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("clamps thinking levels to model capabilities and cycles available levels", async () => {
-		const harness = await createHarness({ models: [{ id: "faux-1", reasoning: false }] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ models: [{ id: "faux-1", reasoning: false }] });
 
 		harness.session.setThinkingLevel("high");
 		expect(harness.session.thinkingLevel).toBe("off");
@@ -310,14 +312,13 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("throws when setModel is called without configured auth", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			models: [
 				{ id: "faux-1", name: "One", reasoning: true },
 				{ id: "faux-2", name: "Two", reasoning: true },
 			],
 			withConfiguredAuth: false,
 		});
-		harnesses.push(harness);
 
 		const modelTwo = harness.getModel("faux-2");
 		if (!modelTwo) throw new Error("Expected faux-2 model");
@@ -328,7 +329,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("allows extension tool_call handlers to block tool execution", async () => {
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -336,7 +337,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -363,7 +363,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("dispatches in-place tool_call input rewrites to the tool and later handlers", async () => {
 		const observedInputs: Record<string, unknown>[] = [];
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -379,7 +379,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -401,7 +400,7 @@ describe("AgentSession model and extension characterization", () => {
 				return { content: [{ type: "text", text: `type:${typeof text}` }], details: { text } };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -413,7 +412,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -424,7 +422,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("short-circuits later tool_call handlers after a block result", async () => {
 		let laterHandlerCalls = 0;
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -436,7 +434,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -447,13 +444,12 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("blocks non-allowlisted tools before auto-approve can execute them", async () => {
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "auto-approve", approvalPreset: "auto-approve" },
 			tools: [echoTool],
 			extensionFactories: [safeExtension],
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("/safe on");
@@ -473,12 +469,11 @@ describe("AgentSession model and extension characterization", () => {
 				throw new Error("tool should have been blocked");
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "never", approvalPreset: "never-ask-deny" },
 			extensionFactories: [safeExtension, (pi) => pi.registerTool(echoTool)],
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("/safe on");
@@ -493,12 +488,11 @@ describe("AgentSession model and extension characterization", () => {
 			permissionDecisionReason: "safe",
 			updatedInput: { command: "printf hook-approved" },
 		});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			extensionFactories: [claudeBashHookExtension, safeExtension],
 			uiContext: createConfirmUiContext(vi.fn(async () => false)),
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -516,7 +510,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("blocks execution when a tool_call handler throws a non-Error value", async () => {
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -526,7 +520,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -542,12 +535,11 @@ describe("AgentSession model and extension characterization", () => {
 			toolExecutions++;
 			return echoText(toolCallId, params, signal);
 		});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(confirm, select),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -579,12 +571,11 @@ describe("AgentSession model and extension characterization", () => {
 				return { content: [{ type: "text", text: "spawned" }], details: { prompt } };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool, spawnAgentTool],
 			uiContext: createConfirmUiContext(confirm, select),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -612,12 +603,11 @@ describe("AgentSession model and extension characterization", () => {
 				throw new Error("tool should have been blocked");
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(confirm, select),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -633,7 +623,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("preserves baseline tool_call review with bypassPermissions=false under on-request", async () => {
 		const hookEvents: Array<{ bypassPermissions?: boolean; toolName: string }> = [];
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
 			extensionFactories: [
@@ -648,7 +638,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -660,7 +649,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("blocks tool calls under never approval policy without running hook reviewers", async () => {
 		let hookCalls = 0;
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "never" },
 			tools: [echoTool],
 			extensionFactories: [
@@ -672,7 +661,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -684,7 +672,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("runs tool calls under auto-approve policy without running hook reviewers", async () => {
 		let hookCalls = 0;
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "auto-approve" },
 			tools: [echoTool],
 			extensionFactories: [
@@ -696,7 +684,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -712,11 +699,10 @@ describe("AgentSession model and extension characterization", () => {
 			updatedInput: { command: "printf hook-approved" },
 		});
 		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [claudeBashHookExtension],
 			uiContext: createConfirmUiContext(confirm),
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -738,12 +724,11 @@ describe("AgentSession model and extension characterization", () => {
 			updatedInput: { command: "printf auto-rewritten" },
 		});
 		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [claudeBashHookExtension],
 			settings: { approvalPolicy: "auto-approve" },
 			uiContext: createConfirmUiContext(confirm),
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -765,11 +750,10 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
 		const select = vi.fn<ExtensionUIContext["select"]>().mockResolvedValue("Allow once");
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [claudeBashHookExtension],
 			uiContext: createConfirmUiContext(confirm, select),
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "printf native-approved" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -791,12 +775,11 @@ describe("AgentSession model and extension characterization", () => {
 			toolExecutions++;
 			return echoText(toolCallId, params, signal);
 		});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "llm denied" }),
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -820,13 +803,12 @@ describe("AgentSession model and extension characterization", () => {
 				return { content: [{ type: "text", text: "match" }], details: {} };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
 			supervisorDecisionRequester: requestSupervisorDecision,
 			tools: [grepTool],
 			extensionFactories: [(pi) => pi.registerApprovalReviewer(approvalReviewer)],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("grep", { pattern: "phpstan" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -852,12 +834,11 @@ describe("AgentSession model and extension characterization", () => {
 				return { content: [{ type: "text", text: "executed" }], details: {} };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: requestSupervisorDecision,
 			extensionFactories: [(pi) => pi.registerTool(grepTool)],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("grep", { pattern: "phpstan" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -882,13 +863,12 @@ describe("AgentSession model and extension characterization", () => {
 				return { content: [{ type: "text", text: "executed" }], details: {} };
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async () => ({ kind: "error", reason: "service unavailable" }),
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(vi.fn(), select),
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -911,13 +891,12 @@ describe("AgentSession model and extension characterization", () => {
 			toolExecutions++;
 			return echoText(toolCallId, params, signal);
 		});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
 			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "needs supervision" }),
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(vi.fn(), select),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
@@ -934,7 +913,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("sends bounded current-request evidence to the Supervisor without prior decision history", async () => {
 		const supervisorPayloads: Record<string, unknown>[] = [];
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async (input) => {
 				supervisorPayloads.push(input.payload);
@@ -942,7 +921,6 @@ describe("AgentSession model and extension characterization", () => {
 			},
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		harness.session.setActiveToolsByName(["echo"]);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "first" })], { stopReason: "toolUse" }),
@@ -963,7 +941,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("does not load or mutate the retired approval-memory file", async () => {
 		let supervisorCalls = 0;
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			supervisorDecisionRequester: async () => {
 				supervisorCalls += 1;
@@ -971,7 +949,6 @@ describe("AgentSession model and extension characterization", () => {
 			},
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		writeFileSync(
 			join(harness.tempDir, "approval-memory.jsonl"),
 			`${JSON.stringify({
@@ -996,7 +973,7 @@ describe("AgentSession model and extension characterization", () => {
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {
 		let autoReviewerCalls = 0;
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: {
 				approvalPolicy: "on-request",
 				approvalPreset: "llm-approved-deny",
@@ -1005,7 +982,6 @@ describe("AgentSession model and extension characterization", () => {
 			},
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -1027,11 +1003,10 @@ describe("AgentSession model and extension characterization", () => {
 	it("skips the LLM-approved reviewer when never policy blocks explicitly", async () => {
 		let autoReviewerCalls = 0;
 		const echoTool = createEchoTool(failIfExecuted);
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "never", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -1053,11 +1028,10 @@ describe("AgentSession model and extension characterization", () => {
 	it("skips the LLM-approved reviewer when auto-approve policy allows explicitly", async () => {
 		let autoReviewerCalls = 0;
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { approvalPolicy: "auto-approve", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -1102,11 +1076,10 @@ describe("AgentSession model and extension characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { permissionPromptTool: "mcp__approval__prompt" },
 			tools: [echoTool, approvalTool],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -1151,8 +1124,7 @@ describe("AgentSession model and extension characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({ tools: [echoTool, approvalTool] });
-		harnesses.push(harness);
+		const harness = await createTrackedHarness({ tools: [echoTool, approvalTool] });
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -1187,7 +1159,7 @@ describe("AgentSession model and extension characterization", () => {
 				};
 			},
 		});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [
 				echoTool,
 				createApprovalTool("mcp__claude-bash-hook-approval__approval_prompt"),
@@ -1198,7 +1170,6 @@ describe("AgentSession model and extension characterization", () => {
 				async () => "Allow once",
 			),
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -1224,11 +1195,10 @@ describe("AgentSession model and extension characterization", () => {
 				details: undefined,
 			}),
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: { permissionPromptTool: "mcp__approval__prompt" },
 			tools: [echoTool, approvalTool],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -1260,7 +1230,7 @@ describe("AgentSession model and extension characterization", () => {
 				};
 			},
 		};
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			settings: {
 				permissionPromptTool: "mcp__approval__prompt",
 				permissionRules: {
@@ -1271,7 +1241,6 @@ describe("AgentSession model and extension characterization", () => {
 			},
 			tools: [echoTool, approvalTool],
 		});
-		harnesses.push(harness);
 		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
@@ -1290,7 +1259,7 @@ describe("AgentSession model and extension characterization", () => {
 			isError: boolean;
 		}> = [];
 		const echoTool = createEchoTool();
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
@@ -1315,7 +1284,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
 			(context) => {
@@ -1357,7 +1325,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows extension context handlers to modify messages before the LLM call", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.on("context", async (event) => ({
@@ -1370,7 +1338,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		let providerUserText = "";
 		harness.setResponses([
 			(context) => {
@@ -1437,7 +1404,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("allows extension commands to inspect live system prompt options", async () => {
 		const seenOptions: BuildSystemPromptOptions[] = [];
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.registerCommand("inspect-options", {
@@ -1451,7 +1418,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.prompt("/inspect-options");
 		await harness.session.prompt("/inspect-options");
@@ -1464,7 +1430,7 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows before_agent_start handlers to inject custom messages and modify the system prompt", async () => {
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.on("before_agent_start", async (event) => ({
@@ -1479,7 +1445,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		let providerSystemPrompt = "";
 		let sawInjectedUserMessage = false;
 		harness.setResponses([
@@ -1506,7 +1471,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("bindExtensions emits session_start and reload emits session_shutdown then session_start", async () => {
 		const lifecycleEvents: string[] = [];
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_start", async (event) => {
@@ -1518,7 +1483,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.bindExtensions({ shutdownHandler: () => {} });
 		await harness.session.reload();
@@ -1528,7 +1492,7 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("adds restart to extension command contexts", async () => {
 		const restart = vi.fn(async () => {});
-		const harness = await createHarness({
+		const harness = await createTrackedHarness({
 			extensionFactories: [
 				(pi) => {
 					pi.registerCommand("restart-now", {
@@ -1540,7 +1504,6 @@ describe("AgentSession model and extension characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 
 		await harness.session.bindExtensions({
 			commandContextActions: {
