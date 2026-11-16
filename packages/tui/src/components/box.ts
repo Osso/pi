@@ -76,8 +76,10 @@ export class Box implements Component {
 			return [];
 		}
 
-		const contentWidth = Math.max(1, width - this.paddingX * 2);
-		const leftPad = " ".repeat(this.paddingX);
+		// Reduce margins when necessary so content and padding fit within the available width.
+		const paddingX = Math.min(this.paddingX, Math.max(0, Math.floor((width - 1) / 2)));
+		const contentWidth = Math.max(1, width - paddingX * 2);
+		const leftPad = " ".repeat(paddingX);
 
 		// Render all children
 		const childLines: string[] = [];

@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- `Box` shrinks its horizontal padding when the width cannot hold it, so a user message submitted in a 1- or 2-column terminal no longer crashes pi with a line-width error
 - A terminal reply such as the OSC 11 background-color answer that arrives in pieces (for example over SSH) is no longer turned into typed text and a Ctrl+G keypress; typing Alt+] followed by text still works
 - Text wrapping, markdown rendering and render regions no longer crash with `RangeError: Maximum call stack size exceeded` on text that wraps to more than about 125k lines ([#8036](https://github.com/earendil-works/pi-mono/issues/8036))
 - Fixed cursor markers reaching the terminal as raw `ESC _pi:c BEL` APC sequences when a frame held more than one, or when an overlay slice carried one in from the left (ported from upstream [#9441](https://github.com/earendil-works/pi/pull/9441))
