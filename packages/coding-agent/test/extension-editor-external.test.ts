@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings, TUI } from "@earendil-works/pi-tui";
@@ -46,6 +46,21 @@ describe("ExtensionEditorComponent external editor", () => {
 			editorCommand,
 		);
 	}
+
+	it("opens a collapsed paste with its content, not its marker", async () => {
+		// The editor copies the file it is given, so the test can read what it was opened with.
+		const seen = join(dir, "seen.md");
+		const editorScript = join(dir, "copy-editor.sh");
+		writeFileSync(editorScript, `#!/bin/sh\ncp "$1" "${seen}"\n`);
+		chmodSync(editorScript, 0o755);
+		const component = createComponent(editorScript);
+		const pasted = Array.from({ length: 12 }, (_, i) => `pasted ${i + 1}`).join("\n");
+		component.handleInput(`\x1b[200~${pasted}\x1b[201~`);
+
+		component.handleInput("\x07");
+
+		await vi.waitFor(() => expect(readFileSync(seen, "utf-8")).toBe(`draft text${pasted}`));
+	});
 
 	it("reports an editor program that cannot be started", async () => {
 		const missingEditor = join(dir, "missing-editor");

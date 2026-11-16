@@ -133,7 +133,7 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 			return;
 		}
 
-		const currentText = this.editor.getText();
+		const currentText = this.editor.getExpandedText();
 		const tmpFile = path.join(os.tmpdir(), `pi-extension-editor-${Date.now()}.md`);
 
 		try {
