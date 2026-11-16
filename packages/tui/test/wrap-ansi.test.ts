@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { visibleWidth, wrapTextWithAnsi } from "../src/utils.ts";
+import { visibleWidth } from "../src/utils.ts";
+import { wrapTextWithAnsi } from "../src/wrap-ansi.ts";
 
 describe("wrapTextWithAnsi", () => {
 	describe("underline styling", () => {
@@ -56,6 +57,57 @@ describe("wrapTextWithAnsi", () => {
 			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[4mabc\ndef\x1b[24m", 10), [
 				"\x1b[4mabc\x1b[24m",
 				"\x1b[4mdef\x1b[24m",
+			]);
+		});
+	});
+
+	// #10925
+	describe("styled words at the wrap boundary", () => {
+		it("keeps the closing code on the wrapped line and drops the following space", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("aaaa \x1b[1mbold\x1b[22m next word", 9), [
+				"aaaa \x1b[1mbold\x1b[22m",
+				"next word",
+			]);
+		});
+
+		it("does not re-open a style closed by the dropped space", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("aaaa \x1b[31mred\x1b[39m  next", 8), [
+				"aaaa \x1b[31mred\x1b[39m",
+				"next",
+			]);
+		});
+
+		it("does not exceed width for styled whitespace wider than the line", () => {
+			for (const text of [
+				`\x1b[41m${" ".repeat(20)}\x1b[0m`,
+				`ab\x1b[41m${" ".repeat(20)}\x1b[49mcd`,
+				`\x1b[33m${" ".repeat(20)}x\x1b[39m`,
+			]) {
+				for (const line of wrapTextWithAnsi(text, 10)) {
+					assert.ok(visibleWidth(line) <= 10, JSON.stringify(line));
+				}
+			}
+		});
+
+		it("trims trailing spaces before the line-end reset when a long word follows", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("aaa\x1b[9m    abcdefghij\x1b[29m", 9), [
+				"aaa\x1b[9m\x1b[29m",
+				"\x1b[9mabcdefghi\x1b[29m",
+				"\x1b[9mj\x1b[29m",
+			]);
+		});
+
+		it("resets strikethrough at line end and restores it on the next line", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("aaaa \x1b[9mstrike me\x1b[29m next", 12), [
+				"aaaa \x1b[9mstrike\x1b[29m",
+				"\x1b[9mme\x1b[29m next",
+			]);
+		});
+
+		it("preserves background when resetting strikethrough at line end", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[41;9mstrike me\x1b[0m", 6), [
+				"\x1b[41;9mstrike\x1b[29m",
+				"\x1b[9;41mme\x1b[0m",
 			]);
 		});
 	});
@@ -203,10 +255,11 @@ describe("wrapTextWithAnsi", () => {
 		});
 
 		it("drops a styled space at a wrap point like a plain one", () => {
-			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[1maaaa\x1b[22m bbbb", 4), ["\x1b[1maaaa", "bbbb"]);
-			assert.deepStrictEqual(wrapTextWithAnsi("aaaa\x1b[31m bbbb", 4), ["aaaa", "\x1b[31mbbbb"]);
+			// The dropped space's codes stay on the wrapped line, so a style it closes ends there (#10925)
+			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[1maaaa\x1b[22m bbbb", 4), ["\x1b[1maaaa\x1b[22m", "bbbb"]);
+			assert.deepStrictEqual(wrapTextWithAnsi("aaaa\x1b[31m bbbb", 4), ["aaaa\x1b[31m", "\x1b[31mbbbb"]);
 			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[1mImportant:\x1b[22m the rest", 10), [
-				"\x1b[1mImportant:",
+				"\x1b[1mImportant:\x1b[22m",
 				"the rest",
 			]);
 		});

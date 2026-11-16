@@ -1,5 +1,6 @@
 import type { Component } from "../tui.ts";
-import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
+import { applyBackgroundToLine, visibleWidth } from "../utils.ts";
+import { wrapTextWithAnsi } from "../wrap-ansi.ts";
 
 /**
  * Text component - displays multi-line text with word wrapping

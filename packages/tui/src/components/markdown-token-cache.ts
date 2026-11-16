@@ -1,6 +1,6 @@
 import type { Token } from "marked";
 import { isImageLine } from "../terminal-image.ts";
-import { wrapTextWithAnsi } from "../utils.ts";
+import { wrapTextWithAnsi } from "../wrap-ansi.ts";
 
 export interface TokenRenderCache {
 	nextTokenType?: string;

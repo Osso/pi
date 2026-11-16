@@ -1,7 +1,8 @@
 import { fuzzyFilter } from "../fuzzy.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
+import { truncateToWidth, visibleWidth } from "../utils.ts";
+import { wrapTextWithAnsi } from "../wrap-ansi.ts";
 import { Input } from "./input.ts";
 
 export interface SettingItem {

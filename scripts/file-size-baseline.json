@@ -31,8 +31,8 @@
 	"packages/coding-agent/src/package-manager-cli.ts": 782,
 	"packages/tui/src/autocomplete.ts": 787,
 	"packages/tui/src/components/editor.ts": 2602,
-	"packages/tui/src/components/markdown.ts": 924,
+	"packages/tui/src/components/markdown.ts": 897,
 	"packages/tui/src/keys.ts": 1407,
 	"packages/tui/src/tui.ts": 2381,
-	"packages/tui/src/utils.ts": 1189
+	"packages/tui/src/utils.ts": 916
 }

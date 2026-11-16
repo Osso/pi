@@ -2,7 +2,8 @@ import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { stripTerminalControls } from "../terminal-controls.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
-import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
+import { applyBackgroundToLine, visibleWidth } from "../utils.ts";
+import { wrapTextWithAnsi } from "../wrap-ansi.ts";
 import { renderCachedTokens, type TokenRenderCache } from "./markdown-token-cache.ts";
 import { padTableCell } from "./table-cell.ts";
 
@@ -302,36 +303,8 @@ export class Markdown implements Component {
 	}
 
 	private getDefaultStylePrefix(): string {
-		if (!this.defaultTextStyle) {
-			return "";
-		}
-
-		if (this.defaultStylePrefix !== undefined) {
-			return this.defaultStylePrefix;
-		}
-
-		const sentinel = "\u0000";
-		let styled = sentinel;
-
-		if (this.defaultTextStyle.color) {
-			styled = this.defaultTextStyle.color(styled);
-		}
-
-		if (this.defaultTextStyle.bold) {
-			styled = this.theme.bold(styled);
-		}
-		if (this.defaultTextStyle.italic) {
-			styled = this.theme.italic(styled);
-		}
-		if (this.defaultTextStyle.strikethrough) {
-			styled = this.theme.strikethrough(styled);
-		}
-		if (this.defaultTextStyle.underline) {
-			styled = this.theme.underline(styled);
-		}
-
-		const sentinelIndex = styled.indexOf(sentinel);
-		this.defaultStylePrefix = sentinelIndex >= 0 ? styled.slice(0, sentinelIndex) : "";
+		if (!this.defaultTextStyle) return "";
+		this.defaultStylePrefix ??= this.getStylePrefix((text) => this.applyDefaultStyle(text));
 		return this.defaultStylePrefix;
 	}
 
