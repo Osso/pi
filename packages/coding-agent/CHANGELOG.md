@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed `read` saving `[Current model does not support images...]` into the image result text, which was sent again after switching to a vision model; the warning now lives in `details.imageUnsupportedByModel` and the TUI shows it, naming the model that read the image (ported from upstream [#12139](https://github.com/earendil-works/pi/pull/12139))
 - Fixed `find` matching a lower-case path pattern such as `docs/readme.md` case-sensitively when the search directory has upper-case letters (e.g. `/syncthing/Sync/KB`); a file-name pattern such as `readme.md` already ignored case (ported from upstream [#12116](https://github.com/earendil-works/pi/pull/12116))
 - Fixed edit diffs dropping the indentation of a removed line when text was inserted at the start of its content, e.g. `await f()` becoming `const r = await f()` (ported from upstream [#9274](https://github.com/earendil-works/pi/pull/9274))
 - Fixed two Pi processes that reach the same `auth.json` through different paths (for example `~/.pi/agent` as a symlink to `~/.config/pi/agent`) taking separate locks, which let both refresh the same OAuth token; the lock now uses the resolved file (ported from upstream [#11655](https://github.com/earendil-works/pi/issues/11655))

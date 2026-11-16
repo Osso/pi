@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import { getReadmePath } from "../../config.ts";
@@ -39,6 +39,8 @@ export type ReadToolInput = Static<typeof readSchema>;
 
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
+	/** Id of the text-only model that read this image; that model got a placeholder instead of the image. */
+	imageUnsupportedByModel?: string;
 }
 
 interface CompactReadClassification {
@@ -155,13 +157,6 @@ function trimTrailingEmptyLines(lines: string[]): string[] {
 		end--;
 	}
 	return lines.slice(0, end);
-}
-
-function getNonVisionImageNote(model: Model<Api> | undefined): string | undefined {
-	if (!model || model.input.includes("image")) {
-		return undefined;
-	}
-	return "[Current model does not support images. The image will be omitted from this request.]";
 }
 
 function canUseHeadRangeRead(
@@ -290,8 +285,12 @@ function formatReadResult(
 	_cwd: string,
 	isError: boolean,
 ): string {
+	const imageModel = result.details?.imageUnsupportedByModel;
+	const imageWarning = imageModel
+		? `\n${theme.fg("warning", `[${imageModel} does not support images; it saw a placeholder instead]`)}`
+		: "";
 	if (!options.expanded && !isError) {
-		return "";
+		return imageWarning;
 	}
 
 	const rawPath = str(args?.file_path ?? args?.path);
@@ -317,7 +316,7 @@ function formatReadResult(
 			text += `\n${theme.fg("warning", `[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`)}`;
 		}
 	}
-	return text;
+	return text + imageWarning;
 }
 
 function createReadToolDefinitionInternal(
@@ -368,7 +367,6 @@ function createReadToolDefinitionInternal(
 						const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
 						let content: (TextContent | ImageContent)[];
 						let details: ReadToolDetails | undefined;
-						const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 						if (mimeType) {
 							// Read image as binary.
 							const buffer = await ops.readFile(absolutePath);
@@ -376,13 +374,14 @@ function createReadToolDefinitionInternal(
 								autoResizeImages,
 							});
 							if (!processed.ok) {
-								let textNote = `Read image file [${mimeType}]\n${processed.message}`;
-								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
-								content = [{ type: "text", text: textNote }];
+								content = [{ type: "text", text: `Read image file [${mimeType}]\n${processed.message}` }];
 							} else {
 								let textNote = `Read image file [${processed.mimeType}]`;
 								if (processed.hints.length > 0) textNote += `\n${processed.hints.join("\n")}`;
-								if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+								// The model never sees this: a text-only model gets a placeholder from pi-ai instead.
+								if (ctx?.model && !ctx.model.input.includes("image")) {
+									details = { imageUnsupportedByModel: ctx.model.id };
+								}
 								content = [
 									{ type: "text", text: textNote },
 									{
