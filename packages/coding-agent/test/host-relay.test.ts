@@ -19,6 +19,7 @@ import {
 	withControlDb,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { sendSupervisorReply } from "../src/supervisor/mail.ts";
 
 const a = { sessionId: "laptop-session", agentId: null };
 const b = { sessionId: "server-session", agentId: null };
@@ -206,6 +207,27 @@ describe("cross-host relay", () => {
 			.poll(() => claimDelivery(dbB, b, () => true).map((message) => message.body))
 			.toEqual(["running recipient"]);
 		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(claimDelivery(dbA, a, () => true)).toEqual([]);
+		connection.stop();
+		await connection.done;
+	});
+	it("sends no not-running notice back for a reply to a stopped session", async () => {
+		// The Supervisor parses every reply-prefixed message as JSON, so a text notice crashed its mailbox delivery.
+		sendSupervisorReply(
+			dbA,
+			a.sessionId,
+			{ sessionId: "stopped-session", agentId: null, requestId: "review-1", host: "agent-server" },
+			{
+				requestKind: "goal_idle_review",
+				response: { kind: "continue", instructions: "Continue.", reason: "Work remains." },
+			},
+		);
+		const connection = connect();
+		await expect.poll(() => count(dbB)).toBe(1);
+		enqueueStoredRuntimeMessageTo(dbA, b, "agent-server", "live", "running recipient");
+		await expect
+			.poll(() => claimDelivery(dbB, b, () => true).map((message) => message.body))
+			.toEqual(["running recipient"]);
 		expect(claimDelivery(dbA, a, () => true)).toEqual([]);
 		connection.stop();
 		await connection.done;

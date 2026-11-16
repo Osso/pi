@@ -142,9 +142,11 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 	}
 	notifyRuntimeMailboxRecipient(path, recipient);
 	// The relay acknowledges on import, so the sender would otherwise only see "queued" while the message waits.
-	// Notices are system messages and are never answered with another notice.
+	// Notices are system messages and are never answered with another notice. A reply answers the recipient's own
+	// request, so its sender has nothing to act on; a Supervisor reads reply-prefixed mail as JSON.
 	if (
 		data.kind !== "system" &&
+		data.kind !== "reply" &&
 		!readLiveRuntimeMailboxSessionAgentIds(path, recipient.sessionId).includes(recipient.agentId)
 	)
 		queueNotRunningNotice(path, peer, host, message, recipient, sender, String(data.body ?? ""));
