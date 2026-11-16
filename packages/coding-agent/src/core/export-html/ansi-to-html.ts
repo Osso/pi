@@ -9,6 +9,7 @@
  * - RGB true color (38;2;R;G;B and 48;2;R;G;B)
  * - Text styles: bold (1), dim (2), italic (3), underline (4)
  * - Reset (0)
+ * - OSC 8 hyperlinks to http, https and mailto URLs; other CSI, OSC and APC sequences and stray ESC are dropped
  */
 
 // Standard ANSI color palette (0-15)
@@ -211,8 +212,30 @@ function applySgrCode(params: number[], style: TextStyle): void {
 	}
 }
 
-// Match ANSI escape sequences: ESC[ followed by params and ending with 'm'
-const ANSI_REGEX = /\x1b\[([\d;]*)m/g;
+// SGR (ESC[...m), other CSI, OSC and APC sequences; OSC and APC end with BEL or ST.
+const ANSI_REGEX =
+	/\x1b\[([\d;]*)m|\x1b\[[0-?]*[ -/]*[@-~]|\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// OSC 8 hyperlink payload: "8;params;url"
+const OSC8_REGEX = /^8;[^;]*;(.*)$/s;
+const SAFE_LINK_REGEX = /^(?:https?:|mailto:)/i;
+
+/** Remove every escape sequence the converter knows, plus stray ESC characters. */
+export function stripAnsiEscapes(text: string): string {
+	return text.replace(ANSI_REGEX, "").replace(/\x1b/g, "");
+}
+
+function escapeVisibleText(text: string): string {
+	return escapeHtml(text.replace(/\x1b/g, ""));
+}
+
+/** The link an OSC 8 payload opens: "" closes the link or drops an unsafe URL; undefined is not OSC 8. */
+function readHyperlinkTarget(payload: string | undefined): string | undefined {
+	const rawUrl = payload === undefined ? undefined : OSC8_REGEX.exec(payload)?.[1];
+	if (rawUrl === undefined) return undefined;
+	// Browsers strip C0 controls from URLs, so strip them before checking the scheme.
+	const url = rawUrl.trim().replace(/[\x00-\x1f\x7f]/g, "");
+	return SAFE_LINK_REGEX.test(url) ? url : "";
+}
 
 /**
  * Convert ANSI-escaped text to HTML with inline styles.
@@ -222,52 +245,35 @@ export function ansiToHtml(text: string): string {
 	let result = "";
 	let lastIndex = 0;
 	let inSpan = false;
+	let inLink = false;
+	// Spans stay nested inside links: style and link changes close and reopen the current span.
+	const reopenSpanAround = (change: () => void) => {
+		if (inSpan) result += "</span>";
+		change();
+		inSpan = hasStyle(style);
+		if (inSpan) result += `<span style="${styleToInlineCSS(style)}">`;
+	};
 
-	// Reset regex state
-	ANSI_REGEX.lastIndex = 0;
-
-	let match = ANSI_REGEX.exec(text);
-	while (match !== null) {
-		// Add text before this escape sequence
-		const beforeText = text.slice(lastIndex, match.index);
-		if (beforeText) {
-			result += escapeHtml(beforeText);
-		}
-
-		// Parse SGR parameters
-		const paramStr = match[1];
-		const params = paramStr ? paramStr.split(";").map((p) => parseInt(p, 10) || 0) : [0];
-
-		// Close existing span if we have one
-		if (inSpan) {
-			result += "</span>";
-			inSpan = false;
-		}
-
-		// Apply the codes
-		applySgrCode(params, style);
-
-		// Open new span if we have any styling
-		if (hasStyle(style)) {
-			result += `<span style="${styleToInlineCSS(style)}">`;
-			inSpan = true;
-		}
-
+	for (const match of text.matchAll(ANSI_REGEX)) {
+		result += escapeVisibleText(text.slice(lastIndex, match.index));
 		lastIndex = match.index + match[0].length;
-		match = ANSI_REGEX.exec(text);
+		const sgr = match[1];
+		const target = readHyperlinkTarget(match[2]);
+		if (sgr !== undefined) {
+			reopenSpanAround(() => applySgrCode(sgr ? sgr.split(";").map((p) => parseInt(p, 10) || 0) : [0], style));
+		} else if (target !== undefined) {
+			reopenSpanAround(() => {
+				if (inLink) result += "</a>";
+				inLink = target !== "";
+				if (inLink) result += `<a href="${escapeHtml(target)}">`;
+			});
+		}
+		// Other CSI, OSC and APC sequences are dropped.
 	}
 
-	// Add remaining text
-	const remainingText = text.slice(lastIndex);
-	if (remainingText) {
-		result += escapeHtml(remainingText);
-	}
-
-	// Close any open span
-	if (inSpan) {
-		result += "</span>";
-	}
-
+	result += escapeVisibleText(text.slice(lastIndex));
+	if (inSpan) result += "</span>";
+	if (inLink) result += "</a>";
 	return result;
 }
 

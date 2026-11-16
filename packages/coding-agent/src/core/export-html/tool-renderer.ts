@@ -9,7 +9,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderContext } from "../extensions/types.ts";
-import { ansiLinesToHtml } from "./ansi-to-html.ts";
+import { ansiLinesToHtml, stripAnsiEscapes } from "./ansi-to-html.ts";
 
 export interface ToolHtmlRendererDeps {
 	/** Function to look up tool definition by name */
@@ -41,10 +41,9 @@ export interface ToolHtmlRenderer {
  * The renderer looks up tool definitions and invokes their renderCall/renderResult
  * methods, converting the resulting TUI Component output (ANSI) to HTML.
  */
-const ANSI_ESCAPE_REGEX = /\x1b\[[\d;]*m/g;
 
 function isBlankRenderedLine(line: string): boolean {
-	return line.replace(ANSI_ESCAPE_REGEX, "").trim().length === 0;
+	return stripAnsiEscapes(line).trim().length === 0;
 }
 
 function trimRenderedResultLines(lines: string[]): string[] {
