@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed background job completion notices waiting up to 30 seconds after a restart: the detached runner now wakes the idle owner session when it records the terminal result.
 - Fixed tool and `!` command output whose only excess over the 10KB limit was its final newline being reported as truncated, which also wrote an unneeded full-output temp file.
 - Fixed a settings write dropping changes that another Pi process saved while the settings file was first being created; the write now re-reads the file after taking the lock.
 - Fixed a detached Pyrun evaluation failing a foreground `pi.*` bridge call when it read the bridge response file while the response line was still being written; the runner now keeps an unfinished line until its newline arrives.

@@ -13,9 +13,11 @@ import { withImmediateTransaction } from "./helpers.ts";
 import {
 	assertMailboxMessageFresh,
 	type MultiAgentRuntimeOwnershipRow,
+	notifyRuntimeMailboxListener,
 	type PreparedStoredRuntimeMailboxMessage,
 	prepareStoredRuntimeMailboxMessage,
 	readMultiAgentRuntimeOwnershipRow,
+	readRuntimeMailboxListenerRow,
 } from "./runtime-mailbox-enqueue.ts";
 import type { EnqueueStoredRuntimeMailboxMessageInput } from "./types.ts";
 
@@ -170,7 +172,11 @@ export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetach
 			const preflight = prepareDetachedJobFinalization(db, input);
 			if ("result" in preflight) return preflight.result;
 			const result = persistDetachedJobFinalization(db, input.terminal, preflight.plan);
-			if (result) return result;
+			if (!result) continue;
+			// The runner is a separate process: wake the idle owner instead of leaving the notice to its poll.
+			const transport = preflight.plan.terminalTransport;
+			if (transport) notifyRuntimeMailboxListener(readRuntimeMailboxListenerRow(db, transport.input.recipient));
+			return result;
 		}
 		return { ok: false, error: "mutation_mismatch" };
 	});

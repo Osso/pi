@@ -1248,7 +1248,8 @@ describe("headless Pi fixture", () => {
 				).runnerOptions;
 				expect(persistedRunnerOptions?.env ?? {}).not.toHaveProperty("PYRUN_PARENT_MARKER");
 				expect(JSON.stringify(persistedRunnerOptions ?? {})).not.toContain("marker-value");
-				expect(agent.readTerminalOutboxStatuses(detachedJob.id)).toHaveLength(1);
+				// The finalizing runner wakes the owner, which consumes the terminal outbox row.
+				await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(detachedJob.id)).toEqual([]));
 				const runnerPid = launchManifest.runnerProcessIdentity?.pid;
 				if (!runnerPid) throw new Error("Detached Pyrun runner PID not found");
 				await vi.waitFor(() => expect(isProcessAlive(runnerPid)).toBe(false));
@@ -2101,7 +2102,8 @@ describe("headless Pi fixture", () => {
 						expect(output).toContain("before-restart");
 						expect(output).toContain("after-restart");
 					});
-					expect(agent.readTerminalOutboxStatuses(backgroundJobId)).toHaveLength(1);
+					// The finalizing runner wakes the owner, which consumes the terminal outbox row.
+					await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(backgroundJobId)).toEqual([]));
 					expect(
 						agent
 							.listAgents()
@@ -2193,8 +2195,8 @@ describe("headless Pi fixture", () => {
 						request.agentId === null &&
 						request !== restoredRequest &&
 						JSON.stringify(request.messages).includes(jobId),
-					// Terminal job notifications are delivered by the 30s runtime mailbox poll.
-					45_000,
+					// The finalizing runner wakes the restarted owner; well under the 30s idle poll.
+					10_000,
 				);
 				expect(readFileSync(attemptPath, "utf8")).toBe("x");
 				expect(readFileSync(manifest.artifacts.outputPath, "utf8")).toContain("restart-survivor-output");
@@ -2240,8 +2242,8 @@ describe("headless Pi fixture", () => {
 					request.agentId === null &&
 					request !== restoredRequest &&
 					JSON.stringify(request.messages).includes(job.id),
-				// Terminal job notifications are delivered by the 30s runtime mailbox poll.
-				45_000,
+				// The finalizing runner wakes the restarted owner; well under the 30s idle poll.
+				10_000,
 			);
 			expect(readFileSync(attemptPath, "utf8")).toBe("x");
 			agent.respondToLlmRequest(notifiedRequest.id, fauxCompletedAssistantMessage("Background job observed"));
