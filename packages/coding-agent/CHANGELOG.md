@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- The edit tool now computes its diff before writing the file, so a diff failure (for example out of memory on a large file) no longer leaves the file changed while the tool reports an error ([#11751](https://github.com/earendil-works/pi-mono/pull/11751))
 - Fixed `pyrun_eval` in persisted sessions never keeping `ctx`, because every call ran in a fresh Python, and running Python in the evaluation's artifact directory instead of the session cwd. Calls without `session_id` still get a fresh Python and run in parallel; calls with a `session_id` share that named session's long-lived Python, so `ctx` persists across calls and Pi restarts. A call to a named session that is still running fails at once.
 - Fixed `/reload` and session switches leaving lower extension overlays on screen with input focus; reset now removes every extension overlay and keeps pi's own overlays (ported from upstream [#11853](https://github.com/earendil-works/pi/pull/11853))
 - Fixed `!`/`!!` output shown while the agent works ignoring Ctrl+O, starting collapsed when tool output was expanded, and disappearing from the pending area when the message queue changed (ported from upstream [#11875](https://github.com/earendil-works/pi/issues/11875))
