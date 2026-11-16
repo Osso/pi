@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed RPC `new_session`, `switch_session`, `fork` and `clone` running extension `session_start` handlers twice for the new session, and RPC clients missing events emitted by `session_start` handlers ([#10470](https://github.com/earendil-works/pi/issues/10470))
 - Fixed `--mode json` print output missing events emitted by `session_start` handlers, such as `entry_appended` from `pi.appendEntry()`, at startup and after session replacement ([#12232](https://github.com/earendil-works/pi/pull/12232))
 - Fixed `reload()` not emitting `session_start` to the reloaded extensions when the host bound extensions without UI, command, shutdown or error bindings, as child agent sessions do ([#12231](https://github.com/earendil-works/pi/pull/12231))
 - Fixed `pi config` ignoring user keybindings from `keybindings.json` ([#11788](https://github.com/earendil-works/pi-mono/issues/11788))
