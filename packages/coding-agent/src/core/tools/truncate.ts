@@ -291,7 +291,10 @@ export function truncateLine(
 	if (line.length <= maxChars) {
 		return { text: line, wasTruncated: false };
 	}
-	// Do not end on the first half of a surrogate pair such as an emoji.
-	const end = /[\uD800-\uDBFF]/.test(line[maxChars - 1] ?? "") ? maxChars - 1 : maxChars;
-	return { text: `${line.slice(0, end)}... [truncated]`, wasTruncated: true };
+	return { text: `${sliceHead(line, maxChars)}... [truncated]`, wasTruncated: true };
+}
+
+/** The first `maxUnits` UTF-16 code units of `text`, one fewer when the cut would split a surrogate pair. */
+export function sliceHead(text: string, maxUnits: number): string {
+	return text.slice(0, /[\uD800-\uDBFF]/.test(text[maxUnits - 1] ?? "") ? maxUnits - 1 : maxUnits);
 }

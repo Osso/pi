@@ -1,5 +1,6 @@
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "../../types.ts";
+import { sliceHead } from "../utils/truncate.ts";
 
 /** File paths touched by a session branch or compaction range. */
 export interface FileOperations {
@@ -92,7 +93,7 @@ function safeJsonStringify(value: unknown): string {
 function truncateForSummary(text: string, maxChars: number): string {
 	if (text.length <= maxChars) return text;
 	const truncatedChars = text.length - maxChars;
-	return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
+	return `${sliceHead(text, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

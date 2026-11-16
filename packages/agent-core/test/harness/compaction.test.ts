@@ -650,6 +650,22 @@ describe("harness compaction", () => {
 		expect(result).toContain("[... 3000 more characters truncated]");
 	});
 
+	it("drops a whole emoji instead of half of it at the tool result cut", () => {
+		const messages = convertMessages([
+			{
+				role: "toolResult",
+				toolCallId: "tc1",
+				toolName: "read",
+				content: [{ type: "text", text: `${"b".repeat(1999)}\u{1F600}${"c".repeat(100)}` }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+		]);
+		const result = serializeConversation(messages);
+		expect(result).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+		expect(result).toContain(`${"b".repeat(1999)}\n\n[... 101 more characters truncated]`);
+	});
+
 	it("serializes truncated tool results with full output paths", () => {
 		const text = `${"x".repeat(5000)}\n[Showing lines 1-5000 of 5000. Full output: /tmp/pi-full-output.log]`;
 		const messages = convertMessages([

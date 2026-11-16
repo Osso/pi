@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Compaction no longer cuts an emoji in half when it truncates tool results and arguments for the summarizer; the lone surrogate is invalid UTF-16 and reached providers that do not strip it, such as claude-bridge ([#7121](https://github.com/earendil-works/pi-mono/issues/7121))
 - The relay no longer sends a "not running" notice back for a reply; a Supervisor reply to a stopped session on another host made the Supervisor's mailbox delivery fail with `JSON Parse error: Unexpected identifier "Not"`
 - Detached-job cleanup scans `/proc` once per batch instead of once per deleted directory; deleting 3000 expired directories took 100 s and now takes under 1 s
 - Detached-job cleanup now also removes job directories of Bash and Pyrun calls that completed in the foreground; they had no agent row, were never pruned, and grew to about 15 GiB on a long-used install

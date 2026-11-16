@@ -157,4 +157,35 @@ describe("serializeConversation", () => {
 		expect(result).not.toContain("truncated");
 		expect(result).toContain(longText);
 	});
+
+	it("drops a whole emoji instead of half of it at the tool result and argument cuts", () => {
+		const emoji = "\u{1F600}";
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "tc1", name: "write", arguments: { content: `${"a".repeat(999)}${emoji}rest` } },
+				],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt",
+				usage: tokenUsage(0),
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			},
+			{
+				role: "toolResult",
+				toolCallId: "tc1",
+				toolName: "write",
+				content: [{ type: "text", text: `${"b".repeat(1999)}${emoji}${"c".repeat(100)}` }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+		expect(result).toContain(`${"b".repeat(1999)}\n\n[... 101 more characters truncated]`);
+	});
 });

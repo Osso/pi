@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { truncateHead, truncateTail } from "../../src/harness/utils/truncate.ts";
+import { truncateHead, truncateLine, truncateTail } from "../../src/harness/utils/truncate.ts";
 
 const encoder = new TextEncoder();
 
@@ -165,5 +165,14 @@ describe("truncate utilities", () => {
 			for (let j = 0; j < length; j++) input += alphabet[Math.floor(random() * alphabet.length)];
 			assertMatchesBufferTail(input, sampledByteLimits(input));
 		}
+	});
+});
+
+describe("truncateLine", () => {
+	it("drops a whole emoji instead of half of it at the cut", () => {
+		expect(truncateLine(`${"a".repeat(499)}\u{1F600}tail`)).toEqual({
+			text: `${"a".repeat(499)}... [truncated]`,
+			wasTruncated: true,
+		});
 	});
 });
