@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed LiteLLM `ContextWindowExceededError` pre-call rejections not being detected as context overflow ([#11494](https://github.com/earendil-works/pi-mono/issues/11494))
 - OpenAI-compatible chat completions no longer send empty text parts in user messages, which made some providers reject image-only prompts ([#9797](https://github.com/earendil-works/pi-mono/issues/9797))
 - OpenAI Responses streams that complete with a tool call whose `output_item.done` never arrived now fail instead of handing over a call with possibly cut-off arguments ([#9974](https://github.com/earendil-works/pi-mono/issues/9974))
 - OpenAI Responses requests now send the `session-id` cache-affinity header instead of `session_id`, which proxies such as nginx drop by default ([#11639](https://github.com/earendil-works/pi-mono/issues/11639))
