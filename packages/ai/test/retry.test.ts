@@ -155,6 +155,44 @@ describe("provider retry classification", () => {
 		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
 	});
 
+	it.each([
+		// Transport failures (#10996, #12064, #12128) and HTTP/2 stream cancellation (#10379).
+		"The pending stream has been canceled (caused by: getaddrinfo ENOTFOUND bedrock-runtime.us-east-1.amazonaws.com)",
+		"connect ENOTFOUND api.example.com",
+		"EAI_AGAIN api.example.com",
+		"getaddrinfo failed for api.example.com",
+		"request to https://oauth2.googleapis.com/token failed, reason: ",
+		'{"type":"error","error":{"type":"api_error","message":"Connection closed."}}',
+		"read ECONNRESET",
+		"connect ETIMEDOUT 140.82.113.3:443",
+		"write EPIPE",
+		"ECONNABORTED",
+		"Connection reset by peer",
+		"The pending stream has been canceled",
+		// Gateway and provider capacity wording (#9669, #9627, #10920, #10965, #11057, #11879).
+		"unknown: Unable to forward upstream stream",
+		"upstream_error: Upstream request failed",
+		"upstream_stream_read_error: Upstream response stream was interrupted",
+		"Upstream HTTP/2 stream failed",
+		"stream disconnected before completion: stream closed before response.completed",
+		"Claude Code's stream from Anthropic was cut short after the reply had begun",
+		"The service is temporarily unavailable. Please retry later.",
+		"The system is currently experiencing high demand and cannot process your request.",
+		"520 status code (no body)",
+		"ResourceExhausted: Worker local total request limit reached (288/48)",
+		"subscription_sharing_usage_unavailable: Usage cannot be checked.",
+		"subscription_sharing_user_unavailable: User cannot be loaded.",
+	])("retries transient transport and gateway failures: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
+	it.each(["Invalid value EXECONNRESET", "Unknown field ETIMEDOUTX", "Invalid key ERR_EPIPE_ID"])(
+		"does not match socket error codes inside longer identifiers: %s",
+		(errorMessage) => {
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+		},
+	);
+
 	it("does not retry upstream request buffer limit overflow errors", () => {
 		expect(
 			isRetryableAssistantError(

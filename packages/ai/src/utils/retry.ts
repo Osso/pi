@@ -81,12 +81,19 @@ const THROUGHPUT_LIMIT_PATTERN = buildProviderErrorPattern(["(?:tokens|requests)
 const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// Generic provider load, HTTP status, and server-side transient failures.
 	"overloaded",
+	"server_busy",
+	"servers are currently busy",
+	// Azure peak-load capacity errors (#9669).
+	"currently experiencing high demand",
+	"model is at capacity",
 	"\\b500\\b",
 	"\\b502\\b",
 	"\\b503\\b",
 	"\\b504\\b",
+	"\\b520\\b",
 	"\\b524\\b",
-	"service.?unavailable",
+	// Also matches "The service is temporarily unavailable" (#10965).
+	"service.?(?:is.?)?(?:temporarily.?)?unavailable",
 	"server.?error",
 	"server had an error",
 	"internal.?error",
@@ -95,6 +102,12 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// "Provider returned error" responses (#2264) and gateway wording such as
 	// "The upstream provider returned an error" (#10842).
 	"provider.?returned.?(?:an.?)?error",
+	// Gateway upstream failures relayed as OpenAI Responses `response.failed` events (#10920).
+	"unable to forward upstream",
+	"upstream.?request.?failed",
+	"upstream_stream_read_error",
+	"stream was interrupted",
+	"http/?2 stream failed",
 
 	// Network, proxy, and fetch transport failures. This includes OpenAI Codex
 	// raw-fetch failures such as "upstream connect", "connection refused", and
@@ -103,8 +116,22 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"connection.?error",
 	"connection.?refused",
 	"connection.?lost",
+	// Gateway mid-stream drop relayed as an Anthropic-style `api_error` event,
+	// e.g. {"type":"error","error":{"type":"api_error","message":"Connection closed."}} (#12064).
+	"connection.?closed",
 	"other side closed",
 	"fetch failed",
+	// node-fetch system errors, e.g. the Google ADC OAuth token refresh used by
+	// google-vertex. The reason is often empty (#10996).
+	"request to \\S+ failed, reason:",
+	"getaddrinfo",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	// Bare Node socket error codes, e.g. "read ECONNRESET", "write EPIPE", or
+	// "connect ETIMEDOUT 1.2.3.4:443" when a transport reports only the code (#12128).
+	// The codes must not be part of a longer identifier.
+	"(?<![a-z0-9_])(?:ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE)(?![a-z0-9_])",
+	"connection reset by peer",
 	"upstream.?connect",
 	"reset before headers",
 	"socket hang up",
@@ -128,6 +155,13 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"stream ended before message_stop",
 	"stream ended before a terminal response event",
 	"http2 request did not get a response",
+	// Codex CLI mid-stream disconnect relayed by proxies that wrap the Codex CLI (#11057).
+	"stream disconnected before completion",
+	// Gateway relaying a dropped upstream Anthropic stream (#11879).
+	"cut short after the reply had begun",
+	// Node ERR_HTTP2_STREAM_CANCEL: the HTTP/2 session died before the request was
+	// sent, e.g. after the Bedrock SDK's 5-minute session timeout (#10379).
+	"pending stream has been canceled",
 
 	// Provider-requested retry delay cap failures should flow through the outer
 	// retry policy so callers can surface/abort the backoff (#1123).
@@ -141,6 +175,14 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"you can retry your request",
 	"try your request again",
 	"please retry your request",
+
+	// gRPC based providers (e.g. NVIDIA NIM).
+	"ResourceExhausted",
+
+	// Sign in with ChatGPT: usage or user data temporarily unavailable. Usage
+	// failures can arrive mid-stream without an HTTP 503 in the message.
+	"subscription_sharing_usage_unavailable",
+	"subscription_sharing_user_unavailable",
 ]);
 
 /**
