@@ -556,11 +556,6 @@ export function getCustomThemesDir(): string {
 	return join(getAgentDir(), "themes");
 }
 
-/** Get path to models.json */
-export function getModelsPath(): string {
-	return join(getAgentDir(), "models.json");
-}
-
 /** Get path to auth.json */
 export function getAuthPath(): string {
 	return join(getAgentDir(), "auth.json");
@@ -576,11 +571,6 @@ export function getBinDir(): string {
 	return join(getAgentDir(), "bin");
 }
 
-/** Get path to prompt templates directory */
-export function getPromptsDir(): string {
-	return join(getAgentDir(), "prompts");
-}
-
 /** Get path to legacy persistent prompt history */
 export function getPromptHistoryPath(): string {
 	return join(getAgentDir(), "prompt-history.json");
@@ -589,9 +579,4 @@ export function getPromptHistoryPath(): string {
 /** Get path to sessions directory */
 export function getSessionsDir(): string {
 	return join(getAgentDir(), "sessions");
-}
-
-/** Get path to debug log file */
-export function getDebugLogPath(): string {
-	return join(getAgentDir(), `${APP_NAME}-debug.log`);
 }
