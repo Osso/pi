@@ -2,7 +2,8 @@
  * TUI config selector for `pi config` command
  */
 
-import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
+import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
+import { KeybindingsManager } from "../core/keybindings.ts";
 import type { ResolvedPaths } from "../core/package-manager.ts";
 import type { SettingsManager } from "../core/settings-manager.ts";
 import { ConfigSelectorComponent } from "../modes/interactive/components/config-selector.ts";
@@ -19,6 +20,7 @@ export interface ConfigSelectorOptions {
 export async function selectConfig(options: ConfigSelectorOptions): Promise<void> {
 	// Initialize theme before showing TUI
 	initTheme(options.settingsManager.getTheme(), true);
+	setKeybindings(KeybindingsManager.create(options.agentDir));
 
 	return new Promise((resolve) => {
 		const ui = new TUI(new ProcessTerminal());

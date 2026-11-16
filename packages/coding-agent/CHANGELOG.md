@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed `pi config` ignoring user keybindings from `keybindings.json` ([#11788](https://github.com/earendil-works/pi-mono/issues/11788))
 - Fixed hidden thinking with an empty hidden-thinking label rendering blank rows ([#11470](https://github.com/earendil-works/pi-mono/issues/11470))
 - Extension selectors (`ctx.ui.select`) show a window of 10 options around the selection with a `(n/total)` position, so the selected option stays visible in long lists ([#6688](https://github.com/earendil-works/pi-mono/issues/6688))
 - RPC and print-mode `ctx.reload()` now refuse to reload while a response or compaction runs, as interactive `/reload` already did; a reload during a tool call left the tool with a stale extension context ([#9221](https://github.com/earendil-works/pi-mono/issues/9221))
