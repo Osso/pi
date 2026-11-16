@@ -76,4 +76,16 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 		const result = await def.execute("call-1", { pattern: "src/**/*.ts" }, undefined, undefined, ctx);
 		expect(result.content[0]).toEqual({ type: "text", text: "No files found matching pattern" });
 	});
+
+	it("matches a lower-case path pattern case-insensitively under an upper-case search root", async () => {
+		const root = join(tempRoot, "Upper");
+		mkdirSync(join(root, "docs"), { recursive: true });
+		writeFileSync(join(root, "docs", "README.md"), "");
+		const def = createFindToolDefinition(root);
+		const ctx = {} as Parameters<typeof def.execute>[4];
+		for (const pattern of ["readme.md", "docs/readme.md"]) {
+			const result = await def.execute("call-1", { pattern }, undefined, undefined, ctx);
+			expect(result.content[0]).toEqual({ type: "text", text: "docs/README.md" });
+		}
+	});
 });

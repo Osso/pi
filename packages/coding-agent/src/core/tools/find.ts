@@ -243,6 +243,8 @@ export function createFindToolDefinition(
 									.replace(/[*?[\]{}]/g, "[$&]")
 									.replace(/\/$/, "");
 								effectivePattern = `${root}/${rootPattern.startsWith("**/") || rootPattern === "**" ? "" : "**/"}${rootPattern}`;
+								// fd's smart case would read the root's letters; decide it from the user's pattern.
+								if (rootPattern === rootPattern.toLowerCase()) args.push("--ignore-case");
 							}
 						}
 						args.push("--", effectivePattern, searchPath);
