@@ -1739,6 +1739,8 @@ const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
 // result.stdout, result.stderr, result.code, result.killed
 ```
 
+`signal` and `timeout` terminate the command with SIGTERM, then SIGKILL after 5 seconds if it is still running. `killed` is true when pi terminated the command. A command terminated by a signal, by pi or otherwise, reports 128 + the signal number as `code`, like a shell: 143 for SIGTERM, 137 for SIGKILL.
+
 ### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
 
 Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for all configured tools.
