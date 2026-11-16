@@ -17,6 +17,10 @@ Common options:
 - `--no-session`: Disable session persistence
 - `--session-dir <path>`: Custom session storage directory
 
+### Stopping RPC mode
+
+Closing stdin, SIGTERM, and SIGHUP start an orderly shutdown that runs `session_shutdown` handlers and disposes the session. Once a shutdown has started, a stdin EOF or a single signal does not interrupt it; a second signal exits at once. Closing stdin and sending SIGTERM together is safe.
+
 ### Restoring interrupted sessions
 
 When RPC mode opens a persisted session whose JSONL ends during model thinking or with unfinished assistant tool calls, startup automatically continues that turn without requiring a new `prompt` command. RPC emits the normal agent, tool, and LLM-request events for the continued work.

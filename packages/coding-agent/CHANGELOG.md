@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- RPC and print mode let a started shutdown finish: in RPC mode a stdin EOF followed by SIGTERM (or the reverse) no longer kills pi in the middle of `session_shutdown` cleanup, and in print mode a signal during the final disposal waits for it; a second signal still exits at once ([#11752](https://github.com/earendil-works/pi-mono/pull/11752))
 - Clipboard writers (`wl-copy`, `xclip`, `xsel`) now run outside pi's process group, so suspending pi with Ctrl+Z no longer stops the clipboard owner and freezes pasting in other applications ([#11179](https://github.com/earendil-works/pi-mono/issues/11179))
 - The grep tool takes context lines from ripgrep instead of reading every matched file whole, so a search with `context` over large files no longer grows memory with file size; a match inside the last allowed match's trailing context is shown as context ([#9276](https://github.com/earendil-works/pi-mono/issues/9276))
 - Fixed a crash (`RangeError: Maximum call stack size exceeded`) when the chat showed a tool result that wraps to more than about 125k lines, such as an edit diff of a file with a multi-megabyte line; the session crashed again on every resume ([#8036](https://github.com/earendil-works/pi-mono/issues/8036))

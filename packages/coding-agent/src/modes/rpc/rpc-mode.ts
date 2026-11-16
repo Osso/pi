@@ -91,7 +91,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	// Shutdown request flag
 	let shutdownRequested = false;
 	let shuttingDown = false;
-	const signalCleanupHandlers: Array<() => void> = [];
+	let shutdownSignalSeen = false;
 
 	/** Helper for dialog methods with signal/timeout support */
 	function createDialogPromise<T>(
@@ -380,12 +380,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 	const registerSignalHandlers = (): void => {
 		for (const signal of shutdownSignals()) {
-			const handler = () => {
+			// Handlers stay until exit: one signal never interrupts a started shutdown, a repeated one exits at once.
+			process.on(signal, () => {
+				if (shutdownSignalSeen) process.exit(signalExitCode(signal));
+				shutdownSignalSeen = true;
 				killTrackedDetachedChildren();
 				void shutdown(signalExitCode(signal), signal);
-			};
-			process.on(signal, handler);
-			signalCleanupHandlers.push(() => process.off(signal, handler));
+			});
 		}
 	};
 
@@ -743,14 +744,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	 */
 	let detachInput = () => {};
 
-	async function shutdown(exitCode = 0, signal?: NodeJS.Signals): Promise<never> {
-		if (shuttingDown) {
-			process.exit(exitCode);
-		}
+	/** Runs once; a later stdin EOF, shutdown request, or first signal lets the started shutdown finish. */
+	async function shutdown(exitCode = 0, signal?: NodeJS.Signals): Promise<void> {
+		if (shuttingDown) return;
 		shuttingDown = true;
-		for (const cleanup of signalCleanupHandlers) {
-			cleanup();
-		}
 		unsubscribe?.();
 		unsubscribeBackpressure?.();
 		await runtimeHost.dispose();

@@ -52,19 +52,25 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	let exitCode = 0;
 	let session = runtimeHost.session;
 	let unsubscribe: (() => void) | undefined;
-	let disposed = false;
+	let disposal: Promise<void> | undefined;
+	let shutdownSignalSeen = false;
 	const signalCleanupHandlers: Array<() => void> = [];
 
-	const disposeRuntime = async (): Promise<void> => {
-		if (disposed) return;
-		disposed = true;
-		unsubscribe?.();
-		await runtimeHost.dispose();
+	// Every caller waits for the one in-flight disposal, so a signal during the final disposal does not cut it off.
+	const disposeRuntime = (): Promise<void> => {
+		disposal ??= (async () => {
+			unsubscribe?.();
+			await runtimeHost.dispose();
+		})();
+		return disposal;
 	};
 
 	const registerSignalHandlers = (): void => {
 		for (const signal of shutdownSignals()) {
 			const handler = () => {
+				// A repeated signal exits at once (#11752).
+				if (shutdownSignalSeen) process.exit(signalExitCode(signal));
+				shutdownSignalSeen = true;
 				killTrackedDetachedChildren();
 				void disposeRuntime().finally(() => {
 					process.exit(signalExitCode(signal));
@@ -161,10 +167,11 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		console.error(error instanceof Error ? error.message : String(error));
 		return 1;
 	} finally {
+		// Remove the signal handlers only after disposal, so a signal during it waits instead of killing pi.
+		await disposeRuntime();
 		for (const cleanup of signalCleanupHandlers) {
 			cleanup();
 		}
-		await disposeRuntime();
 		await flushRawStdout();
 	}
 }
