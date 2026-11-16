@@ -614,10 +614,6 @@ async function executeToolCallsSequential(
 		await emitToolResultMessage(toolResultMessage, emit);
 		finalizedCalls.push(finalized);
 		messages.push(toolResultMessage);
-
-		if (signal?.aborted) {
-			break;
-		}
 	}
 
 	return {
@@ -648,9 +644,6 @@ async function executeToolCallsParallel(
 			});
 			await emitToolExecutionEnd(finalized, startedAt, emit);
 			finalizedCalls.push(finalized);
-			if (signal?.aborted) {
-				break;
-			}
 			continue;
 		}
 
@@ -667,9 +660,6 @@ async function executeToolCallsParallel(
 			await emitToolExecutionEnd(finalized, startedAt, emit);
 			return finalized;
 		});
-		if (signal?.aborted) {
-			break;
-		}
 	}
 
 	const orderedFinalizedCalls = await Promise.all(
@@ -740,6 +730,16 @@ async function prepareToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
+	// Once aborted, skip preparation and the hooks; callers still record this result, so no call
+	// is left without one.
+	if (signal?.aborted) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult("Operation aborted"),
+			isError: true,
+			args: toolCall.arguments,
+		};
+	}
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
 		return {
@@ -779,14 +779,6 @@ async function prepareToolCall(
 					args: validatedArgs,
 				};
 			}
-		}
-		if (signal?.aborted) {
-			return {
-				kind: "immediate",
-				result: createErrorToolResult("Operation aborted"),
-				isError: true,
-				args: validatedArgs,
-			};
 		}
 		return {
 			kind: "prepared",

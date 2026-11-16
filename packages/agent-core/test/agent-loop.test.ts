@@ -162,6 +162,51 @@ async function collectEvents(stream: AsyncIterable<AgentEvent>): Promise<AgentEv
 	return events;
 }
 
+/** Run one turn whose assistant message calls `tool` three times and collect its events. */
+async function runAbortedToolBatch(
+	tool: AgentTool,
+	config: Partial<AgentLoopConfig>,
+	controller: AbortController,
+): Promise<AgentEvent[]> {
+	const toolCalls = ["first", "second", "third"].map((value, index) => ({
+		type: "toolCall" as const,
+		id: `tool-${index + 1}`,
+		name: tool.name,
+		arguments: { value },
+	}));
+	const stream = agentLoop(
+		[createUserMessage("run three")],
+		createContext([tool]),
+		createLoopConfig(config),
+		controller.signal,
+		toolCallsThenDone(toolCalls),
+	);
+	const events: AgentEvent[] = [];
+	try {
+		for await (const event of stream) events.push(event);
+	} catch {
+		// The aborted run rejects after emitting its events.
+	}
+	return events;
+}
+
+function toolResultTexts(events: AgentEvent[]): Array<[string, string]> {
+	return events.flatMap((event) =>
+		event.type === "message_end" && event.message.role === "toolResult"
+			? [
+					[
+						event.message.toolCallId,
+						event.message.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+					] as [string, string],
+				]
+			: [],
+	);
+}
+
+function toolEventIds(events: AgentEvent[], type: "tool_execution_start" | "tool_execution_end"): string[] {
+	return events.flatMap((event) => (event.type === type ? [event.toolCallId] : []));
+}
+
 async function consumeStream(stream: AsyncIterable<unknown>): Promise<void> {
 	for await (const _event of stream) {
 		// Consume events when the test only needs the completed stream.
@@ -865,6 +910,76 @@ describe("agentLoop with AgentMessage", () => {
 
 		// Interrupt message should be in context when second LLM call is made
 		expect(sawInterruptInContext).toBe(true);
+	});
+
+	// Upstream #9986: aborting mid-batch left the unreached calls without a tool result.
+	it("answers every tool call of a sequential batch aborted mid-batch", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const controller = new AbortController();
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "slow",
+			label: "Slow",
+			description: "Slow tool",
+			parameters: toolSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params) {
+				executed.push(params.value);
+				// The user aborts while the first call runs.
+				controller.abort();
+				throw new Error("interrupted");
+			},
+		};
+
+		const events = await runAbortedToolBatch(tool, {}, controller);
+
+		expect(executed).toEqual(["first"]);
+		expect(toolResultTexts(events)).toEqual([
+			// A call aborted while running reports the run abort, not its own thrown error.
+			["tool-1", "Agent run aborted"],
+			["tool-2", "Operation aborted"],
+			["tool-3", "Operation aborted"],
+		]);
+		expect(toolEventIds(events, "tool_execution_start")).toEqual(["tool-1", "tool-2", "tool-3"]);
+		expect(toolEventIds(events, "tool_execution_end")).toEqual(["tool-1", "tool-2", "tool-3"]);
+	});
+
+	it("answers every tool call of a parallel batch aborted while calls are prepared", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const controller = new AbortController();
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "slow",
+			label: "Slow",
+			description: "Slow tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.value);
+				return { content: [{ type: "text", text: params.value }], details: { value: params.value } };
+			},
+		};
+		// The user aborts while a hook decides about the second call, for example at a permission prompt.
+		const hookCalls: string[] = [];
+		const config: Partial<AgentLoopConfig> = {
+			beforeToolCall: async ({ toolCall }) => {
+				hookCalls.push(toolCall.id);
+				if (toolCall.id === "tool-2") controller.abort();
+				return undefined;
+			},
+		};
+
+		const events = await runAbortedToolBatch(tool, config, controller);
+
+		expect(executed).toEqual([]);
+		// The hook is not asked about a call that will not run.
+		expect(hookCalls).toEqual(["tool-1", "tool-2"]);
+		expect(toolResultTexts(events)).toEqual([
+			["tool-1", "Operation aborted"],
+			["tool-2", "Operation aborted"],
+			["tool-3", "Operation aborted"],
+		]);
+		expect(toolEventIds(events, "tool_execution_start")).toEqual(["tool-1", "tool-2", "tool-3"]);
+		expect(toolEventIds(events, "tool_execution_end").sort()).toEqual(["tool-1", "tool-2", "tool-3"]);
 	});
 
 	it("should force sequential execution when a tool has executionMode=sequential even with default parallel config", async () => {
