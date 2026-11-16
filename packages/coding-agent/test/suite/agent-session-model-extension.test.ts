@@ -303,6 +303,30 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.session.model?.id).toBe("faux-1");
 	});
 
+	// Upstream #11832: with the active model outside the scope, a one-model scope did nothing and forward skipped entry 0.
+	it("cycles onto the scope when the active model is outside it", async () => {
+		const harness = await createTrackedHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+				{ id: "faux-3", name: "Three", reasoning: true },
+			],
+		});
+		const [one, two, three] = ["faux-1", "faux-2", "faux-3"].map((id) => harness.getModel(id));
+		if (!one || !two || !three) throw new Error("Expected faux models");
+		await harness.session.setModel(one);
+
+		harness.session.setScopedModels([{ model: three }]);
+		expect((await harness.session.cycleModel())?.model.id).toBe("faux-3");
+		expect(await harness.session.cycleModel()).toBeUndefined();
+
+		await harness.session.setModel(one);
+		harness.session.setScopedModels([{ model: two }, { model: three }]);
+		expect((await harness.session.cycleModel())?.model.id).toBe("faux-2");
+		await harness.session.setModel(one);
+		expect((await harness.session.cycleModel("backward"))?.model.id).toBe("faux-3");
+	});
+
 	it("clamps thinking levels to model capabilities and cycles available levels", async () => {
 		const harness = await createTrackedHarness({ models: [{ id: "faux-1", reasoning: false }] });
 

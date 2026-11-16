@@ -3425,14 +3425,12 @@ export class AgentSession {
 		models: ReadonlyArray<ScopedModel>,
 	): Promise<ModelCycleResult | undefined> {
 		const scopedModels = models.filter((scoped) => this._modelRegistry.hasConfiguredAuth(scoped.model));
-		if (scopedModels.length <= 1) return undefined;
-
-		const currentModel = this.model;
-		let currentIndex = scopedModels.findIndex((sm) => modelsAreEqual(sm.model, currentModel));
-
-		if (currentIndex === -1) currentIndex = 0;
 		const len = scopedModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+		const currentIndex = scopedModels.findIndex((sm) => modelsAreEqual(sm.model, this.model));
+		// An active model outside the scope cycles onto it: forward to the first entry, backward to the last.
+		if (len === 0 || (len === 1 && currentIndex === 0)) return undefined;
+		const step = direction === "forward" ? 1 : len - 1;
+		const nextIndex = currentIndex === -1 ? (direction === "forward" ? 0 : len - 1) : (currentIndex + step) % len;
 		const next = scopedModels[nextIndex];
 		if (next === undefined) throw new Error("scoped model missing while cycling models");
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
