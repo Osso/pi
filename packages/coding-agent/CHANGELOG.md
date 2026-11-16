@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- The grep tool takes context lines from ripgrep instead of reading every matched file whole, so a search with `context` over large files no longer grows memory with file size; a match inside the last allowed match's trailing context is shown as context ([#9276](https://github.com/earendil-works/pi-mono/issues/9276))
 - Fixed a crash (`RangeError: Maximum call stack size exceeded`) when the chat showed a tool result that wraps to more than about 125k lines, such as an edit diff of a file with a multi-megabyte line; the session crashed again on every resume ([#8036](https://github.com/earendil-works/pi-mono/issues/8036))
 - The edit tool now keeps an edited line's own line ending in files with mixed endings, uses a lone CR only in files without LF, and no longer joins two lines when an edit meets a lone CR ([#8544](https://github.com/earendil-works/pi-mono/issues/8544))
 - The edit tool now computes its diff before writing the file, so a diff failure (for example out of memory on a large file) no longer leaves the file changed while the tool reports an error ([#11751](https://github.com/earendil-works/pi-mono/pull/11751))

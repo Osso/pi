@@ -1204,6 +1204,36 @@ describe("Coding Agent Tools", () => {
 			expect(output).toBe("overlap.txt:1: needle line\noverlap.txt-2- other\noverlap.txt:3: needle again");
 		});
 
+		it("takes context lines from ripgrep without reading the matched files", async () => {
+			const testFile = join(testDir, "big.log");
+			writeFileSync(testFile, "one\ntwo\nneedle\nfour\nfive\n");
+			const readFile = vi.fn((path: string) => readFileSync(path, "utf-8"));
+			const tool = createGrepTool(process.cwd(), {
+				operations: { isDirectory: (path) => statSync(path).isDirectory(), readFile },
+			});
+
+			const result = await tool.execute("grep-rg-context", { pattern: "needle", path: testFile, context: 1 });
+
+			expect(getTextOutput(result)).toBe("big.log-2- two\nbig.log:3: needle\nbig.log-4- four");
+			expect(readFile).not.toHaveBeenCalled();
+		});
+
+		it("shows a match inside the last allowed match's trailing context as context", async () => {
+			const testFile = join(testDir, "trailing.txt");
+			writeFileSync(testFile, "match a\nmatch b\nx\nmatch c\n");
+
+			const result = await grepTool.execute("grep-trailing", {
+				pattern: "match",
+				path: testFile,
+				limit: 1,
+				context: 1,
+			});
+
+			expect(getTextOutput(result)).toBe(
+				"trailing.txt:1: match a\ntrailing.txt-2- match b\n\n[1 matches limit reached. Use limit=2 for more, or refine pattern]",
+			);
+		});
+
 		it("should treat flag-like patterns as search text", async () => {
 			const marker = join(testDir, "grep-injection-marker");
 			const payload = join(testDir, "payload.sh");
