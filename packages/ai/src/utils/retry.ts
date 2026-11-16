@@ -144,6 +144,8 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// WebSocket transports can report close/error text instead of HTTP/fetch text.
 	"websocket.?closed",
 	"websocket.?error",
+	// Codex 60-minute WebSocket lifetime limit (code or message text); a retry opens a fresh connection.
+	"websocket.?connection.?limit.?reached",
 	"^(?:Error:\\s*)?WebSocket connection to 'wss://[^'\\s]+' failed: Expected 101 status\\s+code$",
 
 	// Premature or incomplete stream endings from SDKs and transports. Anthropic can throw

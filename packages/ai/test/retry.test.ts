@@ -15,6 +15,19 @@ const bedrockExplicitRetryMessage =
 	'{"message":"The system encountered an unexpected error during processing. Try your request again."}';
 
 describe("provider retry classification", () => {
+	// Regression for #12124: the Codex WebSocket lifetime limit is recoverable on a fresh connection.
+	it.each([
+		"Codex error: Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.",
+		"Codex error: websocket_connection_limit_reached",
+	])("retries the Codex websocket connection lifetime limit: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
+	it("does not retry a generic connection limit", () => {
+		const errorMessage = "connection limit reached";
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+
 	it.each([
 		"This content was flagged for possible cybersecurity risk.\nOpenAI request ID: req_500",
 		"Codex error: This content was flagged for possible cybersecurity risk.\nOpenAI request ID: req_429",
