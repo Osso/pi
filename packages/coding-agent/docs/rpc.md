@@ -772,7 +772,7 @@ Response:
 
 #### get_last_assistant_text
 
-Get the text content of the last assistant message.
+Get the text content of the last assistant reply. Assistant messages without text are skipped when they were aborted, failed, or only called tools (such as `end_turn`).
 
 ```json
 {"type": "get_last_assistant_text"}

@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- `/copy` and RPC `get_last_assistant_text` now return the last answer when the turn ended with a text-less message: Esc during a tool call, a provider error, or a separate `end_turn` call (upstream [#12121](https://github.com/earendil-works/pi-mono/pull/12121)).
 - Fixed `pi.exec` reporting exit code 0 for a command terminated by a signal (now 128 + signal number, as in a shell; ported from upstream #12088), and never sending the SIGKILL fallback to a command that ignores SIGTERM, so a timeout or abort could hang.
 - Fixed background job completion notices waiting up to 30 seconds after a restart: the detached runner now wakes the idle owner session when it records the terminal result.
 - Fixed tool and `!` command output whose only excess over the 10KB limit was its final newline being reported as truncated, which also wrote an unneeded full-output temp file.
