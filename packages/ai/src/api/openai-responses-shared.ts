@@ -594,7 +594,10 @@ export async function processResponsesStream<TApi extends Api>(
 			output.responseId = event.response.id;
 		} else if (event.type === "response.output_item.added") {
 			createSlot(event.output_index, event.item);
-		} else if (event.type === "response.reasoning_summary_text.delta") {
+		} else if (
+			event.type === "response.reasoning_summary_text.delta" ||
+			event.type === "response.reasoning_text.delta"
+		) {
 			const slot = getSlot(event.output_index, "thinking");
 			if (!slot) continue;
 			slot.block.thinking += event.delta;
@@ -614,21 +617,7 @@ export async function processResponsesStream<TApi extends Api>(
 				delta: "\n\n",
 				partial: output,
 			});
-		} else if (event.type === "response.reasoning_text.delta") {
-			const slot = getSlot(event.output_index, "thinking");
-			if (!slot) continue;
-			slot.block.thinking += event.delta;
-			stream.push({
-				type: "thinking_delta",
-				contentIndex: slot.contentIndex,
-				delta: event.delta,
-				partial: output,
-			});
-		} else if (event.type === "response.output_text.delta") {
-			const slot = getSlot(event.output_index, "text");
-			if (!slot) continue;
-			appendProviderTextDelta(slot, event.delta);
-		} else if (event.type === "response.refusal.delta") {
+		} else if (event.type === "response.output_text.delta" || event.type === "response.refusal.delta") {
 			const slot = getSlot(event.output_index, "text");
 			if (!slot) continue;
 			appendProviderTextDelta(slot, event.delta);
@@ -735,25 +724,29 @@ export async function processResponsesStream<TApi extends Api>(
 	if (!sawTerminalResponseEvent) {
 		throw new Error("OpenAI Responses stream ended before a terminal response event");
 	}
+	// The agent runs every tool call in the final message. A call whose output_item.done never arrived keeps its
+	// scratch buffer and may carry cut-off or mixed-up arguments (#9974), so refuse to hand it over.
+	const unfinished = output.content.find((block) => block.type === "toolCall" && "partialJson" in block);
+	if (unfinished?.type === "toolCall") {
+		throw new Error(
+			`OpenAI Responses stream completed with an unfinished tool call: ${unfinished.name} (${unfinished.id})`,
+		);
+	}
 }
+
+const STOP_REASONS: Record<OpenAI.Responses.ResponseStatus, StopReason> = {
+	completed: "stop",
+	incomplete: "length",
+	failed: "error",
+	cancelled: "error",
+	// These two are wonky ...
+	in_progress: "stop",
+	queued: "stop",
+};
 
 function mapStopReason(status: OpenAI.Responses.ResponseStatus | undefined): StopReason {
 	if (!status) return "stop";
-	switch (status) {
-		case "completed":
-			return "stop";
-		case "incomplete":
-			return "length";
-		case "failed":
-		case "cancelled":
-			return "error";
-		// These two are wonky ...
-		case "in_progress":
-		case "queued":
-			return "stop";
-		default: {
-			const _exhaustive: never = status;
-			throw new Error(`Unhandled stop reason: ${_exhaustive}`);
-		}
-	}
+	const reason = STOP_REASONS[status];
+	if (!reason) throw new Error(`Unhandled stop reason: ${status}`);
+	return reason;
 }

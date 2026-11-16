@@ -419,6 +419,57 @@ describe("OpenAI Responses terminal event handling", () => {
 		},
 	);
 
+	it("rejects a completed response whose tool call never finished", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.output_item.added",
+				sequence_number: 0,
+				output_index: 0,
+				item: { type: "function_call", id: "fc_1", call_id: "call_1", name: "bash", arguments: "" },
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.function_call_arguments.delta",
+				sequence_number: 1,
+				output_index: 0,
+				item_id: "fc_1",
+				delta: '{"command":"rm -rf /tm',
+			} as ResponseStreamEvent;
+			yield* createCompletedEvents();
+		}
+
+		await expect(processResponsesStream(events(), output, stream, model)).rejects.toThrow(
+			"OpenAI Responses stream completed with an unfinished tool call: bash (call_1|fc_1)",
+		);
+	});
+
+	it("keeps a completed response whose tool call finished", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+		const item = {
+			type: "function_call",
+			id: "fc_1",
+			call_id: "call_1",
+			name: "bash",
+			arguments: '{"command":"ls"}',
+		};
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield { type: "response.output_item.added", sequence_number: 0, output_index: 0, item } as ResponseStreamEvent;
+			yield { type: "response.output_item.done", sequence_number: 1, output_index: 0, item } as ResponseStreamEvent;
+			yield* createCompletedEvents();
+		}
+
+		await processResponsesStream(events(), output, stream, model);
+
+		expect(output.stopReason).toBe("toolUse");
+		expect(output.content).toEqual([
+			{ type: "toolCall", id: "call_1|fc_1", name: "bash", arguments: { command: "ls" } },
+		]);
+	});
+
 	it("rejects failed terminal events with the provider error", async () => {
 		const model = createModel();
 		const output = createOutput(model);
