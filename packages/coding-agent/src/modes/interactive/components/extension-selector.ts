@@ -9,6 +9,8 @@ import { CountdownTimer } from "./countdown-timer.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
+const MAX_VISIBLE_OPTIONS = 10;
+
 export interface ExtensionSelectorOptions {
 	tui?: TUI;
 	timeout?: number;
@@ -79,12 +81,24 @@ export class ExtensionSelectorComponent extends Container {
 
 	private updateList(): void {
 		this.listContainer.clear();
-		for (const [i, option] of this.options.entries()) {
-			const isSelected = i === this.selectedIndex;
-			const text = isSelected
-				? theme.fg("accent", "→ ") + theme.fg("accent", option)
-				: `  ${theme.fg("text", option)}`;
+		// A window of options centered on the selection keeps it on screen in long lists.
+		const start = Math.max(
+			0,
+			Math.min(this.selectedIndex - MAX_VISIBLE_OPTIONS / 2, this.options.length - MAX_VISIBLE_OPTIONS),
+		);
+		const end = Math.min(start + MAX_VISIBLE_OPTIONS, this.options.length);
+		for (let i = start; i < end; i++) {
+			const option = this.options[i] ?? "";
+			const text =
+				i === this.selectedIndex
+					? theme.fg("accent", "→ ") + theme.fg("accent", option)
+					: `  ${theme.fg("text", option)}`;
 			this.listContainer.addChild(new Text(text, 1, 0));
+		}
+		if (start > 0 || end < this.options.length) {
+			this.listContainer.addChild(
+				new Text(theme.fg("muted", `  (${this.selectedIndex + 1}/${this.options.length})`), 0, 0),
+			);
 		}
 	}
 

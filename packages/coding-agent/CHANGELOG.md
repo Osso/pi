@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Extension selectors (`ctx.ui.select`) show a window of 10 options around the selection with a `(n/total)` position, so the selected option stays visible in long lists ([#6688](https://github.com/earendil-works/pi-mono/issues/6688))
 - RPC and print-mode `ctx.reload()` now refuse to reload while a response or compaction runs, as interactive `/reload` already did; a reload during a tool call left the tool with a stale extension context ([#9221](https://github.com/earendil-works/pi-mono/issues/9221))
 - Compaction no longer cuts an emoji in half when it truncates tool results and arguments for the summarizer; the lone surrogate is invalid UTF-16 and reached providers that do not strip it, such as claude-bridge ([#7121](https://github.com/earendil-works/pi-mono/issues/7121))
 - The relay no longer sends a "not running" notice back for a reply; a Supervisor reply to a stopped session on another host made the Supervisor's mailbox delivery fail with `JSON Parse error: Unexpected identifier "Not"`
