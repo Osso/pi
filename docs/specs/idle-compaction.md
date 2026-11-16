@@ -29,7 +29,6 @@ Paths below are relative to `packages/coding-agent/`:
 - `src/core/settings-manager.ts` — `compaction.idle` and its default-true getter.
 - `src/core/extensions/types.ts` — shared `CompactionReason`, including `"idle"`, for extension events.
 - `src/core/extensions/index.ts` and `src/index.ts` — public `CompactionReason` exports.
-- `src/modes/interactive/components/status-indicator.ts` — shared reason typing for compaction status.
 - `src/modes/interactive/interactive-mode.ts` — idle-specific progress label and failure reporting.
 
 ## Tests asserting this spec

@@ -99,12 +99,6 @@ export interface DetachedJobLifecycleController {
 	reserveJob(agentType: "bash" | "pyrun"): ReservedDetachedJob;
 }
 
-export interface DetachedJobRunnerContract {
-	artifacts: DetachedJobArtifacts;
-	identity: DetachedJobOwnershipIdentity;
-	cancel(reason?: string): void;
-}
-
 export function createDetachedJobArtifacts(rootDirectory: string, jobId: string): DetachedJobArtifacts {
 	const directory = detachedJobDirectory(rootDirectory, jobId);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });

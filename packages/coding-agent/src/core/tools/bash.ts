@@ -19,7 +19,7 @@ import {
 import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
-import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
+import { ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { executeRunnerOwnedBash } from "./bash-runner.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
@@ -86,7 +86,6 @@ export interface BashBackgroundJobsOptions {
 	store: MultiAgentStore;
 }
 
-export type BashToolDetachHandle = ToolDetachHandle;
 export class BashToolDetachRegistry extends ToolDetachRegistry {}
 
 /**
