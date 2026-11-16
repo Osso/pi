@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- `parseCommandArgs` keeps apostrophes inside words, keeps an unclosed quote as text, and unescapes the enclosing quote character inside a quoted argument (upstream [#11861](https://github.com/earendil-works/pi/issues/11861))
 - Fixed aborting during a tool batch leaving the calls the loop had not reached without a tool result; each now gets start/end events and an `Operation aborted` result, and `beforeToolCall` is not asked about them (ported from upstream #9986).
 - Fixed `streamProxy` leaving `result()` pending when the proxy closed the stream without a `done` or `error` event; it now ends with an error ([#8996](https://github.com/earendil-works/pi-mono/issues/8996)).
 - Fixed harness branch summaries dropping the read and modified file lists from earlier compaction entries.

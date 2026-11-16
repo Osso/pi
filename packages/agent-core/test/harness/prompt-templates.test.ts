@@ -116,4 +116,22 @@ describe("parseCommandArgs", () => {
 		expect(args).toEqual(["alpha", "", "beta", ""]);
 		expect(formatPromptTemplateInvocation({ name: "t", content: "[$1][$2][$3]" }, args)).toBe("[alpha][][beta]");
 	});
+
+	it("keeps apostrophes inside words and treats an unclosed quote as text", () => {
+		expect(parseCommandArgs("why doesn't the user's cache work")).toEqual([
+			"why",
+			"doesn't",
+			"the",
+			"user's",
+			"cache",
+			"work",
+		]);
+		expect(parseCommandArgs('say "hello world')).toEqual(["say", '"hello', "world"]);
+		expect(parseCommandArgs("\"it's\" 'x")).toEqual(["it's", "'x"]);
+	});
+
+	it("unescapes only the enclosing quote character inside a quoted argument", () => {
+		expect(parseCommandArgs('"quoted \\"text\\""')).toEqual(['quoted "text"']);
+		expect(parseCommandArgs('"C:\\dir\\file" next')).toEqual(["C:\\dir\\file", "next"]);
+	});
 });
