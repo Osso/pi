@@ -139,7 +139,7 @@ export function createLsToolDefinition(
 						}
 
 						const dirPath = resolveToCwd(path || ".", cwd);
-						const effectiveLimit = limit ?? DEFAULT_LIMIT;
+						const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
 
 						// Check if path exists.
 						if (!(await ops.exists(dirPath))) {
@@ -267,7 +267,7 @@ function runRtkLs(cwd: string, path: string, signal: AbortSignal | undefined): P
 }
 
 function formatRtkLsOutput(stdout: string, limit: number | undefined): LsToolResult {
-	const effectiveLimit = limit ?? DEFAULT_LIMIT;
+	const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
 	const lines = stdout.trimEnd().split("\n").filter(Boolean);
 	const limitedLines = lines.slice(0, effectiveLimit);
 	const entryLimitReached = lines.length > effectiveLimit;

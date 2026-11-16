@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed `find` failing with an fd `invalid value` error, and `ls` and `grep` returning one result too many with a `1.5 ... limit reached` notice, when the model passed a fractional `limit`; the limit is now rounded down (ported from upstream #11747)
 - Prompt template arguments keep apostrophes inside words (`doesn't`) instead of opening a quote; a quote with no closing match is kept as text; and `\"` inside `"..."` (or `\'` inside `'...'`) gives a literal quote (upstream [#11861](https://github.com/earendil-works/pi/issues/11861))
 - `/copy` and RPC `get_last_assistant_text` now return the last answer when the turn ended with a text-less message: Esc during a tool call, a provider error, or a separate `end_turn` call (upstream [#12121](https://github.com/earendil-works/pi-mono/pull/12121)).
 - Fixed `pi.exec` reporting exit code 0 for a command terminated by a signal (now 128 + signal number, as in a shell; ported from upstream #12088), and never sending the SIGKILL fallback to a command that ignores SIGTERM, so a timeout or abort could hang.

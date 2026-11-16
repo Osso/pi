@@ -1099,6 +1099,17 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("match two");
 		});
 
+		it("rounds a fractional limit down", async () => {
+			const testFile = join(testDir, "fraction.txt");
+			writeFileSync(testFile, "match one\nmatch two\n");
+
+			const result = await grepTool.execute("grep-limit-fraction", { pattern: "match", path: testFile, limit: 1.9 });
+
+			expect(getTextOutput(result)).toBe(
+				"fraction.txt:1: match one\n\n[1 matches limit reached. Use limit=2 for more, or refine pattern]",
+			);
+		});
+
 		it("reports no limit when the match count equals the limit", async () => {
 			const testFile = join(testDir, "exact-limit.txt");
 			writeFileSync(testFile, "match one\nother\nmatch two\n");
@@ -1283,6 +1294,17 @@ describe("Coding Agent Tools", () => {
 			expect(over.details?.resultLimitReached).toBe(1);
 		});
 
+		it("rounds a fractional limit down instead of passing it to fd", async () => {
+			writeFileSync(join(testDir, "a.txt"), "a");
+			writeFileSync(join(testDir, "b.txt"), "b");
+
+			const result = await findTool.execute("find-limit-fraction", { pattern: "*.txt", path: testDir, limit: 1.9 });
+
+			expect(getTextOutput(result)).toMatch(
+				/^(a|b)\.txt\n\n\[1 results limit reached\. Use limit=2 for more, or refine pattern\]$/,
+			);
+		});
+
 		it("treats a leading ./ in a pattern as the search root", async () => {
 			mkdirSync(join(testDir, "src"));
 			writeFileSync(join(testDir, "src", "x.ts"), "x");
@@ -1353,6 +1375,15 @@ describe("Coding Agent Tools", () => {
 
 			expect(output).toContain(".hidden-file");
 			expect(output).toContain(".hidden-dir/");
+		});
+
+		it("rounds a fractional limit down", async () => {
+			writeFileSync(join(testDir, "a.txt"), "a");
+			writeFileSync(join(testDir, "b.txt"), "b");
+
+			const result = await lsTool.execute("ls-limit-fraction", { path: testDir, limit: 1.9 });
+
+			expect(getTextOutput(result)).toBe("a.txt\n\n[1 entries limit reached. Use limit=2 for more]");
 		});
 	});
 });
