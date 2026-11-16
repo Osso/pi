@@ -89,6 +89,13 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 
 	const rebindSession = async (): Promise<void> => {
 		session = runtimeHost.session;
+		// Subscribe before binding so events emitted by session_start handlers reach the JSON output.
+		unsubscribe?.();
+		unsubscribe = session.subscribe((event) => {
+			if (mode === "json") {
+				writeRawStdout(`${JSON.stringify(toJsonPrintModeEvent(event))}\n`);
+			}
+		});
 		await session.bindExtensions({
 			mode: mode === "json" ? "json" : "print",
 			controlDbPath: getControlDbPath(),
@@ -123,13 +130,6 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 			onError: (err) => {
 				console.error(`Extension error (${err.extensionPath}): ${err.error}`);
 			},
-		});
-
-		unsubscribe?.();
-		unsubscribe = session.subscribe((event) => {
-			if (mode === "json") {
-				writeRawStdout(`${JSON.stringify(toJsonPrintModeEvent(event))}\n`);
-			}
 		});
 	};
 
