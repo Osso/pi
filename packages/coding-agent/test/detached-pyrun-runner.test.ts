@@ -171,6 +171,8 @@ describe("detached Pyrun runner", () => {
 			expect(readFileSync(artifacts.outputPath, "utf8")).toContain('"value":[{"id":"model-1"}]');
 		} finally {
 			writeFileSync(paths.foregroundCompletionPath, "");
+			// A runner stuck on an unreadable response never exits on its own; do not leak it when the test fails.
+			terminateProcessGroup(runnerPid);
 		}
 	});
 
