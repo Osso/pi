@@ -1,5 +1,3 @@
-import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, resolve, sep } from "node:path";
 import { type Api, type AssistantMessage, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { CODEX_FALLBACK_PROVIDERS, isQuotaExhaustionError } from "../core/codex-quota-fallback.ts";
 import type { ModelRegistry } from "../core/model-registry.ts";
@@ -10,7 +8,6 @@ import {
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
-import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { sendSupervisorReply } from "./mail.ts";
 import {
 	buildSupervisorInstructionReviewContext,
@@ -42,8 +39,6 @@ type SupervisorFeedbackTarget = {
 		details?: T;
 	}): Promise<void>;
 };
-
-const SUPERVISOR_FILE_TOOL_NAMES = ["read", "edit", "write"];
 
 /** Retry, timeout, and attribution settings for the stateless instruction review. */
 function createInstructionReviewSettingsManager(): SettingsManager {
@@ -131,22 +126,6 @@ export function createSupervisorInstructionEvaluator(
 		}
 		return undefined;
 	};
-}
-
-/** `cwd` resolves relative paths the way the tool will; the Supervisor session's cwd. */
-export function blockSupervisorFileAccess(
-	kbDir: string,
-	event: { input: unknown; toolName: string },
-	cwd = kbDir,
-): { block: true; reason: string } | undefined {
-	if (!SUPERVISOR_FILE_TOOL_NAMES.includes(event.toolName)) return undefined;
-	const path = readToolPath(event.input);
-	if (!path) return supervisorFileAccessBlock();
-	try {
-		const resolvedPath = event.toolName === "read" ? resolveReadPath(path, cwd) : resolveToCwd(path, cwd);
-		if (isPathWithinRoot(resolveExistingPath(resolvedPath), resolveExistingPath(kbDir))) return undefined;
-	} catch {}
-	return supervisorFileAccessBlock();
 }
 
 export function createSupervisorInstructionReviewer(
@@ -257,35 +236,7 @@ async function recordSupervisorRequestOutcome(
 	}
 }
 
-function readToolPath(input: unknown): string | undefined {
-	return isRecord(input) && typeof input.path === "string" ? input.path : undefined;
-}
-
-function supervisorFileAccessBlock(): { block: true; reason: string } {
-	return { block: true, reason: "Pi Supervisor may access files only inside the configured KB directory." };
-}
-
-function resolveExistingPath(path: string): string {
-	const suffix: string[] = [];
-	let existingPath = resolve(path);
-	while (!existsSync(existingPath)) {
-		const parent = dirname(existingPath);
-		if (parent === existingPath) return resolve(path);
-		suffix.unshift(basename(existingPath));
-		existingPath = parent;
-	}
-	return resolve(realpathSync(existingPath), ...suffix);
-}
-
-function isPathWithinRoot(path: string, root: string): boolean {
-	return path === root || path.startsWith(`${root}${sep}`);
-}
-
 function requiredClaimToken(request: SupervisorRequest): string {
 	if (!request.claimToken) throw new Error(`Supervisor request ${request.id} has no claim token`);
 	return request.claimToken;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

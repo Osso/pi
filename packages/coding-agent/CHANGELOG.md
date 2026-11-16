@@ -993,6 +993,7 @@
 
 ### Removed
 
+- Removed the Supervisor session's KB-only path restriction on `read`, `edit`, and `write`; its tool allow-list is unchanged.
 - Removed the optional `openai-remote-compact` extension, its OpenAI `/responses/compact` and Codex `/codex/responses/compact` callers, endpoint-only tests, and remote-only source metadata and UI labels. Existing provider-native saved-history readers, request serialization, and `/tree` materialization/editing remain supported. Normal plaintext compaction, generic hooks, and local/generic source metadata remain unchanged.
 - Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.

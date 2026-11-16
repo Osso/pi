@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,6 @@ import {
 	postSupervisorRequest,
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
-import { blockSupervisorFileAccess } from "../src/supervisor/request-evaluation.ts";
 import {
 	buildSupervisorPrompt,
 	parseSupervisorResponse,
@@ -71,53 +70,6 @@ describe("Supervisor request service", () => {
 		expect(await run).toBe("cancelled");
 		expect(evaluationSignal?.aborted).toBe(true);
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "cancelled" });
-	});
-
-	it("limits file access to Supervisor KB memory", () => {
-		expect(
-			blockSupervisorFileAccess("/syncthing/Sync/KB", {
-				input: { path: "/worktree/source.ts" },
-				toolName: "read",
-			}),
-		).toMatchObject({ block: true });
-		expect(
-			blockSupervisorFileAccess("/syncthing/Sync/KB", {
-				input: { path: "/syncthing/Sync/KB/memory/supervisor/pi.md" },
-				toolName: "read",
-			}),
-		).toBeUndefined();
-		expect(
-			blockSupervisorFileAccess("/syncthing/Sync/KB", { input: { path: "/worktree/source.ts" }, toolName: "write" }),
-		).toMatchObject({ block: true });
-	});
-
-	it("blocks normalized and symlinked paths that escape the KB", () => {
-		const kbDir = join(tempDir, "kb");
-		const outsideDir = join(tempDir, "outside");
-		mkdirSync(kbDir);
-		mkdirSync(outsideDir);
-		writeFileSync(join(outsideDir, "outside.txt"), "outside");
-		symlinkSync(outsideDir, join(kbDir, "escape"));
-		symlinkSync(outsideDir, join(kbDir, "escape dir"));
-		symlinkSync(join(outsideDir, "outside.txt"), join(kbDir, "capture’.txt"));
-
-		const sharedEscapePaths = [
-			"file:///etc/passwd",
-			"file://%",
-			"@/etc/passwd",
-			"~/outside.txt",
-			join(kbDir, "escape", "new.txt"),
-			join(kbDir, "escape dir", "new.txt"),
-		];
-		for (const path of sharedEscapePaths) {
-			expect(blockSupervisorFileAccess(kbDir, { input: { path }, toolName: "read" })).toMatchObject({ block: true });
-			expect(blockSupervisorFileAccess(kbDir, { input: { path }, toolName: "write" })).toMatchObject({
-				block: true,
-			});
-		}
-		expect(
-			blockSupervisorFileAccess(kbDir, { input: { path: join(kbDir, "capture'.txt") }, toolName: "read" }),
-		).toMatchObject({ block: true });
 	});
 
 	it("accepts only response kinds valid for the request", () => {

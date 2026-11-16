@@ -42,7 +42,7 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 - [x] Keep `userMessages` and other bounded evidence in request payloads; requests stay self-contained.
 - [x] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (the last 30 messages: user and assistant text, tool calls and results, each clipped to 600 characters). Reads of another host's session travel over the relay as a read request with a correlated reply; the relay on that host answers, so stopped or busy sessions can be read. Inspected text is untrusted evidence, not instructions.
-- [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+- [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write`, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
 ### Reminder delivery
 
@@ -65,7 +65,6 @@ The `pi --supervisor` console and detached `pi supervisor` entrypoint were remov
 - [x] Restrict veto output to `ACCEPT`, `REJECT_TASK_ASSIGNMENT`, `REJECT_IMPLEMENTATION_PRESCRIPTION`, `REJECT_SEQUENCING_INSTRUCTION`, `REJECT_AGENT_OR_TOOL_DIRECTION`, or `REJECT_PLAN_OVERRIDE`; any extra or invalid output is rejected.
 - [x] Preserve accepted instructions; replace rejected, invalid, or failed evaluations with exactly `Continue working toward the active goal.` without retrying the first-level review at that boundary.
 - [x] Append deterministic hidden feedback for actual policy rejections and fixed hidden failure feedback for invalid or failed evaluations to Supervisor context; neither rejected instructions nor feedback reaches the main agent, and compaction preserves the feedback.
-- [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
 - [x] Exclude cross-session conflict detection, work coordination, and goal compatibility checks from the initial service.

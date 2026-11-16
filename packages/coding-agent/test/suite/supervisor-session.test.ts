@@ -188,29 +188,19 @@ describe("interactive Supervisor session", () => {
 		expect((await waitForCompletion(harness, id)).response).toEqual({ kind: "approve", reason: "bounded read" });
 	});
 
-	it("limits tools to the allow-list and file tools to the KB root", async () => {
+	it("limits tools to the allow-list but not file paths", async () => {
 		const harness = await openSession({ supervisor: true });
-		const kbDir = process.env.PI_KB_DIR as string;
 		for (const name of harness.session.getActiveToolNames()) {
 			expect(SUPERVISOR_SESSION_TOOL_NAMES).toContain(name);
 		}
 
 		const outside = join(harness.tempDir, "outside.md");
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("write", { path: outside, content: "x" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("write", { path: outside, content: "kept" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Done."),
 		]);
 		await harness.session.prompt("Write outside the KB.");
-		expect(lastToolResultText(harness)).toContain("only inside the configured KB directory");
-		expect(existsSync(outside)).toBe(false);
-
-		const inside = join(kbDir, "note.md");
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("write", { path: inside, content: "kept" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("Done."),
-		]);
-		await harness.session.prompt("Write inside the KB.");
-		expect(readFileSync(inside, "utf8")).toBe("kept");
+		expect(readFileSync(outside, "utf8")).toBe("kept");
 	});
 
 	it("leaves other sessions unrestricted and does not serve the queue", async () => {

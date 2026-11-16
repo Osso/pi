@@ -15,10 +15,8 @@ import {
 	ingestSupervisorRequestMail,
 	sendSupervisorReply,
 } from "../../../src/supervisor/mail.ts";
-import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resolver.ts";
 import {
 	applySupervisorInstructionVeto,
-	blockSupervisorFileAccess,
 	createSupervisorInstructionEvaluator,
 	createSupervisorInstructionReviewer,
 	evaluateAndCompleteSupervisorRequest,
@@ -57,16 +55,10 @@ export function isSupervisorSession(ctx: ExtensionContext): boolean {
 	return sessionId !== undefined && sessionId === ctx.sessionManager.getSessionId();
 }
 
-/** Restricts the session's tools to the allow-list and its file tools to the KB root. */
-export function blockSupervisorSessionTool(
-	kbDir: string,
-	cwd: string,
-	event: { input: unknown; toolName: string },
-): ToolCallEventResult | undefined {
-	if (!SUPERVISOR_SESSION_TOOL_NAMES.includes(event.toolName)) {
-		return { block: true, reason: `The Supervisor session cannot use ${event.toolName}.` };
-	}
-	return blockSupervisorFileAccess(kbDir, event, cwd);
+/** Restricts the session's tools to the allow-list. */
+export function blockSupervisorSessionTool(event: { toolName: string }): ToolCallEventResult | undefined {
+	if (SUPERVISOR_SESSION_TOOL_NAMES.includes(event.toolName)) return undefined;
+	return { block: true, reason: `The Supervisor session cannot use ${event.toolName}.` };
 }
 
 /** The arguments of the last `supervisor_response` call after `previousLeafId`, which marks the request boundary. */
@@ -302,7 +294,7 @@ export default function supervisorSessionExtension(pi: ExtensionAPI, options: Pa
 		if (event.toolName === SUPERVISOR_RESPONSE_TOOL_NAME && !server.servingRequest) {
 			return { block: true, reason: CHAT_RESPONSE_BLOCK };
 		}
-		return blockSupervisorSessionTool(process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR, ctx.cwd, event);
+		return blockSupervisorSessionTool(event);
 	});
 	pi.on("before_agent_start", (event, ctx) =>
 		isSupervisorSession(ctx) ? { systemPrompt: `${event.systemPrompt}\n\n${SUPERVISOR_REQUEST_POLICY}` } : undefined,

@@ -20,7 +20,7 @@ The `inspect_session` tool reads a session's goal, working directory, and bounde
 
 ## Tool boundary
 
-The Supervisor has `read`, `edit`, and `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, and `end_turn`. It cannot use Bash or Pyrun, spawn agents, restart sessions, or directly mutate goals. See the [contract](../../specs/supervisor-service.md) for review policy, request evidence, and decision semantics.
+The Supervisor has `read`, `edit`, `write` (any path), `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, and `end_turn`. It cannot use Bash or Pyrun, spawn agents, restart sessions, or directly mutate goals. See the [contract](../../specs/supervisor-service.md) for review policy, request evidence, and decision semantics.
 
 ## Deployment
 
