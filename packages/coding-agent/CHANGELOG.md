@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed edit diffs dropping the indentation of a removed line when text was inserted at the start of its content, e.g. `await f()` becoming `const r = await f()` (ported from upstream [#9274](https://github.com/earendil-works/pi/pull/9274))
 - Fixed two Pi processes that reach the same `auth.json` through different paths (for example `~/.pi/agent` as a symlink to `~/.config/pi/agent`) taking separate locks, which let both refresh the same OAuth token; the lock now uses the resolved file (ported from upstream [#11655](https://github.com/earendil-works/pi/issues/11655))
 - Fixed `find` failing with an fd `invalid value` error, and `ls` and `grep` returning one result too many with a `1.5 ... limit reached` notice, when the model passed a fractional `limit`; the limit is now rounded down (ported from upstream #11747)
 - Prompt template arguments keep apostrophes inside words (`doesn't`) instead of opening a quote; a quote with no closing match is kept as text; and `\"` inside `"..."` (or `\'` inside `'...'`) gives a literal quote (upstream [#11861](https://github.com/earendil-works/pi/issues/11861))

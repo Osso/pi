@@ -27,10 +27,14 @@ function replaceTabs(text: string): string {
  * Strips leading whitespace from inverse to avoid highlighting indentation.
  */
 function renderIntraLineDiff(oldContent: string, newContent: string): { removedLine: string; addedLine: string } {
-	const wordDiff = Diff.diffWords(oldContent, newContent);
+	// Shared indentation stays outside the word diff, so an insertion at the start of the text cannot consume it.
+	const oldIndent = oldContent.match(/^\s*/)?.[0] ?? "";
+	let indentLength = 0;
+	while (indentLength < oldIndent.length && oldIndent[indentLength] === newContent[indentLength]) indentLength++;
+	const wordDiff = Diff.diffWords(oldContent.slice(indentLength), newContent.slice(indentLength));
 
-	let removedLine = "";
-	let addedLine = "";
+	let removedLine = oldContent.slice(0, indentLength);
+	let addedLine = removedLine;
 	let isFirstRemoved = true;
 	let isFirstAdded = true;
 
