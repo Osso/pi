@@ -214,6 +214,8 @@ export class AuthStorage {
 	private loadError: Error | null = null;
 	private errors: Error[] = [];
 	private storage: AuthStorageBackend;
+	/** OAuth refreshes not yet saved or failed. */
+	private readonly pendingRefreshes = new Set<Promise<void>>();
 
 	private constructor(storage: AuthStorageBackend) {
 		this.storage = storage;
@@ -485,6 +487,25 @@ export class AuthStorage {
 		}
 	}
 
+	private trackRefresh<T>(refresh: Promise<T>): Promise<T> {
+		const pending = refresh.then(
+			() => undefined,
+			() => undefined,
+		);
+		this.pendingRefreshes.add(pending);
+		void pending.then(() => this.pendingRefreshes.delete(pending));
+		return refresh;
+	}
+
+	/**
+	 * Resolves when every OAuth refresh started so far is saved or failed. A refresh may already have
+	 * spent the single-use refresh token, so exiting or restarting before its result is saved would
+	 * leave only the spent token in auth.json (upstream #11692).
+	 */
+	async settled(): Promise<void> {
+		await Promise.all(this.pendingRefreshes);
+	}
+
 	/**
 	 * Get API key for a provider.
 	 * Priority:
@@ -519,7 +540,7 @@ export class AuthStorage {
 			if (needsRefresh) {
 				// Use locked refresh to prevent race conditions
 				try {
-					const result = await this.refreshOAuthTokenWithLock(providerId);
+					const result = await this.trackRefresh(this.refreshOAuthTokenWithLock(providerId));
 					if (result) {
 						return result.apiKey;
 					}

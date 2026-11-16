@@ -229,6 +229,7 @@ export class AgentSessionRuntime {
 		this.beforeSessionInvalidate?.();
 		removeAbandonedEmptySession(session.sessionManager, targetSessionFile);
 		session.dispose();
+		await this.services.authStorage.settled();
 	}
 
 	private bindSessionRuntimeActions(): void {

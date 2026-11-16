@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed an exit or same-PID restart during an OAuth token refresh losing the login: the provider had already spent the single-use refresh token, but the new one was not yet saved. Quit and restart now wait for refreshes in progress (ported from upstream [#11692](https://github.com/earendil-works/pi/issues/11692))
 - Fixed unmatched `enabledModels` / `--models` patterns printing `Warning: No models match pattern` over the interactive TUI on `/new`, `/resume`, `/fork` and model cycling; the warning is now a startup diagnostic, reported once (ported from upstream [#11973](https://github.com/earendil-works/pi/pull/11973))
 - Fixed `read` saving `[Current model does not support images...]` into the image result text, which was sent again after switching to a vision model; the warning now lives in `details.imageUnsupportedByModel` and the TUI shows it, naming the model that read the image (ported from upstream [#12139](https://github.com/earendil-works/pi/pull/12139))
 - Fixed `find` matching a lower-case path pattern such as `docs/readme.md` case-sensitively when the search directory has upper-case letters (e.g. `/syncthing/Sync/KB`); a file-name pattern such as `readme.md` already ignored case (ported from upstream [#12116](https://github.com/earendil-works/pi/pull/12116))
