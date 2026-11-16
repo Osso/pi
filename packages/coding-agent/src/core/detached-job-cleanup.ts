@@ -19,6 +19,9 @@ const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
 const ALL_TERMINAL_AGENTS_CUTOFF = "9999-12-31T23:59:59.999Z";
 const DETACHED_OUTPUT_LABELS = new Set(["Bash output", "Pyrun output"]);
 const DELETED_PATH_SUFFIX = " (deleted)";
+// Written by the runner when the tool call itself consumed the job's result; no agent row owns such a directory.
+const FOREGROUND_COMPLETION_MARKER = "foreground-completed";
+const QUARANTINE_PREFIX = ".cleanup-";
 
 export interface DetachedJobCleanupResult {
 	deletedAgentRows: number;
@@ -50,6 +53,7 @@ export function cleanupDetachedJobArtifacts(
 		errors,
 		now - DETACHED_ARTIFACT_MAX_AGE_MS,
 	);
+	candidates.push(...collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors));
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -110,7 +114,10 @@ function deleteUnreferencedArtifactDirectory(
 	errors: string[],
 	onDirectoryQuarantined?: (quarantinePath: string) => void,
 ): boolean {
-	const quarantinePath = join(dirname(directoryPath), `.cleanup-${basename(directoryPath)}-${randomUUID()}`);
+	const quarantinePath = join(
+		dirname(directoryPath),
+		`${QUARANTINE_PREFIX}${basename(directoryPath)}-${randomUUID()}`,
+	);
 	try {
 		const directory = lstatSync(directoryPath);
 		if (!directory.isDirectory() || directory.isSymbolicLink()) {
@@ -185,6 +192,69 @@ function collectTerminalArtifactCandidates(
 		candidatesByPath.set(candidate.directoryPath, { ...existing, protectedByLiveReference: true });
 	}
 	return { candidates: [...candidatesByPath.values()], ownersByPath, staleRowsWithoutDirectory };
+}
+
+/**
+ * Job directories of Bash (under the agent directory) and Pyrun (beside each session file) calls that finished in
+ * the foreground. They take the same age and size retention as terminal detached jobs, dated by their marker.
+ */
+function collectForegroundArtifactCandidates(
+	artifactRoot: string,
+	processReferences: ReadonlySet<string>,
+	errors: string[],
+): DetachedArtifactRetentionCandidate[] {
+	const sessionsRoot = join(artifactRoot, "sessions");
+	const roots = [artifactRoot, ...listChildDirectories(sessionsRoot).map((name) => join(sessionsRoot, name))];
+	const candidates: DetachedArtifactRetentionCandidate[] = [];
+	for (const root of roots) {
+		const jobsRoot = join(root, "detached-jobs");
+		for (const sessionName of listChildDirectories(jobsRoot)) {
+			for (const jobId of listChildDirectories(join(jobsRoot, sessionName))) {
+				const candidate = foregroundArtifactCandidate(
+					join(jobsRoot, sessionName, jobId),
+					processReferences,
+					errors,
+				);
+				if (candidate) candidates.push(candidate);
+			}
+		}
+	}
+	return candidates;
+}
+
+function foregroundArtifactCandidate(
+	directoryPath: string,
+	processReferences: ReadonlySet<string>,
+	errors: string[],
+): DetachedArtifactRetentionCandidate | undefined {
+	try {
+		const terminalAt = lstatSync(join(directoryPath, FOREGROUND_COMPLETION_MARKER)).mtimeMs;
+		const byteSize = readDirectoryByteSize(directoryPath, errors);
+		if (byteSize === undefined) return undefined;
+		const canonicalPath = realpathSync(directoryPath);
+		return {
+			byteSize,
+			directoryPath,
+			protectedByLiveReference: directoryHasLiveReference(canonicalPath, processReferences),
+			terminalAt,
+		};
+	} catch (error) {
+		if (isMissingPathError(error)) return undefined;
+		errors.push(`Could not inspect foreground job directory ${directoryPath}: ${errorMessage(error)}`);
+		return undefined;
+	}
+}
+
+/** Real subdirectories, skipping symlinks and directories quarantined by a concurrent cleanup. */
+function listChildDirectories(directoryPath: string): string[] {
+	try {
+		return readdirSync(directoryPath, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && !entry.name.startsWith(QUARANTINE_PREFIX))
+			.map((entry) => entry.name);
+	} catch (error) {
+		if (isMissingPathError(error)) return [];
+		throw error;
+	}
 }
 
 function isExpiredRowWithoutOutputDirectory(agent: AgentSnapshot, expiredAt: number): boolean {

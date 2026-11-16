@@ -49,6 +49,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Cleanup removes artifacts at least 24 hours old, then removes the oldest terminal artifacts until
       retained terminal artifacts are at most 2 GiB. Each removed directory's terminal agent row is deleted with it;
       an expired row whose output directory is already gone is deleted alone.
+- [x] Job directories of Bash and Pyrun calls that completed in the foreground (marked `foreground-completed`, with
+      no agent row) take the same age and size retention, dated by the marker. Cleanup scans the agent directory and
+      each directory under `<agentDir>/sessions`.
 - [x] Linux `/proc`-backed cleanup preserves nonterminal jobs and terminal directories referenced by a live
       executable, current working directory, or open file descriptor before atomic quarantine; quarantine removes
       the canonical job path before the final reference scan and restores referenced directories.
