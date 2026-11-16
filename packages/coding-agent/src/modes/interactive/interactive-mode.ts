@@ -1185,14 +1185,7 @@ export class InteractiveMode {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
 		}
 
-		const modelsJsonError = this.session.modelRegistry.getError();
-		if (modelsJsonError) {
-			this.showError(`models.json error: ${modelsJsonError}`);
-		}
-		const keybindingsError = this.keybindings.getError();
-		if (keybindingsError) {
-			this.showError(`keybindings.json error: ${keybindingsError}; using default keybindings`);
-		}
+		this.showConfigFileErrors();
 
 		if (modelFallbackMessage) {
 			this.showWarning(modelFallbackMessage);
@@ -2131,15 +2124,7 @@ export class InteractiveMode {
 						return { cancelled: true };
 					}
 
-					this.pendingCompactionSummaryEditId = undefined;
-					this.liveCompactionDisplay = undefined;
-					this.chatContainer.clear();
-					this.renderInitialMessages();
-					if (result.editorText && !this.editor.getText().trim()) {
-						this.editor.setText(result.editorText);
-					}
-					this.showStatus("Navigated to selected point");
-					void this.flushCompactionQueue({ willRetry: false });
+					this.showTreeNavigationResult(result.editorText);
 					return { cancelled: false };
 				},
 				switchSession: async (sessionPath, options) => {
@@ -2181,14 +2166,7 @@ export class InteractiveMode {
 		this.outputPad = this.settingsManager.getOutputPad();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
-		const editorPaddingX = this.settingsManager.getEditorPaddingX();
-		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
-		this.defaultEditor.setPaddingX(editorPaddingX);
-		this.defaultEditor.setAutocompleteMaxVisible(autocompleteMaxVisible);
-		if (this.editor !== this.defaultEditor) {
-			this.editor.setPaddingX?.(editorPaddingX);
-			this.editor.setAutocompleteMaxVisible?.(autocompleteMaxVisible);
-		}
+		this.applyEditorLayoutSettings();
 	}
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
@@ -6556,16 +6534,7 @@ export class InteractiveMode {
 							return;
 						}
 
-						// Update UI
-						this.pendingCompactionSummaryEditId = undefined;
-						this.liveCompactionDisplay = undefined;
-						this.chatContainer.clear();
-						this.renderInitialMessages();
-						if (result.editorText && !this.editor.getText().trim()) {
-							this.editor.setText(result.editorText);
-						}
-						this.showStatus("Navigated to selected point");
-						void this.flushCompactionQueue({ willRetry: false });
+						this.showTreeNavigationResult(result.editorText);
 					} catch (error) {
 						this.showError(error instanceof Error ? error.message : String(error));
 					} finally {
@@ -6993,18 +6962,45 @@ export class InteractiveMode {
 		}
 	}
 
-	private showBedrockSetupDialog(providerId: string, providerName: string): void {
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
+	private restoreEditorSlot(): void {
+		this.editorContainer.clear();
+		this.editorContainer.addChild(this.editor);
+		this.ui.setFocus(this.editor);
+		this.ui.requestRender();
+	}
 
+	private showConfigFileErrors(): void {
+		const modelsJsonError = this.session.modelRegistry.getError();
+		if (modelsJsonError) this.showError(`models.json error: ${modelsJsonError}`);
+		const keybindingsError = this.keybindings.getError();
+		if (keybindingsError) this.showError(`keybindings.json error: ${keybindingsError}; using default keybindings`);
+	}
+
+	private applyEditorLayoutSettings(): void {
+		const editorPaddingX = this.settingsManager.getEditorPaddingX();
+		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
+		for (const editor of new Set([this.defaultEditor, this.editor])) {
+			editor.setPaddingX?.(editorPaddingX);
+			editor.setAutocompleteMaxVisible?.(autocompleteMaxVisible);
+		}
+	}
+
+	/** Re-renders the chat after a tree navigation and offers the navigated-from text in an empty editor. */
+	private showTreeNavigationResult(editorText: string | undefined): void {
+		this.pendingCompactionSummaryEditId = undefined;
+		this.liveCompactionDisplay = undefined;
+		this.chatContainer.clear();
+		this.renderInitialMessages();
+		if (editorText && !this.editor.getText().trim()) this.editor.setText(editorText);
+		this.showStatus("Navigated to selected point");
+		void this.flushCompactionQueue({ willRetry: false });
+	}
+
+	private showBedrockSetupDialog(providerId: string, providerName: string): void {
 		const dialog = new LoginDialogComponent(
 			this.ui,
 			providerId,
-			() => restoreEditor(),
+			() => this.restoreEditorSlot(),
 			providerName,
 			"Amazon Bedrock setup",
 		);
@@ -7038,13 +7034,6 @@ export class InteractiveMode {
 		this.ui.setFocus(dialog);
 		this.ui.requestRender();
 
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
 		try {
 			const apiKey = (await dialog.showPrompt("Enter API key:")).trim();
 			if (!apiKey) {
@@ -7053,10 +7042,10 @@ export class InteractiveMode {
 
 			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
 
-			restoreEditor();
+			this.restoreEditorSlot();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
 		} catch (error: unknown) {
-			restoreEditor();
+			this.restoreEditorSlot();
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			if (errorMsg !== "Login cancelled") {
 				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
@@ -7136,14 +7125,6 @@ export class InteractiveMode {
 			manualCodeReject = reject;
 		});
 
-		// Restore editor helper
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
 		try {
 			await this.session.modelRegistry.authStorage.login(providerId as OAuthProviderId, {
 				onAuth: (info: { url: string; instructions?: string }) => {
@@ -7190,10 +7171,10 @@ export class InteractiveMode {
 			});
 
 			// Success
-			restoreEditor();
+			this.restoreEditorSlot();
 			await this.completeProviderAuthentication(providerId, providerName, "oauth", previousModel);
 		} catch (error: unknown) {
-			restoreEditor();
+			this.restoreEditorSlot();
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			if (errorMsg !== "Login cancelled") {
 				this.showError(`Failed to login to ${providerName}: ${errorMsg}`);
@@ -7264,14 +7245,7 @@ export class InteractiveMode {
 			}
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			await this.themeController.applyFromSettings();
-			const editorPaddingX = this.settingsManager.getEditorPaddingX();
-			const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
-			this.defaultEditor.setPaddingX(editorPaddingX);
-			this.defaultEditor.setAutocompleteMaxVisible(autocompleteMaxVisible);
-			if (this.editor !== this.defaultEditor) {
-				this.editor.setPaddingX?.(editorPaddingX);
-				this.editor.setAutocompleteMaxVisible?.(autocompleteMaxVisible);
-			}
+			this.applyEditorLayoutSettings();
 			this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 			this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 			this.setupAutocompleteProvider();
@@ -7282,14 +7256,7 @@ export class InteractiveMode {
 				showDiagnosticsWhenQuiet: true,
 			});
 			const savedImplicitProjectTrust = this.maybeSaveImplicitProjectTrustAfterReload();
-			const modelsJsonError = this.session.modelRegistry.getError();
-			if (modelsJsonError) {
-				this.showError(`models.json error: ${modelsJsonError}`);
-			}
-			const keybindingsError = this.keybindings.getError();
-			if (keybindingsError) {
-				this.showError(`keybindings.json error: ${keybindingsError}; using default keybindings`);
-			}
+			this.showConfigFileErrors();
 			this.showStatus(
 				savedImplicitProjectTrust
 					? "Reloaded keybindings, extensions, skills, prompts, themes; saved project trust"

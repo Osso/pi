@@ -18,14 +18,8 @@ describe("InteractiveMode update checks", () => {
 			init: async () => undefined,
 			maybeWarnAboutAnthropicSubscriptionAuth: async () => undefined,
 			processControlMessage: async () => undefined,
-			keybindings: { getError: () => undefined },
 			options: {},
-			session: {
-				modelRegistry: {
-					getError: () => undefined,
-				},
-			},
-			showError: vi.fn(),
+			showConfigFileErrors: vi.fn(),
 			showNewVersionNotification,
 			showPackageUpdateNotification,
 			showWarning: vi.fn(),
