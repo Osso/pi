@@ -571,11 +571,6 @@ export function getSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
 }
 
-/** Get path to tools directory */
-export function getToolsDir(): string {
-	return join(getAgentDir(), "tools");
-}
-
 /** Get path to managed binaries directory (fd, rg) */
 export function getBinDir(): string {
 	return join(getAgentDir(), "bin");
