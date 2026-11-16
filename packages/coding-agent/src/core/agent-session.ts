@@ -1256,10 +1256,6 @@ export class AgentSession {
 		};
 	}
 
-	private _getCurrentAgentModel(): NonNullable<AgentSnapshot["model"]> {
-		return this._describeAgentModel(this.model, this.thinkingLevel);
-	}
-
 	private _describeAgentModel(
 		model: Model<Api> | undefined,
 		thinkingLevel: ThinkingLevel,
@@ -1341,7 +1337,7 @@ export class AgentSession {
 						agentId,
 						{ phase: "thinking", startedAt: new Date().toISOString() },
 						ownership,
-						this._getCurrentAgentModel(),
+						this._describeAgentModel(this.model, this.thinkingLevel),
 					)
 				) {
 					throw new Error(`Child agent ${agentId} model metadata update was rejected`);
@@ -2839,6 +2835,9 @@ export class AgentSession {
 		if (delivery.mode === "prompt" && (!this.model || !this._modelRegistry.hasConfiguredAuth(this.model))) {
 			return false;
 		}
+		// A closed child's aborted turn ends with messages still queued; they must not start another turn.
+		const lifecycle = this._multiAgentAgentId && this._multiAgentStore?.getAgent(this._multiAgentAgentId)?.lifecycle;
+		if (delivery.mode === "prompt" && lifecycle === "cancelling") return false;
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		if (readRuntimeMailboxListener(controlDbPath, recipient)?.pid !== process.pid) return false;
 		const messages = takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, (message) =>
