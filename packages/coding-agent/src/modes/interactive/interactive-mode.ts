@@ -5455,7 +5455,7 @@ export class InteractiveMode {
 		if (isExpandable(activeHeader)) {
 			activeHeader.setExpanded(expanded);
 		}
-		for (const container of [this.loadedResourcesContainer, this.chatContainer]) {
+		for (const container of [this.loadedResourcesContainer, this.chatContainer, this.pendingMessagesContainer]) {
 			for (const child of container.children) {
 				if (isExpandable(child)) {
 					child.setExpanded(expanded);
@@ -5611,6 +5611,8 @@ export class InteractiveMode {
 
 	private updatePendingMessagesDisplay(): void {
 		this.pendingMessagesContainer.clear();
+		// User bash output shown while the agent works lives here until it moves to the chat.
+		for (const component of this.pendingBashComponents) this.pendingMessagesContainer.addChild(component);
 		const { steering: steeringMessages, followUp: followUpMessages } = this.getAllQueuedMessages(true);
 		if (steeringMessages.length > 0 || followUpMessages.length > 0) {
 			this.pendingMessagesContainer.addChild(new Spacer(1));
@@ -5761,6 +5763,17 @@ export class InteractiveMode {
 		} catch (error) {
 			restoreQueue(error);
 		}
+	}
+
+	/** Show user bash output in the chat, or in the pending area while the agent streams. */
+	private showBashComponent(component: BashExecutionComponent): void {
+		component.setExpanded(this.toolOutputExpanded);
+		if (!this.session.isStreaming) {
+			this.chatContainer.addChild(component);
+			return;
+		}
+		this.pendingMessagesContainer.addChild(component);
+		this.pendingBashComponents.push(component);
 	}
 
 	/** Move pending bash components from pending area to chat */
@@ -7773,12 +7786,7 @@ export class InteractiveMode {
 
 			// Create UI component for display
 			this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext, { showElapsed: false });
-			if (this.session.isStreaming) {
-				this.pendingMessagesContainer.addChild(this.bashComponent);
-				this.pendingBashComponents.push(this.bashComponent);
-			} else {
-				this.chatContainer.addChild(this.bashComponent);
-			}
+			this.showBashComponent(this.bashComponent);
 
 			// Show output and complete
 			if (result.output) {
@@ -7800,17 +7808,8 @@ export class InteractiveMode {
 		}
 
 		// Normal execution path (possibly with custom operations)
-		const isDeferred = this.session.isStreaming;
 		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
-
-		if (isDeferred) {
-			// Show in pending area when agent is streaming
-			this.pendingMessagesContainer.addChild(this.bashComponent);
-			this.pendingBashComponents.push(this.bashComponent);
-		} else {
-			// Show in chat immediately when agent is idle
-			this.chatContainer.addChild(this.bashComponent);
-		}
+		this.showBashComponent(this.bashComponent);
 		this.setPromptActivity("bash", true);
 		this.ui.requestRender();
 

@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed `!`/`!!` output shown while the agent works ignoring Ctrl+O, starting collapsed when tool output was expanded, and disappearing from the pending area when the message queue changed (ported from upstream [#11875](https://github.com/earendil-works/pi/issues/11875))
 - Fixed model cycling (Ctrl+P) doing nothing when the scope held one model and a different model was active, and skipping the first scoped model when the active model was outside the scope (ported from upstream [#11832](https://github.com/earendil-works/pi/pull/11832))
 - Fixed the extension editor dialog opening a collapsed paste in the external editor as its `[paste #1 +N lines]` marker; saving then replaced the pasted text with the marker
 - Fixed a collapsed paste (`[paste #1 +N lines]`) losing its content when the draft moved out of the editor: the interrupt prompt sent the marker text to the model, and restoring queued messages, switching editors or closing custom UI kept only the marker (ported from upstream [#10146](https://github.com/earendil-works/pi/pull/10146))

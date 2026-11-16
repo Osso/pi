@@ -213,6 +213,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 			builtInHeader: header,
 			loadedResourcesContainer: { children: [loadedResourcesChild] },
 			chatContainer: { children: [chatChild] },
+			pendingMessagesContainer: { children: [] },
 			ui: { requestRender: vi.fn() },
 		};
 
@@ -223,6 +224,36 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		expect(loadedResourcesChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(chatChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
+	// Upstream #11875: `!` output shown while the agent streams ignored ctrl+o and vanished on queue updates.
+	test("applies to user bash output in the pending area, also after a queue update", () => {
+		initTheme("dark");
+		const pendingBash = { render: () => ["PENDING_BASH"], invalidate: () => {}, setExpanded: vi.fn() };
+		const fakeThis: Record<string, unknown> = {
+			toolOutputExpanded: false,
+			loadedResourcesContainer: new Container(),
+			chatContainer: new Container(),
+			pendingMessagesContainer: new Container(),
+			pendingBashComponents: [pendingBash],
+			compactionQueuedMessages: [],
+			settingsManager: { getHideCoordinationMessages: () => false },
+			session: { isStreaming: true, getSteeringMessages: () => ["steer"], getFollowUpMessages: () => [] },
+			getAppKeyDisplay: () => "alt+up",
+			ui: { requestRender: vi.fn() },
+		};
+		for (const name of ["getAllQueuedMessages", "updatePendingMessagesDisplay"]) {
+			fakeThis[name] = interactiveModePrototype[name]?.bind(fakeThis);
+		}
+
+		interactiveModePrototype.updatePendingMessagesDisplay.call(fakeThis);
+		interactiveModePrototype.setToolsExpanded.call(fakeThis, true);
+
+		const pending = renderAll(fakeThis.pendingMessagesContainer as Container);
+		expect(pending).toContain("PENDING_BASH");
+		expect(pending).toContain("Steering: steer");
+		expect(pendingBash.setExpanded).toHaveBeenLastCalledWith(true);
+		expect((fakeThis.chatContainer as Container).children).toEqual([]);
 	});
 });
 
