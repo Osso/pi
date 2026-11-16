@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Extensions load from their real path, so an extension installed as a symlink into a pnpm store resolves its dependencies from the store ([#8092](https://github.com/earendil-works/pi-mono/issues/8092))
 - HTML export turns OSC 8 hyperlinks in custom tool output into links (http, https and mailto only) and drops other terminal control sequences, which were written into the page as raw text ([#12052](https://github.com/earendil-works/pi-mono/pull/12052))
 - `~` in `!`, `+` and `-` patterns of the extensions, skills, prompts and themes settings now expands to the home directory; such entries matched nothing before ([#10765](https://github.com/earendil-works/pi-mono/issues/10765))
 - Print mode writes a warning to stderr and exits 1 when the final response stopped at the model's output token limit; the partial text is still printed ([#10799](https://github.com/earendil-works/pi-mono/issues/10799))
