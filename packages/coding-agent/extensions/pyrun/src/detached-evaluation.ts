@@ -40,6 +40,7 @@ import {
 	type PyrunPiRequestDispatcher,
 } from "./eval-tool.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
+import { ensurePyrunSessionProxy } from "./session-proxy.ts";
 
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
 
@@ -73,8 +74,24 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const runner =
 		restored?.kind === "resume"
 			? restored.runner
-			: launchForegroundPyrunRunner(input, persistence, controller, startedAt);
+			: launchForegroundPyrunRunner(input, persistence, controller, startedAt, await ensureSessionProxy(input));
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
+}
+
+/** A named Pyrun session keeps one Python, and so its ctx, across calls; unnamed calls get a fresh Python. */
+async function ensureSessionProxy(
+	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
+): Promise<string | undefined> {
+	const pyrunSessionId = input.params.session_id;
+	if (!pyrunSessionId) return undefined;
+	const sessionPath = input.store.getPersistenceTarget()?.sessionPath;
+	if (!sessionPath) throw new Error("Pyrun session proxy requires a persisted session");
+	return ensurePyrunSessionProxy({
+		cwd: input.ctx.cwd,
+		pyrunSessionId,
+		runnerOptions: input.runnerOptions,
+		sessionPath,
+	});
 }
 
 function createPyrunLifecycleController(
@@ -318,50 +335,44 @@ function fsyncFile(path: string): void {
 	}
 }
 
+function foregroundPyrunPaths(directory: string) {
+	return {
+		activationPath: join(directory, "activation.json"),
+		bridgeRequestPath: join(directory, "foreground-bridge-requests.jsonl"),
+		bridgeResponsePath: join(directory, "foreground-bridge-responses.jsonl"),
+		foregroundCompletionPath: join(directory, "foreground-completed"),
+		manifestPath: join(directory, "launch.json"),
+		scriptPath: join(directory, "script.py"),
+	};
+}
+
 function launchForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
 	startedAt: number,
+	sessionSocketPath: string | undefined,
 ) {
 	const artifacts = controller.createArtifacts(input.agentId);
-	const activationPath = join(artifacts.directory, "activation.json");
-	const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
-	const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");
-	const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
-	const manifestPath = join(artifacts.directory, "launch.json");
-	const scriptPath = join(artifacts.directory, "script.py");
+	const { manifestPath, scriptPath, ...runnerPaths } = foregroundPyrunPaths(artifacts.directory);
 	writeDurablePyrunScript(scriptPath, input.params.code);
 	const runnerPid = launchDetachedPyrunRunner(manifestPath);
 	const processIdentity = readProcessIdentity(runnerPid);
 	writeDetachedPyrunLaunchManifest(manifestPath, {
-		activationPath,
+		...runnerPaths,
 		artifacts,
-		bridgeRequestPath,
-		bridgeResponsePath,
 		controlDbPath: persistence.controlDbPath,
-		foregroundCompletionPath,
 		params: createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled),
 		runnerAddress: { agentId: input.agentId, sessionId: input.ctx.sessionManager.getSessionId() },
-		runnerOptions: input.runnerOptions,
+		runnerOptions: { ...input.runnerOptions, cwd: input.ctx.cwd },
 		runnerProcessIdentity: processIdentity,
 		sessionPath: persistence.sessionPath,
+		sessionSocketPath,
 		startedAt,
 		supervisorProcessIdentity: readProcessIdentity(process.pid),
 		toolCallId: input.toolCallId,
 	});
-	return {
-		activationPath,
-		artifacts,
-		bridgeRequestPath,
-		bridgeResponsePath,
-		foregroundCompletionPath,
-		jobId: input.agentId,
-		manifestPath,
-		processIdentity,
-		runnerPid,
-		scriptPath,
-	};
+	return { ...runnerPaths, artifacts, jobId: input.agentId, manifestPath, processIdentity, runnerPid, scriptPath };
 }
 
 type DetachablePyrunInput = Parameters<typeof runDurableDetachablePyrunEvaluation>[0] & {

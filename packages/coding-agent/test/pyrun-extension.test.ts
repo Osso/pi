@@ -449,7 +449,7 @@ import { writeFileSync } from "node:fs";
 
 `;
 const fakePyrunFailureRequests = `  if (request.code === "run.sidecar_failure()") {
-    writeFileSync("canonical-runner.pid", String(process.pid));
+    writeFileSync(new URL("./canonical-runner.pid", import.meta.url), String(process.pid));
     process.stdout.write(JSON.stringify({ type: "status", message: "waiting for runner sidecar" }) + "\\n");
     return new Promise(() => {});
   }
@@ -914,7 +914,9 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.approvalRequired).toBe(true);
 		expect(harness.toolDefinition?.description).toContain("Python/Pyrun");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Python");
-		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("persistent ctx");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
+			"To keep ctx across calls, pass the same session_id",
+		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("full logs");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
@@ -2640,7 +2642,7 @@ setInterval(() => {}, 1000);
 		const directory = join(pyrunArtifactRoot(store), artifactName);
 		const manifestPath = join(directory, "launch.json");
 		const manifest = readDetachedPyrunLaunchManifest(manifestPath);
-		const canonicalRunnerPid = Number(readFileSync(join(directory, "canonical-runner.pid"), "utf8"));
+		const canonicalRunnerPid = Number(readFileSync(join(tempDir, "canonical-runner.pid"), "utf8"));
 		expect(isProcessIdentityAlive(manifest.runnerProcessIdentity)).toBe(true);
 		expect(processIsAlive(canonicalRunnerPid)).toBe(true);
 
@@ -2760,7 +2762,7 @@ setInterval(() => {}, 1000);
 		const directory = join(pyrunArtifactRoot(store), artifactName);
 		const manifestPath = join(directory, "launch.json");
 		const manifest = readDetachedPyrunLaunchManifest(manifestPath);
-		const canonicalRunnerPid = Number(readFileSync(join(directory, "canonical-runner.pid"), "utf8"));
+		const canonicalRunnerPid = Number(readFileSync(join(tempDir, "canonical-runner.pid"), "utf8"));
 		const largeProgress = {
 			kind: "progress",
 			update: { message: "x".repeat(1_048_576), type: "status" },

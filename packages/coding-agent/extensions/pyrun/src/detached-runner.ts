@@ -32,9 +32,10 @@ import {
 	PyrunRunnerClient,
 	type PyrunRunnerOptions,
 } from "./runner.ts";
+import { PyrunSessionClient } from "./session-proxy.ts";
 
 export const DETACHED_PYRUN_RUNNER_MODE = "--internal-detached-pyrun-runner";
-const DETACHED_PYRUN_LAUNCH_VERSION = 3;
+const DETACHED_PYRUN_LAUNCH_VERSION = 4;
 const CONTROL_POLL_MS = 1_000;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
@@ -51,6 +52,8 @@ export interface DetachedPyrunLaunchManifestData {
 	runnerOptions: PyrunRunnerOptions;
 	runnerProcessIdentity: ProcessIdentity;
 	sessionPath: string;
+	/** Socket of the named Pyrun session's proxy; without it the runner starts its own Python. */
+	sessionSocketPath?: string;
 	startedAt: number;
 	supervisorProcessIdentity: ProcessIdentity;
 	toolCallId: string;
@@ -133,11 +136,9 @@ export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ te
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
 	const releaseControlDb = retainControlDbConnection(manifest.controlDbPath);
 	try {
-		const runner = new PyrunRunnerClient({
-			...manifest.runnerOptions,
-			detached: false,
-			inheritedProcessGroupId: process.pid,
-		});
+		const runner = manifest.sessionSocketPath
+			? new PyrunSessionClient(manifest.sessionSocketPath, manifest.supervisorProcessIdentity)
+			: new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false, inheritedProcessGroupId: process.pid });
 		try {
 			const output = new PyrunArtifactWriter(manifest.artifacts.outputPath);
 			const settlement = await waitForDetachedPyrunSettlement(manifest, runner, output);
@@ -155,7 +156,7 @@ export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ te
 
 async function waitForDetachedPyrunSettlement(
 	manifest: DetachedPyrunLaunchManifest,
-	runner: PyrunRunnerClient,
+	runner: PyrunRunnerClient | PyrunSessionClient,
 	output: PyrunArtifactWriter,
 ): Promise<PyrunSettlement> {
 	const abort = new AbortController();
@@ -347,6 +348,10 @@ async function waitForPyrunOwnershipDecision(
 	}
 }
 
+function isOptionalString(value: unknown): boolean {
+	return value === undefined || typeof value === "string";
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -400,8 +405,9 @@ export function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaun
 		!isPlainRecord(parsed.runnerOptions) ||
 		!isPlainRecord(parsed.runnerProcessIdentity) ||
 		typeof parsed.sessionPath !== "string" ||
+		!isOptionalString(parsed.sessionSocketPath) ||
 		!isPlainRecord(parsed.supervisorProcessIdentity) ||
-		(parsed.toolCallId !== undefined && typeof parsed.toolCallId !== "string") ||
+		!isOptionalString(parsed.toolCallId) ||
 		checksum !== hashJson(unsigned)
 	) {
 		throw new Error(`Invalid detached Pyrun launch manifest: ${path}`);

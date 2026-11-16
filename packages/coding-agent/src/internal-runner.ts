@@ -1,9 +1,14 @@
 import { writeFileSync } from "node:fs";
 import { DETACHED_PYRUN_RUNNER_MODE, runDetachedPyrunRunner } from "../extensions/pyrun/src/detached-runner.ts";
+import { PYRUN_SESSION_PROXY_MODE, runPyrunSessionProxy } from "../extensions/pyrun/src/session-proxy.ts";
 import { DETACHED_BASH_RUNNER_MODE, runDetachedBashRunner } from "./core/detached-bash-runner.ts";
 
 export async function runInternalDetachedRunner(args: readonly string[]): Promise<boolean> {
 	const mode = args[0];
+	if (mode === PYRUN_SESSION_PROXY_MODE) {
+		await runPyrunSessionProxy();
+		return true;
+	}
 	if (mode !== DETACHED_BASH_RUNNER_MODE && mode !== DETACHED_PYRUN_RUNNER_MODE) return false;
 	const manifestPath = args[1];
 	if (!manifestPath) throw new Error(`Internal detached runner ${mode} requires a launch manifest path`);

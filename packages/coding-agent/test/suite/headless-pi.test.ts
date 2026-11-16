@@ -242,19 +242,30 @@ function writeForegroundPyrunWrapperFailureRunner(directory: string): string {
 	const runnerPath = join(directory, "foreground-pyrun-wrapper-failure.mjs");
 	writeFileSync(
 		runnerPath,
-		`import { chmodSync, existsSync, readFileSync } from "node:fs";
+		`import { chmodSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
+
+// Python runs in the headless workspace; the evaluation artifacts live in its sibling sessions directory.
+function findOutputLog(progressMessage) {
+  const root = join(process.cwd(), "..", "sessions");
+  for (const path of readdirSync(root, { recursive: true })) {
+    if (typeof path !== "string" || !path.endsWith("output.log")) continue;
+    if (readFileSync(join(root, path), "utf8").includes(progressMessage)) return join(root, path);
+  }
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
   const progressMessage = "foreground wrapper failure started";
   process.stdout.write(JSON.stringify({ type: "status", message: progressMessage }) + "\\n");
   const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (existsSync("output.log") && readFileSync("output.log", "utf8").includes(progressMessage)) break;
+  let outputLog = findOutputLog(progressMessage);
+  while (!outputLog && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
+    outputLog = findOutputLog(progressMessage);
   }
-  chmodSync("output.log", 0o400);
+  chmodSync(outputLog, 0o400);
   process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, value: "unreachable" }) + "\\n");
 }
 `,

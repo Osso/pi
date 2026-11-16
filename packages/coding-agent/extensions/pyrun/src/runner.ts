@@ -63,6 +63,8 @@ interface PendingRequest {
 export interface PyrunRunnerOptions {
 	args?: string[];
 	command?: string;
+	/** Working directory of the Python process; evaluations resolve relative paths against it. */
+	cwd?: string;
 	detached?: boolean;
 	env?: NodeJS.ProcessEnv;
 	inheritEnv?: boolean;
@@ -74,7 +76,7 @@ export interface PyrunRunnerResolutionOptions {
 }
 
 type ResolvedPyrunRunnerOptions = Required<
-	Omit<PyrunRunnerOptions, "detached" | "inheritEnv" | "inheritedProcessGroupId">
+	Omit<PyrunRunnerOptions, "cwd" | "detached" | "inheritEnv" | "inheritedProcessGroupId">
 >;
 
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
@@ -244,6 +246,7 @@ export class PyrunRunnerClient {
 		};
 		const detached = this.shouldDetachProcess();
 		const child = spawn(options.command, options.args, {
+			cwd: options.cwd,
 			detached,
 			env: options.inheritEnv === false ? options.env : { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
@@ -359,10 +362,10 @@ export class PyrunRunnerClient {
 	}
 }
 
-function isFinalEvalResult(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunEvalResult {
+export function isFinalEvalResult(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunEvalResult {
 	return message.type === "completed" || message.type === "error" || message.type === "needs_approval";
 }
 
-function isPiRequest(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunProgressUpdate {
+export function isPiRequest(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunProgressUpdate {
 	return message.type === "pi_request";
 }
