@@ -605,13 +605,6 @@ export function isWhitespaceChar(char: string): boolean {
 }
 
 /**
- * Check if a character is punctuation.
- */
-export function isPunctuationChar(char: string): boolean {
-	return PUNCTUATION_REGEX.test(char);
-}
-
-/**
  * Apply background color to a line, padding to full width.
  *
  * @param line - Line of text (may contain ANSI codes)
