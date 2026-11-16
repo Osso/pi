@@ -317,15 +317,6 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 	}
 }
 
-export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
-	return [
-		createReadToolDefinition(cwd, options?.read),
-		createBashToolDefinition(cwd, options?.bash),
-		createEditToolDefinition(cwd, options?.edit),
-		createWriteToolDefinition(cwd, options?.write),
-	];
-}
-
 export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
 	return [
 		createReadToolDefinition(cwd, options?.read),
@@ -391,27 +382,4 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 		createSymbolTool(cwd, options?.codeIndex),
 		createReferencesTool(cwd, options?.codeIndex),
 	];
-}
-
-export function createAllTools(cwd: string, options?: ToolsOptions): Record<ToolName, Tool> {
-	return {
-		read: createReadTool(cwd, options?.read),
-		bash: createBashTool(cwd, options?.bash),
-		edit: createEditTool(cwd, options?.edit),
-		write: createWriteTool(cwd, options?.write),
-		grep: createGrepTool(cwd, options?.grep),
-		find: createFindTool(cwd, options?.find),
-		ls: createLsTool(cwd, options?.ls),
-		outline: createOutlineTool(cwd, options?.codeIndex),
-		symbol: createSymbolTool(cwd, options?.codeIndex),
-		references: createReferencesTool(cwd, options?.codeIndex),
-		end_turn: wrapToolDefinition(createEndTurnToolDefinition()),
-		change_working_directory: wrapToolDefinition(createChangeWorkingDirectoryToolDefinition()),
-		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
-		search_current_session_history: wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition()),
-		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),
-		channel_post: wrapToolDefinition(createChannelPostToolDefinition()),
-		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
-		ask_supervisor: wrapToolDefinition(createAskSupervisorToolDefinition()),
-	};
 }

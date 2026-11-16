@@ -103,26 +103,3 @@ export function endSessionHealth(health: SessionHealthRecord, nowIso = new Date(
 		updatedAt: nowIso,
 	};
 }
-
-export function advanceGenerationForPid(
-	health: SessionHealthRecord,
-	pid: number,
-	nowIso = new Date().toISOString(),
-): SessionHealthRecord {
-	if (health.pid === pid && health.agentGeneration > 0) {
-		return {
-			...health,
-			pid,
-			lastActiveAt: nowIso,
-			updatedAt: nowIso,
-		};
-	}
-	return {
-		...health,
-		pid,
-		agentGeneration: health.agentGeneration + 1,
-		lastActiveAt: nowIso,
-		// New generation invalidates sticky death via checkedGeneration mismatch.
-		updatedAt: nowIso,
-	};
-}

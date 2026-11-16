@@ -187,10 +187,6 @@ async function fetchOpenRouterCatalogWith(fetchImpl: typeof fetch, abortSignal?:
 	return models;
 }
 
-export async function fetchOpenRouterCatalog(abortSignal?: AbortSignal): Promise<Model<Api>[]> {
-	return fetchOpenRouterCatalogWith(fetch, abortSignal);
-}
-
 function mergeWithBundledModels(refreshedModels: Model<Api>[]): Model<Api>[] {
 	const modelsById = new Map(bundledOpenRouterModels.map((model) => [model.id, model]));
 	for (const model of refreshedModels) {

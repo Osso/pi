@@ -128,14 +128,6 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 	};
 }
 
-/** Wrap multiple ToolDefinitions into AgentTools for the core runtime. */
-export function wrapToolDefinitions<TParams extends TSchema, TDetails = unknown>(
-	definitions: ToolDefinition<TParams, TDetails>[],
-	ctxFactory?: () => ExtensionContext,
-): AgentTool<TParams, TDetails>[] {
-	return definitions.map((definition) => wrapToolDefinition(definition, ctxFactory));
-}
-
 /**
  * Synthesize a minimal ToolDefinition from an AgentTool.
  *
