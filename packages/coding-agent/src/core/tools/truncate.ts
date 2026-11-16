@@ -55,6 +55,18 @@ function splitLinesForCounting(content: string): string[] {
 	return lines;
 }
 
+/** Whether the content fits both limits; a final newline ends the last line and counts toward neither. */
+function fitsLimits(
+	content: string,
+	totalBytes: number,
+	totalLines: number,
+	maxLines: number,
+	maxBytes: number,
+): boolean {
+	const lineBytes = content.endsWith("\n") ? totalBytes - 1 : totalBytes;
+	return totalLines <= maxLines && lineBytes <= maxBytes;
+}
+
 /**
  * Format bytes as human-readable size.
  */
@@ -84,7 +96,7 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	const totalLines = lines.length;
 
 	// Check if no truncation needed
-	if (totalLines <= maxLines && totalBytes <= maxBytes) {
+	if (fitsLimits(content, totalBytes, totalLines, maxLines, maxBytes)) {
 		return {
 			content,
 			truncated: false,
@@ -177,7 +189,7 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 	const totalLines = lines.length;
 
 	// Check if no truncation needed
-	if (totalLines <= maxLines && totalBytes <= maxBytes) {
+	if (fitsLimits(content, totalBytes, totalLines, maxLines, maxBytes)) {
 		return {
 			content,
 			truncated: false,
