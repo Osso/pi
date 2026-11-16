@@ -28,6 +28,23 @@ function getUrl(input: unknown): string {
 	throw new Error(`Unsupported fetch input: ${String(input)}`);
 }
 
+function copilotTokenResponse(): Response {
+	return jsonResponse({
+		token: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
+		expires_at: 9999999999,
+	});
+}
+
+function copilotEmptyCatalogResponse(url: string): Response | undefined {
+	if (url.endsWith("/models")) {
+		return jsonResponse({ data: [] });
+	}
+	if (url.includes("/models/") && url.endsWith("/policy")) {
+		return new Response("", { status: 200 });
+	}
+	return undefined;
+}
+
 describe("GitHub Copilot OAuth device flow", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
@@ -39,10 +56,7 @@ describe("GitHub Copilot OAuth device flow", () => {
 			const url = getUrl(input);
 
 			if (url.includes("/copilot_internal/v2/token")) {
-				return jsonResponse({
-					token: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
-					expires_at: 9999999999,
-				});
+				return copilotTokenResponse();
 			}
 
 			if (url === "https://api.individual.githubcopilot.com/models") {
@@ -107,18 +121,12 @@ describe("GitHub Copilot OAuth device flow", () => {
 			}
 
 			if (url.includes("/copilot_internal/v2/token")) {
-				return jsonResponse({
-					token: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
-					expires_at: 9999999999,
-				});
+				return copilotTokenResponse();
 			}
 
-			if (url.endsWith("/models")) {
-				return jsonResponse({ data: [] });
-			}
-
-			if (url.includes("/models/") && url.endsWith("/policy")) {
-				return new Response("", { status: 200 });
+			const catalogResponse = copilotEmptyCatalogResponse(url);
+			if (catalogResponse) {
+				return catalogResponse;
 			}
 
 			throw new Error(`Unexpected fetch URL: ${url}`);
@@ -200,18 +208,12 @@ describe("GitHub Copilot OAuth device flow", () => {
 			}
 
 			if (url.includes("/copilot_internal/v2/token")) {
-				return jsonResponse({
-					token: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
-					expires_at: 9999999999,
-				});
+				return copilotTokenResponse();
 			}
 
-			if (url.endsWith("/models")) {
-				return jsonResponse({ data: [] });
-			}
-
-			if (url.includes("/models/") && url.endsWith("/policy")) {
-				return new Response("", { status: 200 });
+			const catalogResponse = copilotEmptyCatalogResponse(url);
+			if (catalogResponse) {
+				return catalogResponse;
 			}
 
 			throw new Error(`Unexpected fetch URL: ${url}`);
@@ -289,18 +291,12 @@ describe("GitHub Copilot OAuth device flow", () => {
 			}
 
 			if (url.includes("/copilot_internal/v2/token")) {
-				return jsonResponse({
-					token: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
-					expires_at: 9999999999,
-				});
+				return copilotTokenResponse();
 			}
 
-			if (url.endsWith("/models")) {
-				return jsonResponse({ data: [] });
-			}
-
-			if (url.includes("/models/") && url.endsWith("/policy")) {
-				return new Response("", { status: 200 });
+			const catalogResponse = copilotEmptyCatalogResponse(url);
+			if (catalogResponse) {
+				return catalogResponse;
 			}
 
 			throw new Error(`Unexpected fetch URL: ${url}`);

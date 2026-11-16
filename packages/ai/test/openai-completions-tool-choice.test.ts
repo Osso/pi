@@ -74,6 +74,11 @@ const localOpenAICompletionsModel = {
 	maxTokens: 8192,
 } satisfies Omit<Model<"openai-completions">, "id" | "name" | "compat">;
 
+function openAICompletionsModel() {
+	const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
+	return { ...baseModel, api: "openai-completions" } as const;
+}
+
 type CapturedParams = {
 	chat_template_kwargs?: Record<string, unknown>;
 	thinking?: unknown;
@@ -103,6 +108,29 @@ async function captureSimpleParams(
 	return (payload ?? mockState.lastParams) as CapturedParams;
 }
 
+async function captureMessages(
+	model: Parameters<typeof streamSimple>[0],
+	systemPrompt: string,
+): Promise<Array<{ role?: string }>> {
+	let payload: unknown;
+
+	await streamSimple(
+		model,
+		{
+			systemPrompt,
+			messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+		},
+		{
+			apiKey: "test",
+			onPayload: (params: unknown) => {
+				payload = params;
+			},
+		},
+	).result();
+
+	return (payload as { messages?: Array<{ role?: string }> }).messages ?? [];
+}
+
 function tokenUsage(input: number, output = 0) {
 	return {
 		input,
@@ -121,8 +149,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("forwards toolChoice from simple options to payload", async () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const tools: Tool[] = [
 			{
 				name: "ping",
@@ -610,8 +637,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{
@@ -645,8 +671,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{
@@ -729,8 +754,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const tool: Tool = {
 			name: "read",
 			description: "Read a file",
@@ -876,8 +900,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const tools: Tool[] = [
 			{
 				name: "read",
@@ -1010,24 +1033,9 @@ describe("openai-completions tool_choice", () => {
 
 	it("uses system messages for non-OpenAI/Anthropic OpenRouter reasoning model instructions", async () => {
 		const model = getModel("openrouter", "deepseek/deepseek-v4-pro");
-		let payload: unknown;
+		const messages = await captureMessages(model, "Follow instructions.");
 
-		await streamSimple(
-			model,
-			{
-				systemPrompt: "Follow instructions.",
-				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
-			},
-			{
-				apiKey: "test",
-				onPayload: (params: unknown) => {
-					payload = params;
-				},
-			},
-		).result();
-
-		const params = payload as { messages?: Array<{ role?: string }> };
-		expect(params.messages?.[0]?.role).toBe("system");
+		expect(messages[0]?.role).toBe("system");
 	});
 
 	it("keeps developer messages for OpenAI and Anthropic OpenRouter reasoning model instructions", async () => {
@@ -1036,48 +1044,18 @@ describe("openai-completions tool_choice", () => {
 			getModel("openrouter", "anthropic/claude-sonnet-4.5"),
 		]) {
 			expect(model).toBeDefined();
-			let payload: unknown;
+			const messages = await captureMessages(model, "Follow instructions.");
 
-			await streamSimple(
-				model,
-				{
-					systemPrompt: "Follow instructions.",
-					messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
-				},
-				{
-					apiKey: "test",
-					onPayload: (params: unknown) => {
-						payload = params;
-					},
-				},
-			).result();
-
-			const params = payload as { messages?: Array<{ role?: string }> };
-			expect(params.messages?.[0]?.role).toBe("developer");
+			expect(messages[0]?.role).toBe("developer");
 		}
 	});
 
 	it("keeps developer messages for OpenAI reasoning model instructions", async () => {
 		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-5.5");
 		const model = { ...baseModel, api: "openai-completions" } as const;
-		let payload: unknown;
+		const messages = await captureMessages(model, "Follow instructions.");
 
-		await streamSimple(
-			model,
-			{
-				systemPrompt: "Follow instructions.",
-				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
-			},
-			{
-				apiKey: "test",
-				onPayload: (params: unknown) => {
-					payload = params;
-				},
-			},
-		).result();
-
-		const params = payload as { messages?: Array<{ role?: string }> };
-		expect(params.messages?.[0]?.role).toBe("developer");
+		expect(messages[0]?.role).toBe("developer");
 	});
 
 	it("stores OpenRouter Kimi K2.6 reasoning replay compat in built-in metadata", () => {
@@ -1186,8 +1164,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{
@@ -1409,8 +1386,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{
@@ -1448,8 +1424,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{
@@ -1494,8 +1469,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const model = openAICompletionsModel();
 		const response = await streamSimple(
 			model,
 			{

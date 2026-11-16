@@ -52,6 +52,14 @@ function deviceAuthPendingResponse(): Response {
 	);
 }
 
+function deviceAuthorizationCodeResponse(): Response {
+	return jsonResponse({
+		authorization_code: "oauth-code",
+		code_challenge: "device-code-challenge",
+		code_verifier: "device-code-verifier",
+	});
+}
+
 describe("OpenAI Codex OAuth", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
@@ -90,14 +98,7 @@ describe("OpenAI Codex OAuth", () => {
 			expiresInSeconds?: number;
 		}> = [];
 		const pollTimes: number[] = [];
-		const pollResponses = [
-			deviceAuthPendingResponse(),
-			jsonResponse({
-				authorization_code: "oauth-code",
-				code_challenge: "device-code-challenge",
-				code_verifier: "device-code-verifier",
-			}),
-		];
+		const pollResponses = [deviceAuthPendingResponse(), deviceAuthorizationCodeResponse()];
 
 		const fetchMock = vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
 			const url = getUrl(input);
@@ -195,11 +196,7 @@ describe("OpenAI Codex OAuth", () => {
 					});
 				}
 				if (url === "https://auth.openai.com/api/accounts/deviceauth/token") {
-					return jsonResponse({
-						authorization_code: "oauth-code",
-						code_challenge: "device-code-challenge",
-						code_verifier: "device-code-verifier",
-					});
+					return deviceAuthorizationCodeResponse();
 				}
 				if (url === "https://auth.openai.com/oauth/token") {
 					return jsonResponse({
@@ -247,11 +244,7 @@ describe("OpenAI Codex OAuth", () => {
 					});
 				}
 				if (url === "https://auth.openai.com/api/accounts/deviceauth/token") {
-					return jsonResponse({
-						authorization_code: "oauth-code",
-						code_challenge: "device-code-challenge",
-						code_verifier: "device-code-verifier",
-					});
+					return deviceAuthorizationCodeResponse();
 				}
 				if (url === "https://auth.openai.com/oauth/token") {
 					return jsonResponse({
