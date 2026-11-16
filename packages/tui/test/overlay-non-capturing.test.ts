@@ -51,15 +51,19 @@ async function renderAndFlush(tui: TUI, terminal: VirtualTerminal): Promise<void
 	await terminal.waitForRender();
 }
 
+function startWithEditorFocus(tui: TUI, editor: FocusableOverlay): void {
+	tui.addChild(new EmptyContent());
+	tui.setFocus(editor);
+	tui.start();
+}
+
 /** A started 80x24 TUI with the "EDITOR" component focused and an unshown "OVERLAY" component. */
 function startWithFocusedEditor() {
 	const terminal = new VirtualTerminal(80, 24);
 	const tui = new TUI(terminal);
 	const editor = new FocusableOverlay(["EDITOR"]);
 	const overlay = new FocusableOverlay(["OVERLAY"]);
-	tui.addChild(new EmptyContent());
-	tui.setFocus(editor);
-	tui.start();
+	startWithEditorFocus(tui, editor);
 	return { terminal, tui, editor, overlay };
 }
 
@@ -152,9 +156,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const nonCapturing = new FocusableOverlay(["NC"]);
 			const capturing = new FocusableOverlay(["CAP"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
 				const handle = tui.showOverlay(capturing);
@@ -174,9 +176,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const timer = new FocusableOverlay(["TIMER"]);
 			const controller = new FocusableOverlay(["CTRL"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const timerHandle = tui.showOverlay(timer, { nonCapturing: true });
 				tui.showOverlay(controller);
@@ -204,9 +204,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const child = new FocusableOverlay(["CHILD"]);
 			const parent = new FocusableOverlay(["PARENT"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const childHandle = tui.showOverlay(child, { nonCapturing: true });
 				childHandle.focus();
@@ -233,9 +231,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const timer = new FocusableOverlay(["TIMER"]);
 			const controller = new FocusableOverlay(["CTRL"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				// Simulate showExtensionCustom: factory creates timer synchronously,
 				// then .then() pushes controller as a microtask
@@ -291,9 +287,7 @@ describe("TUI overlay non-capturing", () => {
 			const nonCapturing = new FocusableOverlay(["NC"]);
 			const primary = new FocusableOverlay(["PRIMARY"]);
 			let isVisible = true;
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(fallbackCapturing);
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
@@ -329,9 +323,7 @@ describe("TUI overlay non-capturing", () => {
 					tui.setFocus(editor);
 				}
 			};
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(overlay);
 				assert.strictEqual(overlay.focused, true);
@@ -372,9 +364,7 @@ describe("TUI overlay non-capturing", () => {
 					tui.setFocus(editor);
 				}
 			};
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.setFocus(replacement);
 				tui.showOverlay(passive, { nonCapturing: true });
@@ -532,9 +522,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const replacement = new FocusableOverlay(["REPLACEMENT"]);
 			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(overlay);
 				assert.strictEqual(overlay.focused, true);
@@ -556,9 +544,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const controller = new FocusableOverlay(["CONTROLLER"]);
 			const subOverlay = new FocusableOverlay(["SUB"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(controller);
 				const subHandle = tui.showOverlay(subOverlay, { nonCapturing: true });
@@ -579,9 +565,7 @@ describe("TUI overlay non-capturing", () => {
 			const tui = new TUI(terminal);
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const passive = new FocusableOverlay(["PASSIVE"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(passive, { nonCapturing: true });
 				terminal.sendInput("x");
@@ -599,9 +583,7 @@ describe("TUI overlay non-capturing", () => {
 			const tui = new TUI(terminal);
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const overlay = new FocusableOverlay(["NC"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.focus();
@@ -684,9 +666,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const overlay = new FocusableOverlay(["OVERLAY"]);
 			let visible = true;
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(overlay, { visible: () => visible });
 				tui.setFocus(editor);
@@ -754,9 +734,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const lower = new FocusableOverlay(["LOWER"]);
 			const upper = new FocusableOverlay(["UPPER"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const lowerHandle = tui.showOverlay(lower);
 				tui.showOverlay(upper);
@@ -778,9 +756,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const capturing = new FocusableOverlay(["CAP"]);
 			const nonCapturing = new FocusableOverlay(["NC"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				tui.showOverlay(capturing);
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
@@ -801,9 +777,7 @@ describe("TUI overlay non-capturing", () => {
 			const n1 = new FocusableOverlay(["N1"]);
 			const c2 = new FocusableOverlay(["C2"]);
 			const n2 = new FocusableOverlay(["N2"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const c1Handle = tui.showOverlay(c1);
 				tui.showOverlay(n1, { nonCapturing: true });
@@ -826,9 +800,7 @@ describe("TUI overlay non-capturing", () => {
 			const tui = new TUI(terminal);
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const capturing = new FocusableOverlay(["CAP"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const handle = tui.showOverlay(capturing);
 				assert.strictEqual(capturing.focused, true);
@@ -912,9 +884,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const a = new FocusableOverlay(["A"]);
 			const b = new FocusableOverlay(["B"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const aHandle = tui.showOverlay(a, { nonCapturing: true });
 				const bHandle = tui.showOverlay(b, { nonCapturing: true });
@@ -938,9 +908,7 @@ describe("TUI overlay non-capturing", () => {
 			const a = new FocusableOverlay(["A"]);
 			const b = new FocusableOverlay(["B"]);
 			const c = new FocusableOverlay(["C"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const aHandle = tui.showOverlay(a);
 				const bHandle = tui.showOverlay(b);
@@ -1000,9 +968,7 @@ describe("TUI overlay non-capturing", () => {
 			const a = new FocusableOverlay(["A"]);
 			const b = new FocusableOverlay(["B"]);
 			const c = new FocusableOverlay(["C"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const aHandle = tui.showOverlay(a);
 				const bHandle = tui.showOverlay(b);
@@ -1026,9 +992,7 @@ describe("TUI overlay non-capturing", () => {
 			const terminal = new VirtualTerminal(20, 6);
 			const tui = new TUI(terminal);
 			const editor = new FocusableOverlay(["EDITOR"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const aHandle = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
@@ -1084,9 +1048,7 @@ describe("TUI overlay non-capturing", () => {
 			const editor = new FocusableOverlay(["EDITOR"]);
 			const lowerOverlay = new FocusableOverlay(["AAA"]);
 			const upperOverlay = new FocusableOverlay(["BBB"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const lower = tui.showOverlay(lowerOverlay, { row: 0, col: 0, width: 3 });
 				tui.showOverlay(upperOverlay, { row: 0, col: 0, width: 3 });
@@ -1156,9 +1118,7 @@ describe("TUI overlay non-capturing", () => {
 			const terminal = new VirtualTerminal(20, 6);
 			const tui = new TUI(terminal);
 			const editor = new FocusableOverlay(["EDITOR"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			startWithEditorFocus(tui, editor);
 			try {
 				const a = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				const b = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
