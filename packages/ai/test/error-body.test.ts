@@ -5,10 +5,18 @@
 // Bedrock ServiceException), plus the non-Error fallback, truncation, the empty
 // parsed-body edge case, and the formatProviderError compose helper.
 
+import type { AddressInfo } from "node:net";
+import { createServer } from "node:net";
 import { Readable } from "node:stream";
+import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 import { fauxAssistantMessage } from "../src/providers/faux.ts";
-import { formatProviderError, MAX_PROVIDER_ERROR_BODY_CHARS, normalizeProviderError } from "../src/utils/error-body.ts";
+import {
+	formatProviderError,
+	MAX_PROVIDER_ERROR_BODY_CHARS,
+	normalizeProviderError,
+	withCauseDetail,
+} from "../src/utils/error-body.ts";
 import { isRetryableAssistantError } from "../src/utils/retry.ts";
 
 describe("normalizeProviderError", () => {
@@ -235,5 +243,46 @@ describe("formatProviderError", () => {
 		const norm = normalizeProviderError({ reason: "boom" });
 
 		expect(formatProviderError(norm)).toBe('{"reason":"boom"}');
+	});
+});
+
+describe("connection error cause detail", () => {
+	it("appends the deepest cause of a connection error with no status or body", () => {
+		const socketError = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8080"), { code: "ECONNREFUSED" });
+		const fetchError = new TypeError("fetch failed", { cause: socketError });
+		const error = new Error("Connection error.", { cause: fetchError });
+
+		const message = formatProviderError(normalizeProviderError(error));
+		expect(message).toBe("Connection error.: connect ECONNREFUSED 127.0.0.1:8080");
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage: message }))).toBe(
+			true,
+		);
+	});
+
+	it("adds the error code when the cause message lacks it", () => {
+		const cause = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" });
+		const error = new Error("Connection error.", { cause });
+
+		expect(withCauseDetail(error)).toBe("Connection error.: other side closed (UND_ERR_SOCKET)");
+	});
+
+	it("leaves errors without a cause unchanged", () => {
+		expect(withCauseDetail(new Error("Connection error."))).toBe("Connection error.");
+	});
+
+	it("surfaces the reason from a real openai SDK connection failure", async () => {
+		const server = createServer();
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = (server.address() as AddressInfo).port;
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+
+		const client = new OpenAI({ apiKey: "test", baseURL: `http://127.0.0.1:${port}/v1`, maxRetries: 0 });
+		const error = await client.chat.completions
+			.create({ model: "m", messages: [{ role: "user", content: "hi" }] })
+			.catch((e: unknown) => e);
+
+		expect(formatProviderError(normalizeProviderError(error))).toBe(
+			`Connection error.: connect ECONNREFUSED 127.0.0.1:${port}`,
+		);
 	});
 });

@@ -29,6 +29,7 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { withCauseDetail } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -44,13 +45,8 @@ import { groupToolResults, transformMessages } from "./transform-messages.ts";
  * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
  */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
-		return "long";
-	}
-	return "short";
+	if (cacheRetention) return cacheRetention;
+	return getProviderEnvValue("PI_CACHE_RETENTION", env) === "long" ? "long" : "short";
 }
 
 function getCacheControl(
@@ -720,7 +716,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				delete (block as { partialJson?: string }).partialJson;
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+			output.errorMessage = error instanceof Error ? withCauseDetail(error) : JSON.stringify(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
