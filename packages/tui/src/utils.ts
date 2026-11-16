@@ -808,7 +808,7 @@ export function sliceWithWidth(
 			if (currentCol >= startCol && currentCol < endCol) {
 				result += pendingAnsi + ansi.code; // codes from before the range precede codes at the boundary
 				pendingAnsi = "";
-			} else if (currentCol < startCol) pendingAnsi += ansi.code;
+			} else if (currentCol < startCol && !ansi.code.startsWith("\x1b_")) pendingAnsi += ansi.code; // APC is positional, not style
 			i += ansi.length;
 			continue;
 		}

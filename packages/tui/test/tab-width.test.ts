@@ -43,6 +43,12 @@ describe("tab width accounting", () => {
 		assert.strictEqual(visibleWidth(slice.text), slice.width);
 	});
 
+	it("does not carry a cursor marker from before the slice into it", () => {
+		const slice = sliceWithWidth("\x1b[31mab\x1b_pi:c\x07cd", 3, 1, true);
+
+		assert.strictEqual(slice.text, "\x1b[31md");
+	});
+
 	it("keeps overlay segment widths consistent with visible width", () => {
 		const text = "out 192M\t.pi/skill-tests/results-ha";
 		const segments = extractSegments(text, 10, 13, 10, true);

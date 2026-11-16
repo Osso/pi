@@ -9,7 +9,7 @@ import {
 	setCapabilities,
 	setCellDimensions,
 } from "../src/terminal-image.ts";
-import { type Component, TUI } from "../src/tui.ts";
+import { type Component, CURSOR_MARKER, TUI } from "../src/tui.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 class TestComponent implements Component {
@@ -805,4 +805,25 @@ describe("TUI differential rendering", () => {
 
 		tui.stop();
 	});
+});
+
+// Upstream #9441: a second cursor marker, or one outside the cursor row, reached the terminal as a raw APC sequence.
+describe("TUI cursor markers", () => {
+	for (const [name, lines, cursorColumn] of [
+		["two markers on one line", [`a${CURSOR_MARKER} b${CURSOR_MARKER}`], 2],
+		["markers on other lines", [`offscreen${CURSOR_MARKER}`, `a${CURSOR_MARKER}`, `vis${CURSOR_MARKER}`], 4],
+	] as const) {
+		it(`writes no marker for ${name}`, async () => {
+			const terminal = new LoggingVirtualTerminal(40, 2);
+			const { tui, component } = createTestTui(terminal);
+			component.lines = [...lines];
+			tui.start();
+			await terminal.waitForRender();
+			tui.stop();
+
+			const output = terminal.getWrites();
+			assert.ok(!output.includes(CURSOR_MARKER), JSON.stringify(output));
+			assert.ok(output.includes(`\x1b[${cursorColumn}G`), "the bottom marker still places the cursor");
+		});
+	}
 });
