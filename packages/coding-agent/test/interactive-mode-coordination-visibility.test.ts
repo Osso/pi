@@ -83,6 +83,7 @@ function createView(harness: Harness): {
 		runtimeHost: { session: harness.session },
 		chatContainer: new Container(),
 		pendingMessagesContainer: new Container(),
+		pendingBashComponents: [],
 		transcriptTailContainer: new Container(),
 		streamingComponent: new AssistantMessageComponent(
 			fauxAssistantMessage("streaming answer"),

@@ -5,6 +5,7 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 type PendingMessagesDisplayThis = {
 	compactionQueuedMessages: [];
+	pendingBashComponents: [];
 	getAllQueuedMessages(): { steering: string[]; followUp: string[] };
 	getAppKeyDisplay(): string;
 	pendingMessagesContainer: Container;
@@ -32,6 +33,7 @@ describe("InteractiveMode follow-up preview", () => {
 		].join("\n");
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
+			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
 			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
@@ -49,6 +51,7 @@ describe("InteractiveMode follow-up preview", () => {
 		const message = ["From:", "- agent: agent_1", "", "Message:", body].join("\n");
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
+			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
 			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
@@ -64,6 +67,7 @@ describe("InteractiveMode follow-up preview", () => {
 	test("identifies an unknown sender when a follow-up has no sender metadata", () => {
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
+			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: ["Plain queued follow-up"] }),
 			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
@@ -78,6 +82,7 @@ describe("InteractiveMode follow-up preview", () => {
 	test("labels the goal continuation message as a goal follow-up", () => {
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
+			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: ["Continue working toward the active goal."] }),
 			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
@@ -100,6 +105,7 @@ describe("InteractiveMode follow-up preview", () => {
 		].join("\n");
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
+			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
 			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
