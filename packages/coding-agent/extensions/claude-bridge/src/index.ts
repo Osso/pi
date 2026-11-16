@@ -47,8 +47,6 @@ import {
 	extractAllToolResults,
 	historyRewrittenBySession,
 	markRebuildForSession,
-	type SessionState,
-	sessionStateFor,
 	setSessionStateFor,
 	sharedSessions,
 	syncSharedSession,
@@ -210,12 +208,6 @@ export const __test = {
 	isQueryAbandoned: (q: object) => abandonedQueries.has(q),
 	get activeQueryContexts() {
 		return activeQueryContexts;
-	},
-	setSharedSession(piSessionId: string | null, state: SessionState | null) {
-		setSessionStateFor(piSessionId, state);
-	},
-	getSharedSession(piSessionId: string | null = null) {
-		return sessionStateFor(piSessionId);
 	},
 	setPiUI,
 	syncSharedSession,

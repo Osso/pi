@@ -288,18 +288,7 @@ export class LifecycleCoordinator {
 	}
 
 	finalizeChild(input: FinalizeChildCommandInput): LifecycleCommandResult {
-		return this.finalizeOwnedChild(input, true);
-	}
-
-	failDetachedLaunch(input: FinalizeChildCommandInput): LifecycleCommandResult {
-		return this.finalizeOwnedChild(input, false);
-	}
-
-	private finalizeOwnedChild(
-		input: FinalizeChildCommandInput,
-		requireCurrentProcess: boolean,
-	): LifecycleCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, requireCurrentProcess);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentTerminalMutation(this.options.controlDbPath, {
