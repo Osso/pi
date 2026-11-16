@@ -479,18 +479,15 @@ describe("createBranchedSession", () => {
 			const newFile = session.createBranchedSession(id1);
 			if (!newFile) throw new Error("Expected newFile");
 
-			// The branched path has no assistant, so the file should not exist yet
-			// (deferred to _persist on first assistant, matching newSession() contract)
-			expect(existsSync(newFile)).toBe(false);
+			// The branched path holds the user message, so the fork is written at once.
+			expect(existsSync(newFile)).toBe(true);
 
 			// Simulate extension adding entry before assistant (like preset on turn_start)
 			session.appendCustomEntry("preset-state", { name: "plan" });
-
-			// Now the assistant responds
 			session.appendMessage(assistantMsg("new answer"));
 
-			// File should now exist with exactly one header and no duplicate IDs
-			expect(existsSync(newFile)).toBe(true);
+			// Exactly one header and no duplicate IDs
+
 			const content = readFileSync(newFile, "utf-8");
 			const lines = content.trim().split("\n").filter(Boolean);
 			const records = lines.map((line) => JSON.parse(line));

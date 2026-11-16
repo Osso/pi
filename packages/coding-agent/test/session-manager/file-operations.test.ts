@@ -721,6 +721,33 @@ describe("SessionManager custom flat session directory", () => {
 	});
 });
 
+describe("SessionManager first write", () => {
+	let tempDir: string;
+
+	beforeEach(() => {
+		tempDir = join(tmpdir(), `session-first-write-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		mkdirSync(tempDir, { recursive: true });
+	});
+
+	afterEach(() => rmSync(tempDir, { recursive: true, force: true }));
+
+	// A process killed during the first turn has written nothing after the user message.
+	it("saves the session file with the user's prompt before any assistant reply", () => {
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendThinkingLevelChange("high");
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected a session file path");
+		expect(existsSync(sessionFile)).toBe(false);
+
+		session.appendMessage(userMsg("first prompt"));
+
+		const saved = loadEntriesFromFile(sessionFile);
+		expect(saved.map((entry) => entry.type)).toEqual(["session", "thinking_level_change", "message"]);
+		session.appendMessage(assistantMsg("reply"));
+		expect(loadEntriesFromFile(sessionFile)).toHaveLength(4);
+	});
+});
+
 describe("SessionManager.setSessionFile with corrupted files", () => {
 	let tempDir: string;
 
@@ -837,18 +864,18 @@ describe("SessionManager failed writes", () => {
 		const sessionDir = join(tempDir, "sessions");
 		mkdirSync(sessionDir);
 		const session = SessionManager.create(tempDir, sessionDir);
-		const userId = session.appendMessage(userMsg("first question"));
 
 		chmodSync(sessionDir, 0o555);
 		try {
-			expect(() => session.appendMessage(assistantMsg("lost answer"))).toThrow();
+			expect(() => session.appendMessage(userMsg("lost question"))).toThrow();
 		} finally {
 			chmodSync(sessionDir, 0o755);
 		}
-		expect(session.getLeafId()).toBe(userId);
-		expect(session.getEntries().map((entry) => entry.id)).toEqual([userId]);
+		expect(session.getLeafId()).toBeNull();
+		expect(session.getEntries()).toEqual([]);
 
-		const answerId = session.appendMessage(assistantMsg("second answer"));
+		const userId = session.appendMessage(userMsg("second question"));
+		const answerId = session.appendMessage(assistantMsg("answer"));
 		expect(session.getEntry(answerId)?.parentId).toBe(userId);
 		const reopened = SessionManager.open(session.getSessionFile() ?? "", tempDir);
 		expect(reopened.getBranch().map((entry) => entry.id)).toEqual([userId, answerId]);

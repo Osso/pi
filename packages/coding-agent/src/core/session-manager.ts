@@ -1386,17 +1386,22 @@ export class SessionManager {
 		return accumulator;
 	}
 
+	/**
+	 * A new session file is created once the session has a user or assistant message. Setup entries alone stay in
+	 * memory, so opening and closing pi without chatting leaves no file; starting at the user message keeps the prompt
+	 * on disk when the first turn never completes (upstream #10000).
+	 */
+	private _hasConversation(): boolean {
+		return this.fileEntries.some(
+			(e) => e.type === "message" && (e.message.role === "user" || e.message.role === "assistant"),
+		);
+	}
+
 	_persist(entry: SessionEntry): void {
 		if (!this.persist || !this.sessionFile) return;
-
-		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
-		// An unflushed session is written in full when its first assistant message arrives.
-		if (!hasAssistant) {
-			if (this.flushed) this._appendToFile(this.sessionFile, entry);
-			return;
-		}
 		if (this.flushed) this._appendToFile(this.sessionFile, entry);
-		else this._writeNewFile();
+		else if (this._hasConversation()) this._writeNewFile();
+		else return;
 		this.flushed = true;
 	}
 
@@ -1904,15 +1909,9 @@ export class SessionManager {
 			this.sessionFile = newSessionFile;
 			this._buildIndex();
 
-			// Write immediately only when history contains an assistant message.
-			// Otherwise defer to _persist() so newSession() semantics avoid duplicate headers.
-			const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
-			if (hasAssistant) {
-				this._rewriteFile();
-				this.flushed = true;
-			} else {
-				this.flushed = false;
-			}
+			// Same rule as _persist(): write now if the branched path has a conversation, else let _persist() do it.
+			this.flushed = this._hasConversation();
+			if (this.flushed) this._rewriteFile();
 
 			return newSessionFile;
 		}
