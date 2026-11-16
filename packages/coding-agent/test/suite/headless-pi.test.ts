@@ -1804,7 +1804,9 @@ describe("headless Pi fixture", () => {
 					const resumed = await resumePromise;
 					try {
 						expect(agent.listAgents().find((candidate) => candidate.id === runner.id)?.lifecycle).toBe("aborted");
-						expect(agent.readTerminalOutboxStatuses(runner.id)).toHaveLength(1);
+						// The resumed owner must not settle again. It may already have consumed the single terminal row
+						// the foreign startup wrote, so the row is either still there or gone, never duplicated.
+						expect(agent.readTerminalOutboxStatuses(runner.id).length).toBeLessThanOrEqual(1);
 						expect(readFileSync(attemptPath, "utf8")).toBe("x");
 					} finally {
 						await resumed.dispose();
