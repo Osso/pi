@@ -109,6 +109,12 @@ function assertWritableRestore(f: ReturnType<typeof fixture>, input: string, con
 	expect(readSessionMetadata(f.db, `${f.file}.zst`)).toBeUndefined();
 }
 
+/** A SIGKILLed pass leaves its claim behind; age it past proper-lockfile's 10s stale window instead of waiting. */
+function expireCrashedArchiveClaim(agentDir: string) {
+	const past = new Date(Date.now() - 11_000);
+	utimesSync(join(agentDir, "sessions.lock"), past, past);
+}
+
 function appendAfterCrash(f: ReturnType<typeof fixture>) {
 	const appended = `${JSON.stringify({ type: "message", id: "two", parentId: "one", timestamp: "2026-10-20T11:00:00Z", message: { role: "user", content: "appended after crash", timestamp: 2 } })}\n`;
 	appendFileSync(f.file, appended);
@@ -125,7 +131,7 @@ describe("idle transcript archival crash recovery", () => {
 				archivedPaths: [],
 				errors: [],
 			});
-			await delay(11_000);
+			expireCrashedArchiveClaim(f.root);
 			const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
 			expect(result.errors).toEqual([]);
 			expect(result.archivedPaths).toEqual(point === "after-unlink" ? [] : [`${f.file}.zst`]);
@@ -147,7 +153,7 @@ describe("idle transcript archival crash recovery", () => {
 		it(`keeps appended plain bytes on the next archive pass after ${point}`, async () => {
 			const f = crashArchive(point);
 			const content = appendAfterCrash(f);
-			await delay(11_000);
+			expireCrashedArchiveClaim(f.root);
 			const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
 			expect(result).toEqual({ archivedPaths: [], errors: [] });
 			expect(readFileSync(f.file, "utf8")).toBe(content);
