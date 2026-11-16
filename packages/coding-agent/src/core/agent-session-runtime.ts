@@ -308,9 +308,7 @@ export class AgentSessionRuntime {
 		},
 	): Promise<{ cancelled: boolean }> {
 		const beforeResult = await this.emitBeforeSwitch("resume", sessionPath);
-		if (beforeResult.cancelled) {
-			return beforeResult;
-		}
+		if (beforeResult.cancelled) return beforeResult;
 
 		const previousSessionFile = this.session.sessionFile;
 		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
@@ -423,8 +421,13 @@ export class AgentSessionRuntime {
 		});
 	}
 
+	/** Rejects while a response or compaction runs: reload replaces the extension runner a running tool still uses. */
 	async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void> {
-		return this.runLifecycleTransition(() => this.session.reload(options));
+		return this.runLifecycleTransition(() => {
+			if (this.session.isStreaming) throw new Error("Wait for the current response to finish before reloading.");
+			if (this.session.isCompacting) throw new Error("Wait for compaction to finish before reloading.");
+			return this.session.reload(options);
+		});
 	}
 
 	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {
@@ -497,9 +500,7 @@ export class AgentSessionRuntime {
 		withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
 	}): Promise<{ cancelled: boolean }> {
 		const beforeResult = await this.emitBeforeSwitch("new");
-		if (beforeResult.cancelled) {
-			return beforeResult;
-		}
+		if (beforeResult.cancelled) return beforeResult;
 
 		const previousSessionFile = this.session.sessionFile;
 		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
@@ -652,9 +653,7 @@ export class AgentSessionRuntime {
 
 		const destinationPath = importDestinationPath(resolvedPath, sessionDir);
 		const beforeResult = await this.emitBeforeSwitch("resume", destinationPath);
-		if (beforeResult.cancelled) {
-			return beforeResult;
-		}
+		if (beforeResult.cancelled) return beforeResult;
 
 		const previousSessionFile = this.session.sessionFile;
 		this.copyImportedSession(resolvedPath, destinationPath);
