@@ -134,15 +134,16 @@ function capRetryDelayMs(delayMs: number, options?: StreamOptions): number {
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new Error("Request was aborted"));
-			return;
-		}
-		const timeout = setTimeout(resolve, ms);
-		signal?.addEventListener("abort", () => {
+		const onAbort = () => {
 			clearTimeout(timeout);
 			reject(new Error("Request was aborted"));
-		});
+		};
+		const timeout = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
+		if (signal?.aborted) onAbort();
+		else signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 
@@ -326,9 +327,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
 
 			for (let attempt = 0; attempt <= maxRetries; attempt++) {
-				if (options?.signal?.aborted) {
-					throw new Error("Request was aborted");
-				}
+				if (options?.signal?.aborted) throw new Error("Request was aborted");
 
 				diagnostic?.begin("sse", attempt + 1, maxRetries + 1);
 				try {

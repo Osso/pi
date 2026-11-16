@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -697,6 +698,30 @@ describe("openai-codex streaming", () => {
 		expect(sawDone).toBe(true);
 		expect(codexCalls).toBe(2);
 		expect(retries).toEqual([{ attempt: 1, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
+	});
+
+	it("removes SSE retry backoff abort listeners after the retry succeeds", async () => {
+		useTempAgentDir();
+		const token = mockToken();
+		const sse = buildSSEPayload({ status: "completed", includeDone: true });
+		let codexCalls = 0;
+		stubCodexFetch(() => {
+			codexCalls += 1;
+			if (codexCalls <= 3) return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
+			return sseResponse(sse);
+		});
+
+		const controller = new AbortController();
+		const result = await streamOpenAICodexResponses(codexModel(), sayHelloContext(), {
+			apiKey: token,
+			transport: "sse",
+			maxRetries: 3,
+			signal: controller.signal,
+		}).result();
+
+		expect(result.stopReason).toBe("stop");
+		expect(codexCalls).toBe(4);
+		expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
 	});
 
 	it("completes after response.completed even when the SSE body stays open", async () => {
