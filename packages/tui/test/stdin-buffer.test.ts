@@ -455,6 +455,29 @@ describe("StdinBuffer", () => {
 		});
 	});
 
+	describe("Delayed terminal replies", () => {
+		it("keeps an OSC 11 reply whose tail arrives after the timeout out of keyboard input", async () => {
+			processInput("\x1b]11;rgb:1e1e/");
+			await wait(30);
+			processInput("1e1e/2e2e\x07");
+
+			assert.deepStrictEqual(emittedSequences, ["\x1b]11;rgb:1e1e/1e1e/2e2e\x07"]);
+		});
+
+		it("still recovers Alt+] followed by typed text after the timeout", async () => {
+			processInput("\x1b]ab");
+			await wait(15);
+
+			assert.deepStrictEqual(emittedSequences, ["\x1b]", "a", "b"]);
+		});
+
+		it("drops an unterminated reply that a new escape sequence interrupts", () => {
+			processInput("\x1b]11;rgb:1e1e\x1b[A");
+
+			assert.deepStrictEqual(emittedSequences, ["\x1b[A"]);
+		});
+	});
+
 	describe("Destroy", () => {
 		it("should clear buffer on destroy", () => {
 			processInput("\x1b[<35");
