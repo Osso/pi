@@ -53,12 +53,9 @@ export function cleanupDetachedJobArtifacts(
 		errors,
 		now - DETACHED_ARTIFACT_MAX_AGE_MS,
 	);
-	const { ownersByPath, staleRowsWithoutDirectory } = terminal;
-	// Array spread, not push(...): a backlog of foreground directories exceeds the call argument limit.
-	const candidates = [
-		...terminal.candidates,
-		...collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors),
-	];
+	const candidates = terminal.candidates.concat(
+		collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors),
+	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -66,8 +63,8 @@ export function cleanupDetachedJobArtifacts(
 	});
 	const result = deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors, options.onDirectoryQuarantined);
 	const releasedRows = [
-		...result.deletedDirectories.flatMap((directoryPath) => ownersByPath.get(directoryPath) ?? []),
-		...staleRowsWithoutDirectory,
+		...result.deletedDirectories.flatMap((directoryPath) => terminal.ownersByPath.get(directoryPath) ?? []),
+		...terminal.staleRowsWithoutDirectory,
 	];
 	return { ...result, deletedAgentRows: deleteReleasedTerminalMultiAgentAgents(controlDbPath, releasedRows) };
 }
@@ -101,28 +98,39 @@ function deleteSelectedArtifactDirectories(
 		.flatMap((directoryPath) => quarantineArtifactDirectory(directoryPath, errors, onDirectoryQuarantined) ?? []);
 	// One /proc scan for the whole batch: the scan dominates cleanup time and a backlog holds many thousand jobs.
 	const processReferences = quarantined.length > 0 ? readLinuxProcessReferences() : undefined;
-	const deletedDirectories: string[] = [];
-	let deletedBytes = 0;
-	for (const { directoryPath, quarantinePath } of quarantined) {
-		try {
-			if (!processReferences || directoryHasLiveReference(realpathSync(quarantinePath), processReferences)) {
-				restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
-				continue;
-			}
-			rmSync(quarantinePath, { force: true, recursive: true });
-			deletedDirectories.push(directoryPath);
-			deletedBytes += candidatesByPath.get(directoryPath)?.byteSize ?? 0;
-		} catch (error) {
-			restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
-			errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
-		}
-	}
+	const deletedDirectories = quarantined
+		.filter((directory) => deleteQuarantinedDirectory(directory, processReferences, errors))
+		.map(({ directoryPath }) => directoryPath);
+	const deletedBytes = deletedDirectories.reduce(
+		(total, directoryPath) => total + (candidatesByPath.get(directoryPath)?.byteSize ?? 0),
+		0,
+	);
 	return {
 		deletedBytes,
 		deletedDirectories,
 		errors,
 		retainedBytes: totalCandidateBytes(candidates) - deletedBytes,
 	};
+}
+
+/** Delete a quarantined directory unless a live process references it; a referenced one goes back in place. */
+function deleteQuarantinedDirectory(
+	{ directoryPath, quarantinePath }: QuarantinedDirectory,
+	processReferences: ReadonlySet<string> | undefined,
+	errors: string[],
+): boolean {
+	try {
+		if (!processReferences || directoryHasLiveReference(realpathSync(quarantinePath), processReferences)) {
+			restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
+			return false;
+		}
+		rmSync(quarantinePath, { force: true, recursive: true });
+		return true;
+	} catch (error) {
+		restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
+		errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
+		return false;
+	}
 }
 
 interface QuarantinedDirectory {
@@ -210,6 +218,7 @@ function collectTerminalArtifactCandidates(
 /**
  * Job directories of Bash (under the agent directory) and Pyrun (beside each session file) calls that finished in
  * the foreground. They take the same age and size retention as terminal detached jobs, dated by their marker.
+ * A backlog can hold over 100k directories, so callers must not spread the result into push(...).
  */
 function collectForegroundArtifactCandidates(
 	artifactRoot: string,
