@@ -88,8 +88,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		{ resolve: (value: RpcExtensionUIResponse) => void; reject: (error: Error) => void }
 	>();
 
-	// Shutdown request flag
 	let shutdownRequested = false;
+	let commandsInFlight = 0;
 	let shuttingDown = false;
 	let shutdownSignalSeen = false;
 
@@ -359,6 +359,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			},
 			shutdownHandler: () => {
 				shutdownRequested = true;
+				// An idle request (e.g. from a timer) gets no command completion or settle to check it (#11746).
+				setImmediate(() => commandsInFlight === 0 && !session.isStreaming && void checkShutdownRequested());
 			},
 			onError: (err) => {
 				output({ type: "extension_error", extensionPath: err.extensionPath, event: err.event, error: err.error });
@@ -411,6 +413,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				// Start prompt handling immediately, but emit the authoritative response only after
 				// prompt preflight succeeds. Queued and immediately handled prompts also count as success.
 				let preflightSucceeded = false;
+				commandsInFlight++; // Until the prompt settles, so an idle shutdown check waits for it.
 				void session
 					.prompt(command.message, {
 						images: command.images,
@@ -423,6 +426,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 							}
 						},
 					})
+					.finally(() => commandsInFlight--)
 					// An extension command can request shutdown without starting a turn (no agent_settled).
 					.then(() => (session.isStreaming ? undefined : checkShutdownRequested()))
 					.catch((e) => {
@@ -738,10 +742,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
-	/**
-	 * Check if shutdown was requested and perform shutdown if so.
-	 * Called after handling each command when waiting for the next command.
-	 */
 	let detachInput = () => {};
 
 	/** Runs once; a later stdin EOF, shutdown request, or first signal lets the started shutdown finish. */
@@ -806,7 +806,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 		const command = parsed as RpcCommand;
 		try {
-			const response = await handleCommand(command);
+			commandsInFlight++;
+			const response = await handleCommand(command).finally(() => commandsInFlight--);
 			if (response) {
 				output(response);
 				await waitForRawStdoutBackpressure();
@@ -824,9 +825,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
-	const onInputEnd = () => {
-		void shutdown();
-	};
+	const onInputEnd = () => void shutdown();
 	process.stdin.on("end", onInputEnd);
 
 	detachInput = (() => {

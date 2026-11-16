@@ -34,6 +34,7 @@ function waitForRpcReady(proc: ChildProcess, stderr: () => string): Promise<void
 async function runShutdown(
 	modeArgs: string[],
 	trigger: (child: ChildProcess, cleanupStarted: string) => void | Promise<void>,
+	extraExtensionCode = "",
 ): Promise<ShutdownRun> {
 	const paths = createHeadlessPaths();
 	const cacheDir = join(paths.tempDir, "compile-cache");
@@ -50,6 +51,7 @@ async function runShutdown(
 				await new Promise((resolve) => setTimeout(resolve, 1000));
 				writeFileSync(${JSON.stringify(finishedMarker)}, "done");
 			});
+			${extraExtensionCode}
 		}`,
 	);
 	let child: ChildProcess | undefined;
@@ -161,4 +163,24 @@ describe("shutdown signals during cleanup (#11752)", () => {
 		expect(run.cleanupFinished, run.stderr).toBe(true);
 		expect(run.exitCode).toBe(143);
 	}, 60_000);
+});
+
+describe("idle RPC shutdown requests (#11746)", () => {
+	it("shuts down when an extension calls ctx.shutdown() while the session is idle", async () => {
+		const run = await runShutdown(
+			["--mode", "rpc"],
+			(child) => {
+				child.stdin?.write(`${JSON.stringify({ type: "prompt", message: "/shutdown-later" })}\n`);
+			},
+			`pi.registerCommand("shutdown-later", {
+				description: "Request shutdown from a timer",
+				handler: async (_args, ctx) => {
+					setTimeout(() => ctx.shutdown(), 300);
+				},
+			});`,
+		);
+
+		expect(run.cleanupFinished, run.stderr).toBe(true);
+		expect(run.exitCode).toBe(0);
+	}, 30_000);
 });
