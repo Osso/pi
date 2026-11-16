@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic tool schemas dropping the root `additionalProperties`, `$defs` and `definitions`, so the model was not told extra arguments are forbidden and a property `$ref` could not resolve (ported from upstream [#12100](https://github.com/earendil-works/pi/pull/12100))
 - The OpenAI Codex SSE retry backoff no longer leaves one `abort` listener on the caller's signal per retry (upstream [#11708](https://github.com/earendil-works/pi/issues/11708))
 - Connection errors without an HTTP status or body ("Connection error.") now include the deepest `cause` and its code, for example `Connection error.: connect ECONNREFUSED 127.0.0.1:8080`, instead of only the SDK's generic message (upstream [#11695](https://github.com/earendil-works/pi/issues/11695))
 - Fixed provider errors that report only a transport failure (for example `read ECONNRESET`, `ENOTFOUND`, `Connection closed.`, a cancelled HTTP/2 stream) or gateway capacity wording not being retried; ported from upstream (#10379, #10920, #10965, #10996, #11057, #11879, #12064, #12128, #9627, #9669).

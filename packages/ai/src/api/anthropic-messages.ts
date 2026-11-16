@@ -104,6 +104,18 @@ const fromClaudeCodeName = (name: string, tools?: Tool[]) => {
 	return name;
 };
 
+function convertContentBlock(block: TextContent | ImageContent) {
+	if (block.type === "text") return { type: "text" as const, text: sanitizeSurrogates(block.text) };
+	return {
+		type: "image" as const,
+		source: {
+			type: "base64" as const,
+			media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+			data: block.data,
+		},
+	};
+}
+
 /**
  * Convert content blocks to Anthropic API format
  */
@@ -127,22 +139,7 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
 	}
 
 	// If we have images, convert to content block array
-	const blocks = content.map((block) => {
-		if (block.type === "text") {
-			return {
-				type: "text" as const,
-				text: sanitizeSurrogates(block.text),
-			};
-		}
-		return {
-			type: "image" as const,
-			source: {
-				type: "base64" as const,
-				media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-				data: block.data,
-			},
-		};
-	});
+	const blocks = content.map(convertContentBlock);
 
 	// If only images (no text), add placeholder text block
 	const hasText = blocks.some((b) => b.type === "text");
@@ -1024,29 +1021,9 @@ function convertMessages(
 					});
 				}
 			} else {
-				const blocks: ContentBlockParam[] = msg.content.map((item) => {
-					if (item.type === "text") {
-						return {
-							type: "text",
-							text: sanitizeSurrogates(item.text),
-						};
-					} else {
-						return {
-							type: "image",
-							source: {
-								type: "base64",
-								media_type: item.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-								data: item.data,
-							},
-						};
-					}
-				});
-				const filteredBlocks = blocks.filter((b) => {
-					if (b.type === "text") {
-						return b.text.trim().length > 0;
-					}
-					return true;
-				});
+				const filteredBlocks = msg.content
+					.map(convertContentBlock)
+					.filter((block) => block.type !== "text" || block.text.trim().length > 0);
 				if (filteredBlocks.length === 0) continue;
 				params.push({
 					role: "user",
@@ -1152,6 +1129,9 @@ function shouldUseFineGrainedToolStreamingBeta(model: Model<"anthropic-messages"
 	return !!context.tools?.length && !getAnthropicCompat(model).supportsEagerToolInputStreaming;
 }
 
+/** additionalProperties tells the model whether extra arguments are allowed; definitions resolve $refs. */
+const KEPT_ROOT_SCHEMA_KEYS = ["additionalProperties", "$defs", "definitions"];
+
 function convertTools(
 	tools: Tool[],
 	isOAuthToken: boolean,
@@ -1161,16 +1141,18 @@ function convertTools(
 	if (!tools) return [];
 
 	return tools.map((tool, index) => {
-		const schema = tool.parameters as { properties?: unknown; required?: string[] };
+		const schema = tool.parameters as { properties?: unknown; required?: string[] } & Record<string, unknown>;
 
 		return {
 			name: isOAuthToken ? toClaudeCodeName(tool.name) : tool.name,
 			description: tool.description,
 			...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
+			// Root anyOf/oneOf/allOf get a 400 from Anthropic, so only these root keywords are sent.
 			input_schema: {
 				type: "object",
 				properties: schema.properties ?? {},
 				required: schema.required ?? [],
+				...Object.fromEntries(KEPT_ROOT_SCHEMA_KEYS.flatMap((key) => (key in schema ? [[key, schema[key]]] : []))),
 			},
 			...(cacheControl && index === tools.length - 1 ? { cache_control: cacheControl } : {}),
 		};

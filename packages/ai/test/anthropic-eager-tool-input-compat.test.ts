@@ -119,4 +119,28 @@ describe("Anthropic eager tool input streaming compatibility", () => {
 		expect(request.body.tools).toBeUndefined();
 		expect(request.headers["anthropic-beta"]).toBeUndefined();
 	});
+
+	it("keeps root additionalProperties and $defs in the tool input schema", async () => {
+		const strictTool: Tool = {
+			name: "pick",
+			description: "Pick a color",
+			parameters: {
+				type: "object",
+				title: "Pick",
+				properties: { color: { $ref: "#/$defs/Color" } },
+				required: ["color"],
+				additionalProperties: false,
+				$defs: { Color: { type: "string", enum: ["red", "blue"] } },
+			} as unknown as Tool["parameters"],
+		};
+		const request = await captureAnthropicRequest(undefined, createContext([strictTool]));
+
+		expect(getFirstTool(request.body).input_schema).toEqual({
+			type: "object",
+			properties: { color: { $ref: "#/$defs/Color" } },
+			required: ["color"],
+			additionalProperties: false,
+			$defs: { Color: { type: "string", enum: ["red", "blue"] } },
+		});
+	});
 });
