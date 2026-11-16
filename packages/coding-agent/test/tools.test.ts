@@ -1701,8 +1701,34 @@ describe("edit tool CRLF handling", () => {
 			edits: [{ oldText: "b\n", newText: "B1\nB2\n" }],
 		});
 
-		// The untouched LF line stays LF; the inserted lines use the file's first ending (CRLF).
+		// The untouched LF line stays LF; the inserted lines use the replaced line's ending (CRLF).
 		expect(readFileSync(testFile, "utf-8")).toBe("a\r\nB1\r\nB2\r\nc\nd\r\n");
+	});
+
+	it.each([
+		[
+			"keeps an edited CRLF line CRLF when the file starts with LF",
+			"a\nb\r\nX = 1\r\n",
+			"X = 1",
+			"X = 2",
+			"a\nb\r\nX = 2\r\n",
+		],
+		[
+			"keeps an edited LF line LF when the file starts with a lone CR",
+			"a\rb\nX = 1\n",
+			"X = 1",
+			"X = 2",
+			"a\rb\nX = 2\n",
+		],
+		["keeps an inserted line break after a lone CR", "a\rb\nc", "b", "\nB", "a\r\n\nB\nc"],
+		["keeps both line breaks when deleting between a lone CR and LF", "a\rb\nc", "b", "", "a\r\n\nc"],
+	])("%s", async (_name, before, oldText, newText, after) => {
+		const testFile = join(testDir, "mixed-endings.txt");
+		writeFileSync(testFile, before);
+
+		await editTool.execute("test-mixed-endings", { path: testFile, edits: [{ oldText, newText }] });
+
+		expect(readFileSync(testFile, "utf-8")).toBe(after);
 	});
 
 	it("writes CR endings for edited lines in a CR-only file", async () => {

@@ -10,7 +10,7 @@ import { resolveToCwd } from "./path-utils.ts";
 type LineEnding = "\r\n" | "\n" | "\r";
 
 /** The file's first line break; `\n` when it has none. */
-export function detectLineEnding(content: string): LineEnding {
+function detectLineEnding(content: string): LineEnding {
 	const first = /\r\n|\n|\r/.exec(content)?.[0];
 	return first === "\r\n" || first === "\r" ? first : "\n";
 }
@@ -22,50 +22,71 @@ export function normalizeToLF(text: string): string {
 /** Original lines with their own ending; each `\r\n`, `\n`, or lone `\r` became one `\n` in normalized content. */
 const ORIGINAL_LINE = /[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+/g;
 
+function endingOf(line: string | undefined): string {
+	return line?.match(/\r\n$|\n$|\r$/)?.[0] ?? "";
+}
+
+/**
+ * Ending for the lines a hunk adds: the first replaced line's own ending (the line before when it is unterminated),
+ * or for a pure insertion the line before (else after) it, else the file's first ending. A lone CR is used only in
+ * files without LF; elsewhere it is more likely a control character inside a line.
+ */
+function hunkEnding(original: string, originalLines: string[], removedStart: number | undefined, baseIndex: number) {
+	const neighbours = removedStart === undefined ? [baseIndex - 1, baseIndex] : [removedStart, removedStart - 1];
+	const ending = neighbours.map((i) => endingOf(originalLines[i])).find(Boolean) ?? detectLineEnding(original);
+	return ending === "\r" && original.includes("\n") ? "\n" : ending;
+}
+
+/**
+ * Count equal lines at the start and end of both sides. Diffing only the span between them keeps a repeated line
+ * next to an edit from being aligned with the replacement and swapping endings with it.
+ */
+function countUnchangedEdges(base: string[], edited: string[]): { prefix: number; suffix: number } {
+	let prefix = 0;
+	while (prefix < base.length && prefix < edited.length && base[prefix] === edited[prefix]) prefix++;
+	let suffix = 0;
+	const maxSuffix = Math.min(base.length, edited.length) - prefix;
+	while (suffix < maxSuffix && base[base.length - 1 - suffix] === edited[edited.length - 1 - suffix]) suffix++;
+	return { prefix, suffix };
+}
+
+/**
+ * Concatenate line pieces. A kept lone CR followed by an LF would merge into one CRLF and join two lines; an extra
+ * LF keeps both breaks, so the written file normalizes to exactly the content the diff describes.
+ */
+function joinLinePieces(pieces: string[]): string {
+	let result = "";
+	for (const piece of pieces) result += result.endsWith("\r") && piece.startsWith("\n") ? `\n${piece}` : piece;
+	return result;
+}
+
 /**
  * Convert edited LF content back to file bytes. Unchanged lines keep their original bytes, so an edit in a
- * file with mixed line endings does not rewrite endings outside the edit; changed lines use `ending`.
+ * file with mixed line endings does not rewrite endings outside the edit; added lines use `hunkEnding`.
  */
-export function restoreOriginalLineEndings(
-	original: string,
-	normalizedBase: string,
-	normalizedEdited: string,
-	ending: LineEnding,
-): string {
+export function restoreOriginalLineEndings(original: string, normalizedBase: string, normalizedEdited: string): string {
 	const originalLines = original.match(ORIGINAL_LINE) ?? [];
 	const baseLines = splitLinesWithEndings(normalizedBase);
 	const editedLines = splitLinesWithEndings(normalizedEdited);
-	// Lines equal before the first and after the last change are unchanged; diffing only the span between them keeps
-	// a repeated line next to an edit from being aligned with the replacement and swapping endings with it.
-	let prefix = 0;
-	while (prefix < baseLines.length && prefix < editedLines.length && baseLines[prefix] === editedLines[prefix])
-		prefix++;
-	let suffix = 0;
-	while (
-		suffix < baseLines.length - prefix &&
-		suffix < editedLines.length - prefix &&
-		baseLines[baseLines.length - 1 - suffix] === editedLines[editedLines.length - 1 - suffix]
-	)
-		suffix++;
-	const withEnding = (line: string) => (ending === "\n" ? line : line.replace(/\n$/, ending));
+	const { prefix, suffix } = countUnchangedEdges(baseLines, editedLines);
+	const chunks = [originalLines.slice(0, prefix)];
 	let baseIndex = prefix;
-	let result = originalLines.slice(0, prefix).join("");
+	let removedStart: number | undefined;
 	const changedBase = baseLines.slice(prefix, baseLines.length - suffix);
 	for (const part of Diff.diffArrays(changedBase, editedLines.slice(prefix, editedLines.length - suffix))) {
 		if (part.removed) {
-			baseIndex += part.value.length;
-			continue;
+			removedStart = baseIndex;
+		} else if (part.added) {
+			const ending = hunkEnding(original, originalLines, removedStart, baseIndex);
+			chunks.push(part.value.map((line) => line.replace(/\n$/, ending)));
+		} else {
+			chunks.push(originalLines.slice(baseIndex, baseIndex + part.value.length));
 		}
-		for (const line of part.value) {
-			if (part.added) {
-				result += withEnding(line);
-				continue;
-			}
-			result += originalLines[baseIndex] ?? withEnding(line);
-			baseIndex++;
-		}
+		if (!part.added) baseIndex += part.value.length;
+		if (!part.removed) removedStart = undefined;
 	}
-	return result + originalLines.slice(baseLines.length - suffix).join("");
+	chunks.push(originalLines.slice(baseLines.length - suffix));
+	return joinLinePieces(chunks.flat());
 }
 
 /**

@@ -9,7 +9,6 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
 	computeEditsDiff,
-	detectLineEnding,
 	type Edit,
 	type EditDiffError,
 	type EditDiffResult,
@@ -336,7 +335,6 @@ export function createEditToolDefinition(
 
 				// Strip BOM before matching. The model will not include an invisible BOM in oldText.
 				const { bom, text: content } = stripBom(rawContent);
-				const originalEnding = detectLineEnding(content);
 				const normalizedContent = normalizeToLF(content);
 				const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
 				throwIfAborted();
@@ -344,7 +342,7 @@ export function createEditToolDefinition(
 				// Diff before writing, so a diff failure leaves the file unchanged.
 				const diffResult = generateDiffString(baseContent, newContent);
 				const patch = generateUnifiedPatch(path, baseContent, newContent);
-				const finalContent = bom + restoreOriginalLineEndings(content, baseContent, newContent, originalEnding);
+				const finalContent = bom + restoreOriginalLineEndings(content, baseContent, newContent);
 				await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 				return {
