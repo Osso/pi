@@ -2996,8 +2996,6 @@ export class InteractiveMode {
 		const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
 		clearWorkingEditor(this.editor);
 
-		this.editorContainer.clear();
-
 		if (factory) {
 			// Create the custom editor with tui, theme, and keybindings
 			const newEditor = factory(this.ui, getEditorTheme(), this.keybindings);
@@ -3026,18 +3024,10 @@ export class InteractiveMode {
 			// Use duck typing since instanceof fails across jiti module boundaries
 			const customEditor = newEditor as unknown as Record<string, unknown>;
 			if ("actionHandlers" in customEditor && customEditor.actionHandlers instanceof Map) {
-				if (!customEditor.onEscape) {
-					customEditor.onEscape = () => this.defaultEditor.onEscape?.();
-				}
-				if (!customEditor.onCtrlD) {
-					customEditor.onCtrlD = () => this.defaultEditor.onCtrlD?.();
-				}
-				if (!customEditor.onPasteImage) {
-					customEditor.onPasteImage = () => this.defaultEditor.onPasteImage?.();
-				}
-				if (!customEditor.onExtensionShortcut) {
-					customEditor.onExtensionShortcut = (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
-				}
+				customEditor.onEscape ||= () => this.defaultEditor.onEscape?.();
+				customEditor.onCtrlD ||= () => this.defaultEditor.onCtrlD?.();
+				customEditor.onPasteImage ||= () => this.defaultEditor.onPasteImage?.();
+				customEditor.onExtensionShortcut ||= (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
 				// Copy action handlers (clear, suspend, model switching, etc.)
 				for (const [action, handler] of this.defaultEditor.actionHandlers) {
 					(customEditor.actionHandlers as Map<string, () => void>).set(action, handler);
@@ -3051,11 +3041,17 @@ export class InteractiveMode {
 			this.editor = this.defaultEditor;
 		}
 
-		this.editorContainer.addChild(this.editor as Component);
-		this.syncWorkingEditorState();
-		this.updateWorkingLoaderIndicator();
-		this.ui.setFocus(this.editor as Component);
-		this.ui.requestRender();
+		const showEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor as Component);
+			this.syncWorkingEditorState();
+			this.updateWorkingLoaderIndicator();
+			this.ui.setFocus(this.editor as Component);
+			this.ui.requestRender();
+		};
+		// An open dialog keeps the slot; the new editor appears when the last dialog closes (#11431).
+		if (this.editorDialogs.length > 0) this.restoreEditorSlotAfterDialogs = showEditor;
+		else showEditor();
 	}
 
 	/**

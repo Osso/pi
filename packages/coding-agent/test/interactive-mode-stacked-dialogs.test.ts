@@ -8,11 +8,22 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 class EditorStub implements Component, Focusable {
 	focused = false;
 	inputs: string[] = [];
+	private readonly label: string;
+	private text = "";
+	constructor(label = "EDITOR") {
+		this.label = label;
+	}
+	getText(): string {
+		return this.text;
+	}
+	setText(text: string): void {
+		this.text = text;
+	}
 	handleInput(data: string): void {
 		this.inputs.push(data);
 	}
 	render(): string[] {
-		return ["EDITOR"];
+		return [this.label];
 	}
 	invalidate(): void {}
 }
@@ -24,6 +35,7 @@ interface DialogInternals {
 		options: string[],
 		opts?: { signal?: AbortSignal },
 	): Promise<string | undefined>;
+	setCustomEditorComponent(this: unknown, factory: (() => Component) | undefined): void;
 }
 
 const dialogs = InteractiveMode.prototype as unknown as DialogInternals &
@@ -57,6 +69,9 @@ describe("stacked extension dialogs", () => {
 			closeEditorDialog: dialogs.closeEditorDialog,
 			showTopEditorDialog: dialogs.showTopEditorDialog,
 			toggleToolOutputExpansion: () => {},
+			defaultEditor: editor,
+			syncWorkingEditorState: () => {},
+			updateWorkingLoaderIndicator: () => {},
 		};
 		ui.start();
 	});
@@ -102,5 +117,19 @@ describe("stacked extension dialogs", () => {
 		await pressEnter();
 		await expect(second).resolves.toBe("B1");
 		expect(visibleText()).toBe("EDITOR");
+	});
+
+	test("an editor replaced while a dialog is open appears only after the dialog closes", async () => {
+		const answer = dialogs.showExtensionSelector.call(mode, "Keep going?", ["Yes", "No"]);
+		const custom = new EditorStub("CUSTOM");
+
+		dialogs.setCustomEditorComponent.call(mode, () => custom);
+		expect(visibleText()).toContain("Keep going?");
+
+		await pressEnter();
+		await expect(answer).resolves.toBe("Yes");
+		expect(visibleText()).toBe("CUSTOM");
+		terminal.sendInput("x");
+		expect(custom.inputs).toContain("x");
 	});
 });

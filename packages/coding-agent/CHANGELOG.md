@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- `ctx.ui.setEditorComponent()` no longer hides an open extension dialog: the dialog stays visible and answerable, and the new editor appears when the last dialog closes. Before, the dialog vanished and its promise never resolved ([#11431](https://github.com/earendil-works/pi-mono/issues/11431))
 - Two extension dialogs open at the same time (select, confirm, input, editor, or inline custom UI) now stack: the newest is shown, closing it shows the previous one, and closing the last gives the editor back. Before, the first dialog stayed on screen after both were answered and the editor never came back ([#11166](https://github.com/earendil-works/pi-mono/issues/11166))
 - RPC mode now shuts down when an extension calls `ctx.shutdown()` while the session is idle, for example from a timer; before, pi stayed alive until the client sent another command ([#11746](https://github.com/earendil-works/pi-mono/pull/11746))
 - RPC and print mode let a started shutdown finish: in RPC mode a stdin EOF followed by SIGTERM (or the reverse) no longer kills pi in the middle of `session_shutdown` cleanup, and in print mode a signal during the final disposal waits for it; a second signal still exits at once ([#11752](https://github.com/earendil-works/pi-mono/pull/11752))
