@@ -1083,7 +1083,7 @@ interface OpenAICompletionsCompat {
 
 interface OpenAIResponsesCompat {
   supportsDeveloperRole?: boolean;   // Whether provider supports `developer` role vs `system` (default: true)
-  sendSessionIdHeader?: boolean;     // Whether to send `session_id` from `sessionId` when caching is enabled (default: true)
+  sendSessionIdHeader?: boolean;     // Whether to send `session-id` from `sessionId` when caching is enabled (default: true)
   supportsLongCacheRetention?: boolean; // Whether provider supports `prompt_cache_retention: "24h"` (default: true)
 }
 ```

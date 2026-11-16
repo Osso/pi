@@ -202,7 +202,7 @@ function createClient(
 
 	if (sessionId) {
 		if (compat.sendSessionIdHeader) {
-			headers.session_id = sessionId;
+			headers["session-id"] = sessionId;
 		}
 		headers["x-client-request-id"] = sessionId;
 	}
