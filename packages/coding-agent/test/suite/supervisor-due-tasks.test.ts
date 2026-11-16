@@ -40,7 +40,9 @@ class TasksStub {
 					response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(this.due));
 					return;
 				}
-				if (this.ackStatus === 204) this.due = [];
+				// After an acknowledgement, accepted (204) or conflicting (409: rescheduled, closed or already
+				// acknowledged), the task is no longer due as it was read.
+				this.due = [];
 				response.writeHead(this.ackStatus).end(this.ackStatus === 204 ? undefined : '{"error":"stale"}');
 			});
 		});
@@ -156,7 +158,6 @@ describe("Supervisor due-task reminders", () => {
 		harness.setResponses([endTurn("Noted.")]);
 
 		await waitFor(() => stub.acknowledgements().length === 1, "the conflicting acknowledgement");
-		stub.due = [];
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		expect(stub.acknowledgements()).toHaveLength(1);
