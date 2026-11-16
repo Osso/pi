@@ -121,7 +121,7 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 		updateTrackerFromText(inputLine, tracker);
 		// Close underline and hyperlinks before a literal newline, as at wrap points
 		if (index < inputLines.length - 1) wrappedLines[wrappedLines.length - 1] += tracker.getLineEndReset();
-		result.push(...wrappedLines);
+		for (const line of wrappedLines) result.push(line);
 	}
 
 	return result.length > 0 ? result : [""];

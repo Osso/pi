@@ -64,7 +64,7 @@ export class RenderRegionContainer extends Container {
 			if (this.scopedChildren.has(child)) {
 				childLayouts.set(child, { row: lines.length, col: 0, width, height: childLines.length });
 			}
-			lines.push(...childLines);
+			for (const line of childLines) lines.push(line);
 		}
 		this.childLayouts = childLayouts;
 		return lines;

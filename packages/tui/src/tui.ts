@@ -1715,7 +1715,7 @@ export class TUI extends Container {
 		if (!nextLines) return false;
 
 		this.writeRenderRegionLines(rect.row, previousLines, nextLines);
-		this.previousLines.splice(rect.row, rect.height, ...nextLines);
+		for (const [i, line] of nextLines.entries()) this.previousLines[rect.row + i] = line;
 		this.unmapRenderRegionComponents(state);
 		this.mapRenderRegionComponents(state, state.component);
 		return true;

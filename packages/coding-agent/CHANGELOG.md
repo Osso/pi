@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed a crash (`RangeError: Maximum call stack size exceeded`) when the chat showed a tool result that wraps to more than about 125k lines, such as an edit diff of a file with a multi-megabyte line; the session crashed again on every resume ([#8036](https://github.com/earendil-works/pi-mono/issues/8036))
 - The edit tool now keeps an edited line's own line ending in files with mixed endings, uses a lone CR only in files without LF, and no longer joins two lines when an edit meets a lone CR ([#8544](https://github.com/earendil-works/pi-mono/issues/8544))
 - The edit tool now computes its diff before writing the file, so a diff failure (for example out of memory on a large file) no longer leaves the file changed while the tool reports an error ([#11751](https://github.com/earendil-works/pi-mono/pull/11751))
 - Fixed `pyrun_eval` in persisted sessions never keeping `ctx`, because every call ran in a fresh Python, and running Python in the evaluation's artifact directory instead of the session cwd. Calls without `session_id` still get a fresh Python and run in parallel; calls with a `session_id` share that named session's long-lived Python, so `ctx` persists across calls and Pi restarts. A call to a named session that is still running fails at once.

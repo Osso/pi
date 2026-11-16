@@ -41,7 +41,7 @@ export function renderCachedTokens(
 			? previous.wrappedLines
 			: renderAndWrapToken(renderToken, token, width, nextTokenType);
 		caches.push({ nextTokenType, width, fingerprint, wrappedLines: tokenLines });
-		wrappedLines.push(...tokenLines);
+		for (const line of tokenLines) wrappedLines.push(line);
 	}
 	return { wrappedLines, caches };
 }
