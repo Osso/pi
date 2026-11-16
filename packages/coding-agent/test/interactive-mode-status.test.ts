@@ -10,7 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
+import { type Component, Container, type Focusable, type OverlayHandle, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import {
 	createMultiAgentRuntimeHandles,
@@ -254,6 +254,71 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		expect(pending).toContain("Steering: steer");
 		expect(pendingBash.setExpanded).toHaveBeenLastCalledWith(true);
 		expect((fakeThis.chatContainer as Container).children).toEqual([]);
+	});
+});
+
+// Upstream #11853: reset hid only the topmost overlay, so lower extension overlays stayed and kept input.
+describe("InteractiveMode.resetExtensionUI", () => {
+	test("removes every extension overlay but keeps pi's own overlays", async () => {
+		initTheme("dark");
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const internal = new TestFocusableComponent("INTERNAL");
+		const [lower, hidden, upper] = ["LOWER", "HIDDEN", "UPPER"].map((label) =>
+			Object.assign(new TestFocusableComponent(label), { dispose: vi.fn() }),
+		);
+		const fakeThis = {
+			editor,
+			editorContainer,
+			extensionOverlays: new Map(),
+			keybindings: {},
+			ui,
+			clearExtensionTerminalInputListeners: vi.fn(),
+			setExtensionFooter: vi.fn(),
+			setDefaultExtensionFooter: vi.fn(),
+			setExtensionHeader: vi.fn(),
+			clearExtensionWidgets: vi.fn(),
+			footerDataProvider: { clearExtensionStatuses: vi.fn() },
+			footer: { invalidate: vi.fn() },
+			setCustomEditorComponent: vi.fn(),
+			setupAutocompleteProvider: vi.fn(),
+			defaultEditor: {},
+			updateTerminalTitle: vi.fn(),
+			setWorkingIndicator: vi.fn(),
+			setHiddenThinkingLabel: vi.fn(),
+		};
+		const showOverlay = (component: Component, onHandle?: (handle: OverlayHandle) => void) =>
+			void interactiveModePrototype.showExtensionCustom.call(fakeThis, () => component, { overlay: true, onHandle });
+
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.setFocus(editor);
+		ui.start();
+		try {
+			ui.showOverlay(internal);
+			showOverlay(lower as Component);
+			showOverlay(hidden as Component, (handle) => handle.setHidden(true));
+			showOverlay(upper as Component);
+			await flushTui(ui, terminal);
+			expect(upper?.focused).toBe(true);
+
+			interactiveModePrototype.resetExtensionUI.call(fakeThis);
+			await flushTui(ui, terminal);
+
+			const viewport = terminal.getViewport().join("\n");
+			expect(viewport).toContain("INTERNAL");
+			expect(viewport).not.toContain("LOWER");
+			expect(viewport).not.toContain("UPPER");
+			for (const component of [lower, hidden, upper]) expect(component?.dispose).toHaveBeenCalledOnce();
+			terminal.sendInput("x");
+			await flushTui(ui, terminal);
+			expect(internal.inputs).toEqual(["x"]);
+			expect(lower?.inputs).toEqual([]);
+		} finally {
+			ui.stop();
+		}
 	});
 });
 
@@ -2371,6 +2436,7 @@ function createResetExtensionUIFixture(isViewingAgentSession: boolean) {
 		defaultWorkingMessage: "Thinking...",
 		extensionEditor: undefined,
 		extensionInput: undefined,
+		extensionOverlays: new Map(),
 		extensionSelector: undefined,
 		footer: { invalidate: vi.fn() },
 		footerDataProvider: { clearExtensionStatuses: vi.fn() },
@@ -2449,6 +2515,7 @@ describe("InteractiveMode footer ownership", () => {
 			defaultExtensionFooter: defaultFooter,
 			extensionEditor: undefined,
 			extensionInput: undefined,
+			extensionOverlays: new Map(),
 			extensionSelector: undefined,
 			footer: builtIn,
 			footerContainer,
@@ -2591,6 +2658,7 @@ describe("InteractiveMode.showExtensionCustom", () => {
 		const fakeThis = {
 			editor,
 			editorContainer,
+			extensionOverlays: new Map(),
 			keybindings: {},
 			ui,
 		};
@@ -2658,7 +2726,7 @@ describe("InteractiveMode.showExtensionCustom", () => {
 			let closeUpper: (value: string) => void = () => {
 				throw new Error("closeUpper was not initialized");
 			};
-			const fakeThis = { editor, editorContainer, keybindings: {}, ui };
+			const fakeThis = { editor, editorContainer, extensionOverlays: new Map(), keybindings: {}, ui };
 			const showExtensionCustom = <T>(
 				factory: (tui: TUI, theme: unknown, keybindings: unknown, done: (result: T) => void) => Component,
 				options?: { overlay?: boolean; overlayOptions?: { nonCapturing?: boolean } },

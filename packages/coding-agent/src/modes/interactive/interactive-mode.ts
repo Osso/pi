@@ -589,6 +589,8 @@ export class InteractiveMode {
 
 	// Track pending bash components (shown in pending area, moved to chat on submit)
 	private pendingBashComponents: BashExecutionComponent[] = [];
+	/** Open extension overlays and the function that removes each, in opening order. */
+	private readonly extensionOverlays = new Map<OverlayHandle, () => void>();
 
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
@@ -2607,16 +2609,11 @@ export class InteractiveMode {
 	}
 
 	private resetExtensionUI(): void {
-		if (this.extensionSelector) {
-			this.hideExtensionSelector();
-		}
-		if (this.extensionInput) {
-			this.hideExtensionInput();
-		}
-		if (this.extensionEditor) {
-			this.hideExtensionEditor();
-		}
-		this.ui.hideOverlay();
+		if (this.extensionSelector) this.hideExtensionSelector();
+		if (this.extensionInput) this.hideExtensionInput();
+		if (this.extensionEditor) this.hideExtensionEditor();
+		// Extensions are replaced without calling done(): remove all their overlays, newest first, not pi's own.
+		for (const removeOverlay of [...this.extensionOverlays.values()].reverse()) removeOverlay();
 		this.clearExtensionTerminalInputListeners();
 		this.setExtensionFooter(undefined);
 		this.setDefaultExtensionFooter(undefined);
@@ -2632,9 +2629,7 @@ export class InteractiveMode {
 		this.workingMessage = undefined;
 		this.workingVisible = true;
 		this.setWorkingIndicator();
-		if (this.loadingAnimation) {
-			this.loadingAnimation.setMessage(this.getWorkingLoaderMessage());
-		}
+		this.loadingAnimation?.setMessage(this.getWorkingLoaderMessage());
 		this.setHiddenThinkingLabel();
 	}
 
@@ -3140,19 +3135,27 @@ export class InteractiveMode {
 			let overlayHandle: OverlayHandle | undefined;
 			let closed = false;
 
-			const close = (result: T) => {
-				if (closed) return;
-				closed = true;
-				// Remove this overlay, not the topmost one: another overlay may have opened above it.
-				if (isOverlay) overlayHandle?.hide();
-				else restoreEditor();
-				// Note: both branches above already call requestRender
-				resolve(result);
+			const disposeComponent = () => {
 				try {
 					component?.dispose?.();
 				} catch {
 					/* ignore dispose errors */
 				}
+			};
+			// Called by done() and resetExtensionUI(); deleting the entry first makes it run once.
+			const removeOverlay = () => {
+				if (!overlayHandle || !this.extensionOverlays.delete(overlayHandle)) return;
+				// Remove this overlay, not the topmost one: another overlay may have opened above it.
+				overlayHandle.hide();
+				disposeComponent();
+			};
+			const close = (result: T) => {
+				if (closed) return;
+				closed = true;
+				if (isOverlay) removeOverlay();
+				else restoreEditor();
+				resolve(result);
+				if (!isOverlay) disposeComponent();
 			};
 
 			Promise.resolve(factory(this.ui, theme, this.keybindings, close))
@@ -3161,19 +3164,12 @@ export class InteractiveMode {
 					component = c;
 					if (isOverlay) {
 						// Resolve overlay options - can be static or dynamic function
-						const resolveOptions = (): OverlayOptions | undefined => {
-							if (options?.overlayOptions) {
-								const opts =
-									typeof options.overlayOptions === "function"
-										? options.overlayOptions()
-										: options.overlayOptions;
-								return opts;
-							}
-							// Fallback: use component's width property if available
-							const w = (component as { width?: number }).width;
-							return w ? { width: w } : undefined;
-						};
-						overlayHandle = this.ui.showOverlay(component, resolveOptions());
+						const configured = options?.overlayOptions;
+						// Without options, use the component's width property if it has one.
+						const width = (component as { width?: number }).width;
+						const overlayOptions = typeof configured === "function" ? configured() : configured;
+						overlayHandle = this.ui.showOverlay(component, overlayOptions ?? (width ? { width } : undefined));
+						this.extensionOverlays.set(overlayHandle, removeOverlay);
 						// Expose handle to caller for visibility control
 						options?.onHandle?.(overlayHandle);
 					} else {
