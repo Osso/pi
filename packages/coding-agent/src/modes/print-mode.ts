@@ -160,6 +160,10 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 				const text = getAssistantContentText(content);
 				if (text !== undefined) writeRawStdout(`${text}\n`);
 			}
+			if (assistantMsg.stopReason === "length") {
+				console.error("Response was truncated: the model reached its output token limit.");
+				exitCode = 1;
+			}
 		}
 
 		return exitCode;

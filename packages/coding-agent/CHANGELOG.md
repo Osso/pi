@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Print mode writes a warning to stderr and exits 1 when the final response stopped at the model's output token limit; the partial text is still printed ([#10799](https://github.com/earendil-works/pi-mono/issues/10799))
 - A new session file is now written at the first user message instead of the first assistant reply, so a prompt is no longer lost (and the session missing from `/resume`) when pi exits or is killed during the first turn ([#10000](https://github.com/earendil-works/pi-mono/issues/10000))
 - `ctx.ui.setEditorComponent()` no longer hides an open extension dialog: the dialog stays visible and answerable, and the new editor appears when the last dialog closes. Before, the dialog vanished and its promise never resolved ([#11431](https://github.com/earendil-works/pi-mono/issues/11431))
 - Two extension dialogs open at the same time (select, confirm, input, editor, or inline custom UI) now stack: the newest is shown, closing it shows the previous one, and closing the last gives the editor back. Before, the first dialog stayed on screen after both were answered and the editor never came back ([#11166](https://github.com/earendil-works/pi-mono/issues/11166))

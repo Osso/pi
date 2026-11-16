@@ -532,6 +532,18 @@ describe("runPrintMode", () => {
 		expect(output.join("")).toBe("ordinary answer\n");
 	});
 
+	it("prints a truncated response but warns and returns non-zero", async () => {
+		const output = captureStdout();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "partial answ", stopReason: "length" }));
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+		expect(exitCode).toBe(1);
+		expect(output.join("")).toBe("partial answ\n");
+		expect(errorSpy).toHaveBeenCalledWith("Response was truncated: the model reached its output token limit.");
+	});
+
 	it("prints signed public narration before end_turn without exposing ordinary thinking or changing wire blocks", async () => {
 		const output = captureStdout();
 		const message = createAssistantMessage({ stopReason: "toolUse", endTurn: true });
