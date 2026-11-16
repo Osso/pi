@@ -725,8 +725,9 @@ describe("AuthStorage", () => {
 			writeAuthJson({ [providerId]: { type: "oauth", refresh: "old-refresh", access: "expired", expires: 0 } });
 			const linkedPath = join(tempDir, "linked-auth.json");
 			symlinkSync(authJsonPath, linkedPath);
+			// The refresh locks through the link and the writer through the real path; both must use one lock.
 			const refresher = AuthStorage.create(linkedPath);
-			const writer = AuthStorage.create(linkedPath);
+			const writer = AuthStorage.create(authJsonPath);
 
 			const refresh = refresher.getApiKey(providerId);
 			await started;

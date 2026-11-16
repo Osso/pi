@@ -91,7 +91,8 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 
 		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 			try {
-				return lockfile.lockSync(path, { realpath: false, stale: AUTH_LOCK_STALE_MS });
+				// Lock the resolved file so symlinked aliases of auth.json share one lock.
+				return lockfile.lockSync(path, { stale: AUTH_LOCK_STALE_MS });
 			} catch (error) {
 				const code =
 					typeof error === "object" && error !== null && "code" in error
@@ -146,8 +147,8 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 		};
 
 		try {
+			// Lock the resolved file so symlinked aliases of auth.json share one lock.
 			release = await lockfile.lock(this.authPath, {
-				realpath: false,
 				retries: {
 					retries: 10,
 					factor: 2,
