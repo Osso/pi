@@ -900,26 +900,21 @@ export function convertMessages(
 					content: sanitizeSurrogates(msg.content),
 				});
 			} else {
-				const content: ChatCompletionContentPart[] = msg.content.map((item): ChatCompletionContentPart => {
-					if (item.type === "text") {
-						return {
-							type: "text",
-							text: sanitizeSurrogates(item.text),
-						} satisfies ChatCompletionContentPartText;
-					} else {
-						return {
-							type: "image_url",
-							image_url: {
-								url: `data:${item.mimeType};base64,${item.data}`,
-							},
-						} satisfies ChatCompletionContentPartImage;
-					}
-				});
+				// Empty text parts make some OpenAI-compatible providers reject image-only prompts.
+				const content = msg.content
+					.filter((item) => item.type !== "text" || item.text.length > 0)
+					.map((item): ChatCompletionContentPart => {
+						if (item.type === "text") {
+							return {
+								type: "text",
+								text: sanitizeSurrogates(item.text),
+							} satisfies ChatCompletionContentPartText;
+						}
+						const url = `data:${item.mimeType};base64,${item.data}`;
+						return { type: "image_url", image_url: { url } } satisfies ChatCompletionContentPartImage;
+					});
 				if (content.length === 0) continue;
-				params.push({
-					role: "user",
-					content,
-				});
+				params.push({ role: "user", content });
 			}
 		} else if (msg.role === "assistant") {
 			// Some providers don't accept null content, use empty string instead

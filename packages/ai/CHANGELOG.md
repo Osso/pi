@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- OpenAI-compatible chat completions no longer send empty text parts in user messages, which made some providers reject image-only prompts ([#9797](https://github.com/earendil-works/pi-mono/issues/9797))
 - OpenAI Responses streams that complete with a tool call whose `output_item.done` never arrived now fail instead of handing over a call with possibly cut-off arguments ([#9974](https://github.com/earendil-works/pi-mono/issues/9974))
 - OpenAI Responses requests now send the `session-id` cache-affinity header instead of `session_id`, which proxies such as nginx drop by default ([#11639](https://github.com/earendil-works/pi-mono/issues/11639))
 - Fixed OpenRouter requests failing with `call_id` longer than 64 characters when the history held a long tool call ID from another model; OpenRouter models now shorten tool call IDs like OpenAI (ported from upstream 5bdf988b7)
