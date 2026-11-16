@@ -1378,9 +1378,9 @@ export function decodeKittyPrintable(data: string): string | undefined {
 		effectiveCodepoint = shiftedKey;
 	}
 	effectiveCodepoint = normalizeKittyFunctionalCodepoint(effectiveCodepoint);
-	// Drop control characters or invalid codepoints.
-	if (!Number.isFinite(effectiveCodepoint) || effectiveCodepoint < 32) return undefined;
-
+	// Drop control characters, invalid codepoints, and kitty functional keys (F13-F35, media, modifiers).
+	const isKittyFunctionalKey = effectiveCodepoint >= 57344 && effectiveCodepoint <= 63743;
+	if (!Number.isFinite(effectiveCodepoint) || effectiveCodepoint < 32 || isKittyFunctionalKey) return undefined;
 	try {
 		return String.fromCodePoint(effectiveCodepoint);
 	} catch {

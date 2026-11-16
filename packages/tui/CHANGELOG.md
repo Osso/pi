@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed the editor inserting an invisible character when kitty sent a functional key outside the keypad, such as F13-F35, a media key, or a modifier key (CSI-u codepoints 57344-63743) (ported from upstream [#11419](https://github.com/earendil-works/pi/issues/11419))
 - `wrapTextWithAnsi()` keeps the codes of a space dropped at a wrap point on the wrapped line, so a style closed after a word that ends exactly at the width no longer runs into the right padding; strikethrough is closed at line end like underline; and styled whitespace wider than the width no longer leaves a line wider than the width (upstream [#10925](https://github.com/earendil-works/pi/issues/10925))
 - Fixed the terminal progress clear sequence carrying a trailing `;` (`OSC 9;4;0;`), which some terminals reject, leaving the progress indicator active ([#7581](https://github.com/earendil-works/pi-mono/pull/7581))
 - Fixed Markdown rendering raw terminal controls from model or extension text (title, clipboard, cursor, and screen-clear sequences, BEL, CR); they executed when written, and under `remote-agent-rs` an unmodeled sequence ends the session. SGR styling is kept

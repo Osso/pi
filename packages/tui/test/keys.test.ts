@@ -630,6 +630,14 @@ describe("decodeKittyPrintable", () => {
 		assert.strictEqual(decodeKittyPrintable("\x1b[57416u"), ",");
 		assert.strictEqual(decodeKittyPrintable("\x1b[57417u"), undefined);
 	});
+
+	it("should not decode kitty functional keys outside the keypad as text", () => {
+		assert.strictEqual(decodeKittyPrintable("\x1b[57376u"), undefined); // F13
+		assert.strictEqual(decodeKittyPrintable("\x1b[57398u"), undefined); // F35
+		assert.strictEqual(decodeKittyPrintable("\x1b[57441u"), undefined); // left Shift
+		assert.strictEqual(decodeKittyPrintable("\x1b[57428u"), undefined); // media play
+		assert.strictEqual(decodePrintableKey("\x1b[57376;2u"), undefined);
+	});
 });
 
 describe("decodePrintableKey", () => {
