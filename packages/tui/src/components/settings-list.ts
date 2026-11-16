@@ -154,9 +154,10 @@ export class SettingsList implements Component {
 		const selectedItem = displayItems[this.selectedIndex];
 		if (selectedItem?.description) {
 			lines.push("");
-			const wrappedDesc = wrapTextWithAnsi(selectedItem.description, width - 4);
-			for (const line of wrappedDesc) {
-				lines.push(this.theme.description(`  ${line}`));
+			// Shrink the 2-column indent when the width cannot hold it.
+			const indent = " ".repeat(Math.min(2, Math.max(0, Math.floor((width - 1) / 2))));
+			for (const line of wrapTextWithAnsi(selectedItem.description, Math.max(1, width - indent.length * 2))) {
+				lines.push(this.theme.description(`${indent}${line}`));
 			}
 		}
 

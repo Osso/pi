@@ -408,7 +408,7 @@ export class Input implements Component, Focusable {
 		const availableWidth = width - prompt.length;
 
 		if (availableWidth <= 0) {
-			return [prompt];
+			return [prompt.slice(0, Math.max(0, width))];
 		}
 
 		let visibleText = "";

@@ -96,7 +96,9 @@ export class SelectList implements Component {
 
 			const isSelected = i === this.selectedIndex;
 			const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description) : undefined;
-			lines.push(this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));
+			// The prefix alone can be wider than a 1-column terminal.
+			const line = this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth);
+			lines.push(truncateToWidth(line, width, ""));
 		}
 
 		// Add scroll indicators if needed
