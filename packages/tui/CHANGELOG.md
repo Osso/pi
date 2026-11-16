@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- The terminal cursor, bracketed paste and keyboard modes are restored when the process exits without `TUI.stop()`, for example through `process.exit()` in an extension; the shell was left with a hidden cursor ([#11170](https://github.com/earendil-works/pi-mono/issues/11170))
 - `Input`, `SelectList` and `SettingsList` no longer render lines wider than a 1- to 3-column terminal; opening `/settings` or a selector at such a width crashed pi with a line-width error
 - `Box` shrinks its horizontal padding when the width cannot hold it, so a user message submitted in a 1- or 2-column terminal no longer crashes pi with a line-width error
 - A terminal reply such as the OSC 11 background-color answer that arrives in pieces (for example over SSH) is no longer turned into typed text and a Ctrl+G keypress; typing Alt+] followed by text still works

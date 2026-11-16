@@ -870,8 +870,15 @@ export class TUI extends Container {
 		for (const overlay of this.overlayStack) overlay.component.invalidate?.();
 	}
 
+	/** Last-resort terminal restore for exits that skip stop(), such as process.exit() from an extension. */
+	private readonly exitRestoreHandler = (): void => {
+		if (!this.stopped)
+			this.terminal.restoreOnExit?.(`${this.terminalColorSchemeNotificationsEnabled ? "\x1b[?2031l" : ""}\x1b[?25h`);
+	};
+
 	start(): void {
 		this.stopped = false;
+		process.off("exit", this.exitRestoreHandler).on("exit", this.exitRestoreHandler);
 		this.renderRequested = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
@@ -930,24 +937,15 @@ export class TUI extends Container {
 
 	stop(): void {
 		this.stopped = true;
-		if (this.renderTimer) {
-			clearTimeout(this.renderTimer);
-			this.renderTimer = undefined;
-		}
+		process.off("exit", this.exitRestoreHandler);
+		this.cancelRenderTimer();
 		this.renderRequested = false;
 		this.forceRenderRequested = true;
-		if (this.terminalColorSchemeNotificationsEnabled) {
-			this.terminal.write("\x1b[?2031l");
-		}
-		// Move cursor to the end of the content to prevent overwriting/artifacts on exit
+		if (this.terminalColorSchemeNotificationsEnabled) this.terminal.write("\x1b[?2031l");
+		// Move cursor to the line after the content to prevent overwriting/artifacts on exit
 		if (this.previousLines.length > 0) {
-			const targetRow = this.previousLines.length; // Line after the last content
-			const lineDiff = targetRow - this.hardwareCursorRow;
-			if (lineDiff > 0) {
-				this.terminal.write(`\x1b[${lineDiff}B`);
-			} else if (lineDiff < 0) {
-				this.terminal.write(`\x1b[${-lineDiff}A`);
-			}
+			const lineDiff = this.previousLines.length - this.hardwareCursorRow;
+			if (lineDiff !== 0) this.terminal.write(lineDiff > 0 ? `\x1b[${lineDiff}B` : `\x1b[${-lineDiff}A`);
 			this.terminal.write("\r\n");
 		}
 
@@ -958,10 +956,7 @@ export class TUI extends Container {
 	requestRender(force = false): void {
 		this.forceRenderRequested ||= force;
 		if (force) {
-			if (this.renderTimer) {
-				clearTimeout(this.renderTimer);
-				this.renderTimer = undefined;
-			}
+			this.cancelRenderTimer();
 			this.renderRequested = true;
 			process.nextTick(() => this.renderPendingState());
 			return;
@@ -969,6 +964,11 @@ export class TUI extends Container {
 		if (this.renderRequested) return;
 		this.renderRequested = true;
 		process.nextTick(() => this.scheduleRender());
+	}
+
+	private cancelRenderTimer(): void {
+		clearTimeout(this.renderTimer);
+		this.renderTimer = undefined;
 	}
 
 	private scheduleRender(): void {

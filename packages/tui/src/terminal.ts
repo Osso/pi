@@ -74,6 +74,12 @@ export interface Terminal {
 	stop(): void;
 
 	/**
+	 * Synchronously restore terminal modes from a process `exit` handler when stop() did not run.
+	 * Writes `before`, then this terminal's own mode resets.
+	 */
+	restoreOnExit?(before: string): void;
+
+	/**
 	 * Drain stdin before exiting to prevent Kitty key release events from
 	 * leaking to the parent shell over slow SSH connections.
 	 * @param maxMs - Maximum time to drain (default: 1000ms)
@@ -423,6 +429,21 @@ export class ProcessTerminal implements Terminal {
 		} finally {
 			process.stdin.removeListener("data", onData);
 			this.inputHandler = previousHandler;
+		}
+	}
+
+	restoreOnExit(before: string): void {
+		let sequence = before;
+		if (this.progressInterval) sequence += TERMINAL_PROGRESS_CLEAR_SEQUENCE;
+		sequence += "\x1b[?2004l";
+		if (this.keyboardProtocolPushed || this._kittyProtocolActive) sequence += "\x1b[<u";
+		if (this._modifyOtherKeysActive) sequence += "\x1b[>4;0m";
+		try {
+			// process.stdout.write() can be asynchronous and would not flush while the process exits.
+			fs.writeSync(process.stdout.fd, sequence);
+		} catch (error) {
+			// The terminal can already be gone (EIO/EPIPE); an exit handler must not throw.
+			console.error("Could not restore terminal modes on exit:", error);
 		}
 	}
 
