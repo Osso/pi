@@ -60,8 +60,12 @@ function googleToolCallContext(): Context {
 }
 
 describe("tool call ids shortened for another provider", () => {
-	it("stay distinct and paired with their results in Chat Completions", () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
+	// Upstream 5bdf988b7: OpenRouter received the long IDs unchanged and forwarded them to OpenAI, which rejects them.
+	it.each([
+		["openai", getModel("openai", "gpt-4o-mini")],
+		["openrouter", getModel("openrouter", "openai/gpt-4o-mini")],
+	])("stay distinct and paired with their results in Chat Completions (%s)", (_provider, sourceModel) => {
+		const { compat: _compat, ...baseModel } = sourceModel;
 		const model: Model<"openai-completions"> = { ...baseModel, api: "openai-completions" };
 		const messages = convertMessages(model, googleToolCallContext(), compat);
 

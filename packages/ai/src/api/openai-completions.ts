@@ -862,15 +862,15 @@ export function convertMessages(
 		// These come from providers like github-copilot, openai-codex, opencode
 		// Extract just the call_id part and normalize it
 		if (id.includes("|")) {
-			const callId = id.split("|")[0];
-			if (callId === undefined) {
-				throw new Error("Expected a call ID before the separator");
-			}
+			const callId = id.slice(0, id.indexOf("|"));
 			// Sanitize to allowed chars and truncate to 40 chars (OpenAI limit)
 			return truncateWithHash(callId.replace(/[^a-zA-Z0-9_-]/g, "_"), 40);
 		}
 
-		return model.provider === "openai" ? truncateWithHash(id, 40) : id;
+		// OpenRouter can forward any model to OpenAI, whose Responses API rejects IDs over 64 characters.
+		const capsToolCallIds =
+			model.provider === "openai" || model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai");
+		return capsToolCallIds ? truncateWithHash(id, 40) : id;
 	};
 
 	const transformedMessages = transformMessages(context.messages, model, (id) => normalizeToolCallId(id));

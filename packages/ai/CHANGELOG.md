@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenRouter requests failing with `call_id` longer than 64 characters when the history held a long tool call ID from another model; OpenRouter models now shorten tool call IDs like OpenAI (ported from upstream 5bdf988b7)
 - Fixed Anthropic tool schemas dropping the root `additionalProperties`, `$defs` and `definitions`, so the model was not told extra arguments are forbidden and a property `$ref` could not resolve (ported from upstream [#12100](https://github.com/earendil-works/pi/pull/12100))
 - The OpenAI Codex SSE retry backoff no longer leaves one `abort` listener on the caller's signal per retry (upstream [#11708](https://github.com/earendil-works/pi/issues/11708))
 - Connection errors without an HTTP status or body ("Connection error.") now include the deepest `cause` and its code, for example `Connection error.: connect ECONNREFUSED 127.0.0.1:8080`, instead of only the SDK's generic message (upstream [#11695](https://github.com/earendil-works/pi/issues/11695))
