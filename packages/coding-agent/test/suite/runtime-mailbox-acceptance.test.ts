@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest";
 import {
 	enqueueStoredRuntimeMailboxMessage,
 	getControlDbPath,
+	readRuntimeMailboxListener,
 	readRuntimeMailboxMessage,
 	withControlDb,
 } from "../../src/core/session-control-db.ts";
@@ -57,10 +58,15 @@ it("recovers a crash after claim before acceptance and delivers exactly once", a
 		await agent.crash();
 		writeFileSync(release, "release");
 		await agent.restart();
-		// Recovery returns the claim to pending; the existing idle poll is 30 seconds.
-		const request = await agent.waitForLlmRequest(
-			(item) => item.userMessages.some((text) => text.includes("Mailbox acceptance before-accept")),
-			45_000,
+		// Startup registration returns the dead claim to pending; wake the idle drain like a sender would
+		// instead of waiting for the 30-second poll.
+		const dbPath = getControlDbPath(agent.paths.agentDir);
+		expect(readRuntimeMailboxMessage(dbPath, id)?.status).toBe("pending");
+		const listener = readRuntimeMailboxListener(dbPath, { agentId: null, sessionId: agent.sessionId });
+		if (!listener) throw new Error("Expected main runtime mailbox listener");
+		process.kill(listener.pid, "SIGUSR2");
+		const request = await agent.waitForLlmRequest((item) =>
+			item.userMessages.some((text) => text.includes("Mailbox acceptance before-accept")),
 		);
 		expect(request.userMessages.filter((text) => text.includes("Mailbox acceptance before-accept"))).toHaveLength(1);
 		expect(agent.listRuntimeMailboxMessages()).toEqual([]);
@@ -71,7 +77,7 @@ it("recovers a crash after claim before acceptance and delivers exactly once", a
 		expect(probe.userMessages.filter((text) => text.includes("Mailbox acceptance before-accept"))).toHaveLength(1);
 		await agent.send({ type: "abort" });
 	});
-}, 90_000);
+});
 
 it("recovers acceptance before deletion without redelivery", async () => {
 	await withHeadlessPi(async (agent) => {
