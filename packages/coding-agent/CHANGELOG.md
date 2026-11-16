@@ -267,6 +267,7 @@
 
 ### Fixed
 
+- Fixed a collapsed paste (`[paste #1 +N lines]`) losing its content when the draft moved out of the editor: the interrupt prompt sent the marker text to the model, and restoring queued messages, switching editors or closing custom UI kept only the marker (ported from upstream [#10146](https://github.com/earendil-works/pi/pull/10146))
 - Fixed an exit or same-PID restart during an OAuth token refresh losing the login: the provider had already spent the single-use refresh token, but the new one was not yet saved. Quit and restart now wait for refreshes in progress (ported from upstream [#11692](https://github.com/earendil-works/pi/issues/11692))
 - Fixed unmatched `enabledModels` / `--models` patterns printing `Warning: No models match pattern` over the interactive TUI on `/new`, `/resume`, `/fork` and model cycling; the warning is now a startup diagnostic, reported once (ported from upstream [#11973](https://github.com/earendil-works/pi/pull/11973))
 - Fixed `read` saving `[Current model does not support images...]` into the image result text, which was sent again after switching to a vision model; the warning now lives in `details.imageUnsupportedByModel` and the TUI shows it, naming the model that read the image (ported from upstream [#12139](https://github.com/earendil-works/pi/pull/12139))
