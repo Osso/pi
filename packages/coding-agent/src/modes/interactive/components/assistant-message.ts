@@ -188,7 +188,8 @@ export class AssistantMessageComponent extends Container {
 			component: hiddenText,
 			trailingSpacer: existing?.contentType === "thinking" ? existing.trailingSpacer : undefined,
 			componentText: label,
-			visible: text.length > 0,
+			// An empty label still carries the theme's escape codes and would render a blank row (#11470).
+			visible: text.length > 0 && this.hiddenThinkingLabel.length > 0,
 			hiddenThinking: true,
 		};
 	}

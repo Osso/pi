@@ -117,6 +117,27 @@ describe("AssistantMessageComponent", () => {
 		expect(lines).toEqual(["Thinking...", "Next step", "Thinking..."]);
 	});
 
+	test("hidden thinking with an empty label renders no rows (#11470)", () => {
+		initTheme("dark");
+		const renderPlain = (content: AssistantMessage["content"]) =>
+			new AssistantMessageComponent(createAssistantMessage(content), true, undefined, "")
+				.render(80)
+				.map((line) => stripAnsi(line).trim());
+
+		expect(
+			renderPlain([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "file.txt" } },
+			]),
+		).toEqual([]);
+		expect(
+			renderPlain([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+		).toEqual(["", "answer"]);
+	});
+
 	test("uses configured output padding for text and thinking", () => {
 		initTheme("dark");
 
