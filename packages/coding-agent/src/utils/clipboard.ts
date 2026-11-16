@@ -9,12 +9,33 @@ type NativeClipboardExecOptions = {
 	stdio: ["pipe", "ignore", "ignore"];
 };
 
-function copyToX11Clipboard(options: NativeClipboardExecOptions): void {
-	try {
-		execSync("xclip -selection clipboard", options);
-	} catch {
-		execSync("xsel --clipboard --input", options);
-	}
+/**
+ * Run a clipboard writer that daemonizes to keep selection ownership. Detached, the daemon leaves pi's process group,
+ * so Ctrl+Z (SIGTSTP to the group) does not stop the clipboard owner (#11179).
+ */
+function runDetachedClipboardWriter(command: string, args: string[], text: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const child = spawn(command, args, { stdio: ["pipe", "ignore", "ignore"], detached: true });
+		const timer = setTimeout(() => {
+			child.kill("SIGKILL");
+			resolve(false);
+		}, 5000);
+		const finish = (ok: boolean) => {
+			clearTimeout(timer);
+			resolve(ok);
+		};
+		child.on("error", () => finish(false));
+		child.on("close", (code) => finish(code === 0));
+		child.stdin.on("error", () => {}); // A writer may exit before consuming all input.
+		child.stdin.end(text);
+	});
+}
+
+async function copyToX11Clipboard(text: string): Promise<boolean> {
+	return (
+		(await runDetachedClipboardWriter("xclip", ["-selection", "clipboard"], text)) ||
+		(await runDetachedClipboardWriter("xsel", ["--clipboard", "--input"], text))
+	);
 }
 
 const MAX_OSC52_ENCODED_LENGTH = 100_000;
@@ -91,7 +112,8 @@ export async function copyToClipboard(text: string): Promise<void> {
 							// Verify wl-copy exists (spawn errors are async and won't be caught)
 							execSync("which wl-copy", { stdio: "ignore" });
 							// wl-copy with execSync hangs due to fork behavior; use spawn instead
-							const proc = spawn("wl-copy", [], { stdio: ["pipe", "ignore", "ignore"] });
+							// Detached for the same reason as runDetachedClipboardWriter.
+							const proc = spawn("wl-copy", [], { stdio: ["pipe", "ignore", "ignore"], detached: true });
 							proc.stdin.on("error", () => {
 								// Ignore EPIPE errors if wl-copy exits early
 							});
@@ -100,14 +122,10 @@ export async function copyToClipboard(text: string): Promise<void> {
 							proc.unref();
 							copied = true;
 						} catch {
-							if (hasX11Display) {
-								copyToX11Clipboard(options);
-								copied = true;
-							}
+							if (hasX11Display) copied = await copyToX11Clipboard(text);
 						}
 					} else if (hasX11Display) {
-						copyToX11Clipboard(options);
-						copied = true;
+						copied = await copyToX11Clipboard(text);
 					}
 				}
 			}
