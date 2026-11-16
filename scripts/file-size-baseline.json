@@ -9,7 +9,7 @@
 	"packages/ai/src/api/openai-completions.ts": 1294,
 	"packages/ai/src/api/openai-responses-shared.ts": 752,
 	"packages/ai/src/types.ts": 755,
-	"packages/coding-agent/src/core/agent-session.ts": 5407,
+	"packages/coding-agent/src/core/agent-session.ts": 5399,
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1065,
 	"packages/coding-agent/src/core/export-html/template.js": 1861,
 	"packages/coding-agent/src/core/export-html/vendor/highlight.min.js": 1213,
@@ -34,5 +34,5 @@
 	"packages/tui/src/components/markdown.ts": 897,
 	"packages/tui/src/keys.ts": 1407,
 	"packages/tui/src/tui.ts": 2381,
-	"packages/tui/src/utils.ts": 909
+	"packages/tui/src/utils.ts": 893
 }

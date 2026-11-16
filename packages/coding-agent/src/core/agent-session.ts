@@ -4869,10 +4869,6 @@ export class AgentSession {
 		this._toolDetachRegistry?.detachAll();
 	}
 
-	detachBashTool(): boolean {
-		return this.detachRunningTool();
-	}
-
 	/** Whether a bash command is currently running */
 	get isBashRunning(): boolean {
 		return this._bashAbortControllers.size > 0;
@@ -4880,10 +4876,6 @@ export class AgentSession {
 
 	get hasDetachableTool(): boolean {
 		return this._toolDetachRegistry?.hasRunning() ?? false;
-	}
-
-	get hasDetachableBashTool(): boolean {
-		return this.hasDetachableTool;
 	}
 
 	/** Whether there are pending bash messages waiting to be flushed */

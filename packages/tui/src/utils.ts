@@ -558,22 +558,6 @@ export class AnsiCodeTracker {
 		return result;
 	}
 
-	hasActiveCodes(): boolean {
-		return (
-			this.bold ||
-			this.dim ||
-			this.italic ||
-			this.underline ||
-			this.blink ||
-			this.inverse ||
-			this.hidden ||
-			this.strikethrough ||
-			this.fgColor !== null ||
-			this.bgColor !== null ||
-			this.activeHyperlink !== null
-		);
-	}
-
 	/**
 	 * Get reset codes for attributes that need to be turned off at line end.
 	 * Underline must be closed to prevent bleeding into padding.
