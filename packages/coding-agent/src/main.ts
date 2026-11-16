@@ -93,7 +93,7 @@ import {
 	type ModelCatalogRefreshResult,
 } from "./core/model-catalog-cache.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import { resolveCliModel, resolveModelScopeWithDiagnostics, type ScopedModel } from "./core/model-resolver.ts";
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
@@ -1211,19 +1211,19 @@ export async function main(args: string[], options?: MainOptions) {
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const scopeOptions = { includeUnauthenticated: Boolean(parsed.apiKey) };
-		const scopedModels = await resolveModelScope(modelPatterns ?? [], modelRegistry, scopeOptions);
+		const scope = await resolveModelScopeWithDiagnostics(modelPatterns ?? [], modelRegistry, scopeOptions);
 		const {
 			options: sessionOptions,
 			cliThinkingFromModel,
 			diagnostics: sessionOptionDiagnostics,
 		} = buildSessionOptions(
 			parsed,
-			scopedModels,
+			scope.scopedModels,
 			sessionManager.buildSessionContext().messages.length > 0,
 			modelRegistry,
 			settingsManager,
 		);
-		diagnostics.push(...sessionOptionDiagnostics);
+		diagnostics.push(...scope.diagnostics, ...sessionOptionDiagnostics);
 
 		if (parsed.apiKey) {
 			if (!sessionOptions.model) {

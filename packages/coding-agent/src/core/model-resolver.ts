@@ -338,16 +338,13 @@ export async function resolveModelScopeWithDiagnostics(
 	return { scopedModels, diagnostics };
 }
 
+/** Startup reports the diagnostics; later callers run under the TUI, where printing would draw over it. */
 export async function resolveModelScope(
 	patterns: string[],
 	modelRegistry: ModelRegistry,
 	options?: { includeUnauthenticated?: boolean },
 ): Promise<ScopedModel[]> {
-	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRegistry, options);
-	for (const diagnostic of diagnostics) {
-		console.warn(chalk.yellow(`Warning: ${diagnostic.message}`));
-	}
-	return scopedModels;
+	return (await resolveModelScopeWithDiagnostics(patterns, modelRegistry, options)).scopedModels;
 }
 
 export interface ResolveCliModelResult {
