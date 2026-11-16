@@ -43,5 +43,6 @@ describe("chat render of a huge edit diff (#8036)", () => {
 
 		expect(lines.length).toBeGreaterThan(150_000);
 		expect(lines.length).toBe(edit.render(40).length);
-	});
+		// Diffing and wrapping a 7 MB line takes ~18 s on an idle machine; the default 30 s times out under full-suite load.
+	}, 120_000);
 });
