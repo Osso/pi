@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed OSC 8 hyperlink detection for Alacritty, which sets `TERM=alacritty` or `ALACRITTY_WINDOW_ID` but not `TERM_PROGRAM` ([#11777](https://github.com/earendil-works/pi-mono/issues/11777))
 - The terminal cursor, bracketed paste and keyboard modes are restored when the process exits without `TUI.stop()`, for example through `process.exit()` in an extension; the shell was left with a hidden cursor ([#11170](https://github.com/earendil-works/pi-mono/issues/11170))
 - `Input`, `SelectList` and `SettingsList` no longer render lines wider than a 1- to 3-column terminal; opening `/settings` or a selector at such a width crashed pi with a line-width error
 - `Box` shrinks its horizontal padding when the width cannot hold it, so a user message submitted in a 1- or 2-column terminal no longer crashes pi with a line-width error
