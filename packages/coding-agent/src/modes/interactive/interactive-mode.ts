@@ -609,12 +609,9 @@ export class InteractiveMode {
 	// Shutdown state
 	private shutdownRequested = false;
 
-	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
-	private extensionInput: ExtensionInputComponent | undefined = undefined;
-	private extensionEditor: ExtensionEditorComponent | undefined = undefined;
-	private restoreExtensionSelectorEditor: (() => void) | undefined;
-	private restoreExtensionInputEditor: (() => void) | undefined;
-	private restoreExtensionEditor: (() => void) | undefined;
+	/** Extension dialogs in the editor slot, newest last. Only the newest is shown; closing it shows the next. */
+	private editorDialogs: { component: Component; dispose: () => void }[] = [];
+	private restoreEditorSlotAfterDialogs: (() => void) | undefined;
 	private extensionTerminalInputUnsubscribers = new Set<() => void>();
 
 	// Extension widgets (components rendered above/below the editor)
@@ -2609,9 +2606,7 @@ export class InteractiveMode {
 	}
 
 	private resetExtensionUI(): void {
-		if (this.extensionSelector) this.hideExtensionSelector();
-		if (this.extensionInput) this.hideExtensionInput();
-		if (this.extensionEditor) this.hideExtensionEditor();
+		for (const dialog of [...this.editorDialogs].reverse()) this.closeEditorDialog(dialog);
 		// Extensions are replaced without calling done(): remove all their overlays, newest first, not pi's own.
 		for (const removeOverlay of [...this.extensionOverlays.values()].reverse()) removeOverlay();
 		this.clearExtensionTerminalInputListeners();
@@ -2864,46 +2859,56 @@ export class InteractiveMode {
 				resolve(undefined);
 				return;
 			}
-
-			const onAbort = () => {
-				this.hideExtensionSelector();
-				resolve(undefined);
+			let close = () => {};
+			const finish = (option: string | undefined) => {
+				opts?.signal?.removeEventListener("abort", onAbort);
+				close();
+				resolve(option);
 			};
+			const onAbort = () => finish(undefined);
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
-
-			this.restoreExtensionSelectorEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
-			this.extensionSelector = new ExtensionSelectorComponent(
-				title,
-				options,
-				(option) => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionSelector();
-					resolve(option);
-				},
-				() => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionSelector();
-					resolve(undefined);
-				},
-				{ tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion() },
-			);
-
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.extensionSelector);
-			this.ui.setFocus(this.extensionSelector);
-			this.ui.requestRender();
+			const selector = new ExtensionSelectorComponent(title, options, finish, () => finish(undefined), {
+				tui: this.ui,
+				timeout: opts?.timeout,
+				onToggleToolsExpanded: () => this.toggleToolOutputExpansion(),
+			});
+			close = this.openEditorDialog(selector, () => selector.dispose());
 		});
 	}
 
-	/**
-	 * Hide the extension selector.
-	 */
-	private hideExtensionSelector(): void {
-		this.extensionSelector?.dispose();
-		this.extensionSelector = undefined;
-		const restoreEditor = this.restoreExtensionSelectorEditor;
-		this.restoreExtensionSelectorEditor = undefined;
-		restoreEditor?.();
+	/** Show `component` in the editor slot above earlier dialogs. Returns the function that closes it. */
+	private openEditorDialog(component: Component, dispose: () => void = () => {}): () => void {
+		if (this.editorDialogs.length === 0) {
+			this.restoreEditorSlotAfterDialogs = captureEditorDialogRestore(this.editorContainer, this.ui);
+		}
+		const dialog = { component, dispose };
+		this.editorDialogs.push(dialog);
+		this.showTopEditorDialog();
+		return () => this.closeEditorDialog(dialog);
+	}
+
+	/** Close a dialog wherever it is in the stack; the last one closed restores the editor slot. */
+	private closeEditorDialog(dialog: { component: Component; dispose: () => void }): void {
+		const index = this.editorDialogs.indexOf(dialog);
+		if (index === -1) return;
+		this.editorDialogs.splice(index, 1);
+		dialog.dispose();
+		if (this.editorDialogs.length > 0) {
+			this.showTopEditorDialog();
+			return;
+		}
+		const restore = this.restoreEditorSlotAfterDialogs;
+		this.restoreEditorSlotAfterDialogs = undefined;
+		restore?.();
+	}
+
+	private showTopEditorDialog(): void {
+		const top = this.editorDialogs.at(-1);
+		if (!top) return;
+		this.editorContainer.clear();
+		this.editorContainer.addChild(top.component);
+		this.ui.setFocus(top.component);
+		this.ui.requestRender();
 	}
 
 	/**
@@ -2939,46 +2944,21 @@ export class InteractiveMode {
 				resolve(undefined);
 				return;
 			}
-
-			const onAbort = () => {
-				this.hideExtensionInput();
-				resolve(undefined);
+			let close = () => {};
+			const finish = (value: string | undefined) => {
+				opts?.signal?.removeEventListener("abort", onAbort);
+				close();
+				resolve(value);
 			};
+			const onAbort = () => finish(undefined);
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
-
-			this.restoreExtensionInputEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
-			this.extensionInput = new ExtensionInputComponent(
-				title,
-				placeholder,
-				(value) => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionInput();
-					resolve(value);
-				},
-				() => {
-					opts?.signal?.removeEventListener("abort", onAbort);
-					this.hideExtensionInput();
-					resolve(undefined);
-				},
-				{ tui: this.ui, timeout: opts?.timeout, secret: opts?.secret },
-			);
-
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.extensionInput);
-			this.ui.setFocus(this.extensionInput);
-			this.ui.requestRender();
+			const input = new ExtensionInputComponent(title, placeholder, finish, () => finish(undefined), {
+				tui: this.ui,
+				timeout: opts?.timeout,
+				secret: opts?.secret,
+			});
+			close = this.openEditorDialog(input, () => input.dispose());
 		});
-	}
-
-	/**
-	 * Hide the extension input.
-	 */
-	private hideExtensionInput(): void {
-		this.extensionInput?.dispose();
-		this.extensionInput = undefined;
-		const restoreEditor = this.restoreExtensionInputEditor;
-		this.restoreExtensionInputEditor = undefined;
-		restoreEditor?.();
 	}
 
 	/**
@@ -2986,39 +2966,23 @@ export class InteractiveMode {
 	 */
 	private showExtensionEditor(title: string, prefill?: string): Promise<string | undefined> {
 		return new Promise((resolve) => {
-			this.restoreExtensionEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
-			this.extensionEditor = new ExtensionEditorComponent(
+			let close = () => {};
+			const finish = (value: string | undefined) => {
+				close();
+				resolve(value);
+			};
+			const editor = new ExtensionEditorComponent(
 				this.ui,
 				this.keybindings,
 				title,
 				prefill,
-				(value) => {
-					this.hideExtensionEditor();
-					resolve(value);
-				},
-				() => {
-					this.hideExtensionEditor();
-					resolve(undefined);
-				},
+				finish,
+				() => finish(undefined),
 				undefined,
 				this.settingsManager.getExternalEditorCommand(),
 			);
-
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.extensionEditor);
-			this.ui.setFocus(this.extensionEditor);
-			this.ui.requestRender();
+			close = this.openEditorDialog(editor);
 		});
-	}
-
-	/**
-	 * Hide the extension editor.
-	 */
-	private hideExtensionEditor(): void {
-		this.extensionEditor = undefined;
-		const restoreEditor = this.restoreExtensionEditor;
-		this.restoreExtensionEditor = undefined;
-		restoreEditor?.();
 	}
 
 	/**
@@ -3123,17 +3087,16 @@ export class InteractiveMode {
 	): Promise<T> {
 		const savedText = this.editor.getExpandedText?.() ?? this.editor.getText();
 		const isOverlay = options?.overlay ?? false;
-		const restoreEditorSlot = captureEditorDialogRestore(this.editorContainer, this.ui);
-
-		const restoreEditor = () => {
-			this.editor.setText(savedText);
-			restoreEditorSlot();
-		};
 
 		return new Promise((resolve, reject) => {
 			let component: Component & { dispose?(): void };
 			let overlayHandle: OverlayHandle | undefined;
 			let closed = false;
+			let closeDialog = () => {};
+			const restoreEditor = () => {
+				this.editor.setText(savedText);
+				closeDialog();
+			};
 
 			const disposeComponent = () => {
 				try {
@@ -3173,10 +3136,7 @@ export class InteractiveMode {
 						// Expose handle to caller for visibility control
 						options?.onHandle?.(overlayHandle);
 					} else {
-						this.editorContainer.clear();
-						this.editorContainer.addChild(component);
-						this.ui.setFocus(component);
-						this.ui.requestRender();
+						closeDialog = this.openEditorDialog(component);
 					}
 				})
 				.catch((err) => {

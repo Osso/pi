@@ -273,6 +273,7 @@ describe("InteractiveMode.resetExtensionUI", () => {
 			editor,
 			editorContainer,
 			extensionOverlays: new Map(),
+			...editorDialogMembers(),
 			keybindings: {},
 			ui,
 			clearExtensionTerminalInputListeners: vi.fn(),
@@ -335,7 +336,6 @@ interface InteractiveModeKeyHandlerInternals {
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
 	registerGlobalInterruptInputHandler(this: unknown): void;
 	showExtensionSelector(this: unknown, title: string, options: string[]): Promise<string | undefined>;
-	hideExtensionSelector(this: unknown): void;
 	showSelector(this: unknown, create: (done: () => void) => { component: Component; focus: Component }): void;
 	showAgentSwitcher(this: unknown): void;
 	openChildAgentView(this: unknown, agent: unknown): boolean;
@@ -392,6 +392,18 @@ interface InteractiveModeKeyHandlerInternals {
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
+
+/** The editor-slot dialog stack members a fake InteractiveMode needs for extension dialogs. */
+function editorDialogMembers() {
+	const prototype = InteractiveMode.prototype as unknown as Record<string, unknown>;
+	return {
+		editorDialogs: [] as { component: Component; dispose: () => void }[],
+		restoreEditorSlotAfterDialogs: undefined,
+		openEditorDialog: prototype.openEditorDialog,
+		closeEditorDialog: prototype.closeEditorDialog,
+		showTopEditorDialog: prototype.showTopEditorDialog,
+	};
+}
 
 type TranscriptSwitchFixture = {
 	childAgentId: string;
@@ -2046,8 +2058,8 @@ describe("InteractiveMode key handlers", () => {
 		const fakeThis = {
 			editor,
 			editorContainer,
-			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
-			hideExtensionSelector: interactiveModeKeyHandlers.hideExtensionSelector,
+			...editorDialogMembers(),
+			toggleToolOutputExpansion: vi.fn(),
 			keybindings: {
 				matches: (data: string, action: string) =>
 					(action === "app.interrupt" || action === "tui.select.cancel") && data === "\x1b",
@@ -2070,7 +2082,7 @@ describe("InteractiveMode key handlers", () => {
 			await flushTui(ui, terminal);
 
 			await expect(selection).resolves.toBeUndefined();
-			expect(fakeThis.extensionSelector).toBeUndefined();
+			expect(fakeThis.editorDialogs).toEqual([]);
 			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
 		} finally {
 			ui.stop();
@@ -2086,8 +2098,8 @@ describe("InteractiveMode key handlers", () => {
 		const fakeThis = {
 			editor,
 			editorContainer,
-			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
-			hideExtensionSelector: interactiveModeKeyHandlers.hideExtensionSelector,
+			...editorDialogMembers(),
+			toggleToolOutputExpansion: vi.fn(),
 			keybindings: {
 				matches: (data: string, action: string) =>
 					(action === "app.interrupt" && data === "\x18") || (action === "tui.select.cancel" && data === "\x1b"),
@@ -2108,9 +2120,9 @@ describe("InteractiveMode key handlers", () => {
 			await flushTui(ui, terminal);
 
 			expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
-			expect(fakeThis.extensionSelector).toBeDefined();
+			expect(fakeThis.editorDialogs).toHaveLength(1);
 		} finally {
-			fakeThis.hideExtensionSelector();
+			for (const dialog of [...fakeThis.editorDialogs]) dialog.dispose();
 			ui.stop();
 		}
 	});
@@ -2434,15 +2446,10 @@ function createResetExtensionUIFixture(isViewingAgentSession: boolean) {
 		clearExtensionWidgets: vi.fn(),
 		defaultEditor: {},
 		defaultWorkingMessage: "Thinking...",
-		extensionEditor: undefined,
-		extensionInput: undefined,
 		extensionOverlays: new Map(),
-		extensionSelector: undefined,
+		...editorDialogMembers(),
 		footer: { invalidate: vi.fn() },
 		footerDataProvider: { clearExtensionStatuses: vi.fn() },
-		hideExtensionEditor: vi.fn(),
-		hideExtensionInput: vi.fn(),
-		hideExtensionSelector: vi.fn(),
 		getWorkingLoaderMessage: () => (isViewingAgentSession ? "Thinking... 12s" : "Streaming..."),
 		isViewingAgentSession: () => isViewingAgentSession,
 		loadingAnimation: { setMessage },
@@ -2513,16 +2520,11 @@ describe("InteractiveMode footer ownership", () => {
 			customFooter: undefined,
 			defaultEditor: {},
 			defaultExtensionFooter: defaultFooter,
-			extensionEditor: undefined,
-			extensionInput: undefined,
 			extensionOverlays: new Map(),
-			extensionSelector: undefined,
+			...editorDialogMembers(),
 			footer: builtIn,
 			footerContainer,
 			footerDataProvider: { clearExtensionStatuses: vi.fn() },
-			hideExtensionEditor: vi.fn(),
-			hideExtensionInput: vi.fn(),
-			hideExtensionSelector: vi.fn(),
 			loadingAnimation: undefined,
 			setCustomEditorComponent: vi.fn(),
 			setDefaultExtensionFooter: interactiveModeKeyHandlers.setDefaultExtensionFooter,
@@ -2659,6 +2661,7 @@ describe("InteractiveMode.showExtensionCustom", () => {
 			editor,
 			editorContainer,
 			extensionOverlays: new Map(),
+			...editorDialogMembers(),
 			keybindings: {},
 			ui,
 		};
