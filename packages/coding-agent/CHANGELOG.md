@@ -38,6 +38,7 @@
 
 ### Changed
 
+- Updated `undici` to 8.12.4 for security advisories GHSA-mqg3-3v4r-cm32, GHSA-7xg3-fphp-28hg, GHSA-5rm8-gv32-r954, GHSA-9v6h-8rgp-m69f, GHSA-3g9m-rv3r-w5w2, and GHSA-r4pc-4jcp-7pqc ([#12200](https://github.com/earendil-works/pi-mono/issues/12200))
 - Relay connection log lines (`<control-db>.relay.log`) start with an ISO timestamp, and relay failures name the failing step (for example `relay scan: database is locked`), so remote exits can be matched to deployments and lock holders.
 - Root TypeScript and Biome checks now include coding-agent extensions.
 - When a structured `supervisor_response` is present, Supervisor response extraction validates its current-request arguments and ignores accompanying assistant text; the model remains instructed to call the tool without text, and prior responses are never reused.
@@ -267,7 +268,6 @@
 
 ### Fixed
 
-- Updated `undici` to 8.12.4 for security advisories GHSA-mqg3-3v4r-cm32, GHSA-7xg3-fphp-28hg, GHSA-5rm8-gv32-r954, GHSA-9v6h-8rgp-m69f, GHSA-3g9m-rv3r-w5w2, and GHSA-r4pc-4jcp-7pqc ([#12200](https://github.com/earendil-works/pi-mono/issues/12200))
 - Fixed `pi config` ignoring user keybindings from `keybindings.json` ([#11788](https://github.com/earendil-works/pi-mono/issues/11788))
 - Fixed hidden thinking with an empty hidden-thinking label rendering blank rows ([#11470](https://github.com/earendil-works/pi-mono/issues/11470))
 - Extension selectors (`ctx.ui.select`) show a window of 10 options around the selection with a `(n/total)` position, so the selected option stays visible in long lists ([#6688](https://github.com/earendil-works/pi-mono/issues/6688))
