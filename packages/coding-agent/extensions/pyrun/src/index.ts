@@ -63,13 +63,13 @@ const pyrunEvalSchema = Type.Object({
 	session_id: Type.Optional(
 		Type.String({
 			description:
-				"Name of a Pyrun session whose Python and ctx persist across calls in this Pi session. Omit for a fresh Python.",
+				"Name of a Pyrun session whose Python process and ctx persist across calls in this Pi session; other globals start empty on each call, so keep values in ctx. Omit for a fresh Python.",
 		}),
 	),
 });
 
 const PYRUN_PROMPT_GUIDELINES = [
-	"Each pyrun_eval runs in a fresh Python with an empty ctx. To keep ctx across calls, pass the same session_id; a call to a session that is still running fails at once.",
+	"Each pyrun_eval runs in a fresh Python with an empty ctx. To keep ctx across calls, pass the same session_id; only ctx persists, other globals start empty on each call. A call to a session that is still running fails at once.",
 	"Pi delegates Python/Pyrun runtime semantics to the Pyrun JSONL runner; Pi does not implement helper behavior locally.",
 	"Do not use MCP for Pi's built-in pyrun_eval path; use the JSONL runner boundary.",
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Pyrun.",

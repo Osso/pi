@@ -19,7 +19,7 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 In a persisted session, each `pyrun_eval` runs in a durable runner process.
 
 - Without `session_id`, the runner starts a fresh Python, so `ctx` starts empty and calls run in parallel.
-- With `session_id`, the runner connects to that named session's proxy, which keeps one Python, and so its `ctx`, across calls and Pi restarts. Names are scoped to the Pi session and shared by its agents. A call to a named session that is still running an evaluation fails at once.
+- With `session_id`, the runner connects to that named session's proxy, which keeps one Python, and so its `ctx`, across calls and Pi restarts. Only `ctx` persists: other globals start empty on each call. Names are scoped to the Pi session and shared by its agents. A call to a named session that is still running an evaluation fails at once.
 - Python runs in the session cwd. A cwd or sandbox change starts a new Python for a named session.
 - The proxy listens on a socket in `$XDG_RUNTIME_DIR/pi-pyrun-<uid>/` (a private directory; the temporary directory when `XDG_RUNTIME_DIR` is unset). It exits once its Pi process is gone and no evaluation is connected. Cancelling an evaluation stops that session's Python, so its `ctx` is lost.
 

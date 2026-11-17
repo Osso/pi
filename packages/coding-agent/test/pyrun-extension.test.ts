@@ -915,7 +915,7 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.description).toContain("Python/Pyrun");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Python");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
-			"To keep ctx across calls, pass the same session_id",
+			"To keep ctx across calls, pass the same session_id; only ctx persists, other globals start empty on each call.",
 		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("full logs");
