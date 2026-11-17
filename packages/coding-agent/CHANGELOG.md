@@ -38,6 +38,7 @@
 
 ### Changed
 
+- The Supervisor TUI shows a `supervisor_response` question answer as `→ <answer>` only; the question text and the Supervisor's reason stay in the transcript.
 - Updated `undici` to 8.12.4 for security advisories GHSA-mqg3-3v4r-cm32, GHSA-7xg3-fphp-28hg, GHSA-5rm8-gv32-r954, GHSA-9v6h-8rgp-m69f, GHSA-3g9m-rv3r-w5w2, and GHSA-r4pc-4jcp-7pqc ([#12200](https://github.com/earendil-works/pi-mono/issues/12200))
 - Updated transitive `brace-expansion` (via `minimatch`) to 5.0.13 for its denial-of-service advisories on quadratic and deeply nested brace patterns.
 - Relay connection log lines (`<control-db>.relay.log`) start with an ISO timestamp, and relay failures name the failing step (for example `relay scan: database is locked`), so remote exits can be matched to deployments and lock holders.

@@ -44,13 +44,26 @@ describe("supervisor_response rendering", () => {
 		expect(rendered).not.toContain("Supervisor response recorded.");
 	});
 
-	test("shows advisory answers once and each question answer with its reason", async () => {
+	test("shows advisory answers once and only the answer to each question", async () => {
 		const advisory = await renderResponse({ kind: "advisory", answer: "Delete the stale entry." });
 		expect(advisory.match(/Delete the stale entry\./g)).toHaveLength(1);
 		const answered = await renderResponse({
 			kind: "answer",
-			answers: { "Which tag?": { answer: "Compact tag", reason: "User chose it earlier." } },
+			reason: "Both questions have evidence.",
+			answers: {
+				"Which tag?": { answer: "Compact tag", reason: "User chose it earlier." },
+				"Which runner?": { answer: "vitest", reason: "The repo uses it." },
+			},
 		});
-		expect(answered).toContain("Which tag? → Compact tag (User chose it earlier.)");
+		expect(
+			answered
+				.split("\n")
+				.map((line) => line.trim())
+				.filter(Boolean)
+				.slice(0, 3),
+		).toEqual(["supervisor_response answer", "→ Compact tag", "→ vitest"]);
+		for (const omitted of ["Which tag?", "User chose it earlier.", "Both questions have evidence."]) {
+			expect(answered).not.toContain(omitted);
+		}
 	});
 });

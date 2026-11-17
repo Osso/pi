@@ -37,19 +37,20 @@ const supervisorResponseParameters = Type.Object({
 	),
 });
 
-/** The decision as the Supervisor TUI shows it: the kind, then each text field and question answer that is set. */
+/**
+ * The decision as the Supervisor TUI shows it: the kind, then each text field that is set, or for question
+ * answers only `→ answer`; the transcript keeps the questions and reasons.
+ */
 function formatSupervisorResponse(
 	params: Partial<Static<typeof supervisorResponseParameters>> | undefined,
 	theme: Theme,
 ): string {
 	const title = theme.fg("toolTitle", theme.bold(SUPERVISOR_RESPONSE_TOOL_NAME));
 	const header = params?.kind ? `${title} ${theme.fg("accent", params.kind)}` : title;
-	const texts = [params?.answer, params?.reason, params?.instructions, params?.objective]
+	const answers = Object.values(params?.answers ?? {}).map(({ answer }) => `→ ${answer}`);
+	const texts = (answers.length > 0 ? [] : [params?.answer, params?.reason, params?.instructions, params?.objective])
 		.map((text) => text?.trim())
 		.filter((text): text is string => Boolean(text));
-	const answers = Object.entries(params?.answers ?? {}).map(
-		([question, { answer, reason }]) => `${question} → ${answer} (${reason})`,
-	);
 	return [header, ...[...texts, ...answers].map((line) => theme.fg("toolOutput", line))].join("\n");
 }
 
