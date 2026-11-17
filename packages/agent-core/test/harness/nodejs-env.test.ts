@@ -2,11 +2,29 @@ import { access, chmod, realpath, symlink } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NodeExecutionEnv } from "../../src/harness/env/nodejs.ts";
-import { FileError, getOrThrow } from "../../src/harness/types.ts";
+import { type ExecutionError, FileError, getOrThrow, ok, type Result } from "../../src/harness/types.ts";
 import { executeShellWithCapture } from "../../src/harness/utils/shell-output.ts";
 import { createTempDir } from "./session-test-utils.ts";
 
 const chmodRestorePaths: string[] = [];
+
+/** Emits fixed stdout chunks instead of running a command, to control chunk boundaries. */
+class ChunkedOutputEnv extends NodeExecutionEnv {
+	private readonly chunks: string[];
+
+	constructor(cwd: string, chunks: string[]) {
+		super({ cwd });
+		this.chunks = chunks;
+	}
+
+	override async exec(
+		_command: string,
+		options?: { onStdout?: (chunk: string) => void },
+	): Promise<Result<{ stdout: string; stderr: string; exitCode: number }, ExecutionError>> {
+		for (const chunk of this.chunks) options?.onStdout?.(chunk);
+		return ok({ stdout: this.chunks.join(""), stderr: "", exitCode: 0 });
+	}
+}
 
 afterEach(async () => {
 	for (const path of chmodRestorePaths.splice(0)) {
@@ -336,5 +354,15 @@ describe("NodeExecutionEnv", () => {
 		expect(fullOutput).toContain("start");
 		expect(fullOutput).toContain("end");
 		expect(result.output.length).toBeLessThan(fullOutput.length);
+	});
+
+	it("keeps the output tail when one large chunk is followed by a short one", async () => {
+		const env = new ChunkedOutputEnv(createTempDir(), ["xx\n".repeat(40_000), "done\n"]);
+
+		const result = getOrThrow(await executeShellWithCapture(env, "ignored"));
+
+		expect(result.truncated).toBe(true);
+		expect(result.output.endsWith("xx\nxx\ndone")).toBe(true);
+		expect(result.output.split("\n").length).toBeGreaterThan(1_000);
 	});
 });
