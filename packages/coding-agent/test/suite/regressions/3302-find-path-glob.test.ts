@@ -70,6 +70,15 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 		expect(files).toEqual(["src/foo/bar/example.spec.ts"]);
 	});
 
+	it("anchors a path pattern at the search root, not at nested directories", async () => {
+		mkdirSync(join(tempRoot, "pkg", "src"), { recursive: true });
+		writeFileSync(join(tempRoot, "src", "top.ts"), "");
+		writeFileSync(join(tempRoot, "pkg", "src", "nested.ts"), "");
+
+		expect(await runFind("src/*.ts")).toEqual(["src/top.ts"]);
+		expect((await runFind("**/src/*.ts")).sort()).toEqual(["pkg/src/nested.ts", "src/top.ts"]);
+	});
+
 	it("does not match a directory above the search root", async () => {
 		const def = createFindToolDefinition(join(tempRoot, "src", "foo"));
 		const ctx = {} as Parameters<typeof def.execute>[4];

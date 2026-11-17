@@ -230,9 +230,9 @@ export function createFindToolDefinition(
 						args.push("--max-results", String(effectiveLimit + 1));
 
 						// fd --glob matches against the basename unless --full-path is set; in --full-path
-						// mode it matches against the absolute candidate path, so a path-containing
-						// pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything. Anchor it to the
-						// search root so directories above the root (e.g. an ancestor named 'src') cannot match.
+						// mode it matches against the absolute candidate path. Anchor a path-containing pattern
+						// like 'src/**/*.spec.ts' at the search root, as grep's glob is: it must not match through
+						// an ancestor of the root, nor a nested directory such as 'lib/src/'.
 						// A leading './' already means the search root; the anchor below would turn it into '/./'.
 						const rootPattern = pattern.replace(/^(\.\/)+/, "");
 						let effectivePattern = rootPattern;
@@ -242,7 +242,7 @@ export function createFindToolDefinition(
 								const root = toPosixPath(searchPath)
 									.replace(/[*?[\]{}]/g, "[$&]")
 									.replace(/\/$/, "");
-								effectivePattern = `${root}/${rootPattern.startsWith("**/") || rootPattern === "**" ? "" : "**/"}${rootPattern}`;
+								effectivePattern = `${root}/${rootPattern}`;
 								// fd's smart case would read the root's letters; decide it from the user's pattern.
 								if (rootPattern === rootPattern.toLowerCase()) args.push("--ignore-case");
 							}
