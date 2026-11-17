@@ -123,9 +123,11 @@ async function runShutdown(
 }
 
 describe("shutdown signals during cleanup (#11752)", () => {
-	it("lets an RPC shutdown started by stdin EOF finish when SIGTERM follows in the same tick", async () => {
-		const run = await runShutdown(["--mode", "rpc"], (child) => {
+	it("lets an RPC shutdown started by stdin EOF finish when SIGTERM follows", async () => {
+		// SIGTERM sent in the same tick as EOF can reach the child first; that order is the SIGTERM-first case below.
+		const run = await runShutdown(["--mode", "rpc"], async (child, cleanupStarted) => {
 			child.stdin?.end();
+			await vi.waitFor(() => expect(existsSync(cleanupStarted)).toBe(true), { timeout: 20_000, interval: 20 });
 			child.kill("SIGTERM");
 		});
 
