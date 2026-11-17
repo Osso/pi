@@ -6,9 +6,9 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import type { Writable } from "node:stream";
-import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { SessionStats } from "../../core/agent-session.ts";
+import type { AgentSessionEvent, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
@@ -51,7 +51,7 @@ export interface ModelInfo {
 	reasoning: boolean;
 }
 
-export type RpcEventListener = (event: AgentEvent) => void;
+export type RpcEventListener = (event: AgentSessionEvent) => void;
 
 // ============================================================================
 // RPC Client
@@ -467,7 +467,7 @@ export class RpcClient {
 
 	/**
 	 * Wait for agent to become idle (no streaming).
-	 * Resolves when agent_end event is received.
+	 * Resolves on agent_settled, after any automatic retry, compaction or queued continuation.
 	 */
 	waitForIdle(timeout = 60000): Promise<void> {
 		return new Promise((resolve, reject) => {
@@ -477,7 +477,7 @@ export class RpcClient {
 			}, timeout);
 
 			const unsubscribe = this.onEvent((event) => {
-				if (event.type === "agent_end") {
+				if (event.type === "agent_settled") {
 					clearTimeout(timer);
 					unsubscribe();
 					resolve();
@@ -489,9 +489,9 @@ export class RpcClient {
 	/**
 	 * Collect events until agent becomes idle.
 	 */
-	collectEvents(timeout = 60000): Promise<AgentEvent[]> {
+	collectEvents(timeout = 60000): Promise<AgentSessionEvent[]> {
 		return new Promise((resolve, reject) => {
-			const events: AgentEvent[] = [];
+			const events: AgentSessionEvent[] = [];
 			const timer = setTimeout(() => {
 				unsubscribe();
 				reject(new Error(`Timeout collecting events. Stderr: ${this.stderr}`));
@@ -499,7 +499,7 @@ export class RpcClient {
 
 			const unsubscribe = this.onEvent((event) => {
 				events.push(event);
-				if (event.type === "agent_end") {
+				if (event.type === "agent_settled") {
 					clearTimeout(timer);
 					unsubscribe();
 					resolve(events);
@@ -511,9 +511,9 @@ export class RpcClient {
 	/**
 	 * Send prompt and wait for completion, returning all events.
 	 */
-	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<AgentEvent[]> {
+	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<AgentSessionEvent[]> {
 		const eventsPromise = this.collectEvents(timeout);
-		// A rejected prompt never reaches agent_end; keep the collector's later timeout from going unhandled.
+		// A rejected prompt never reaches agent_settled; keep the collector's later timeout from going unhandled.
 		await this.prompt(message, images).catch((error: unknown) => {
 			eventsPromise.catch(() => {});
 			throw error;
@@ -551,7 +551,7 @@ export class RpcClient {
 			// Otherwise it's an event. Iterate a snapshot so a listener that unsubscribes
 			// during dispatch does not cause later listeners to miss this event.
 			for (const listener of [...this.eventListeners]) {
-				listener(record as unknown as AgentEvent);
+				listener(record as unknown as AgentSessionEvent);
 			}
 		} catch {
 			// Ignore non-JSON lines

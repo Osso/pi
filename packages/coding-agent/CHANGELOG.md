@@ -270,6 +270,7 @@
 
 ### Fixed
 
+- `RpcClient.waitForIdle()`, `collectEvents()` and `promptAndWait()` now resolve on `agent_settled` instead of the first `agent_end`, so they no longer return the failed attempt while an automatic retry, compaction or queued continuation is still running. Their events are typed as `AgentSessionEvent` (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - A Supervisor `escalate` reply that arrives after the user answered the question in the local panel is no longer delivered to the model as a stray `supervisor_response` message. Late Supervisor answers, and late escalations of questions not answered locally (for example after a restart), are still delivered.
 - Fixed answers to a nonblocking `ask_questions` call never appearing in the TUI when `hideCoordinationMessages` is on: the inbox reply was hidden as a coordination message. Answers to the session's own questions now always show, as `User answered questions:` (or `Supervisor answered questions:`) followed by each question and answer, without the mailbox envelope or request ID.
 - Fixed a steered child agent whose turn failed being recorded with only `Runtime mailbox steering turn failed`; the agent's error now carries the provider error that ended the turn.
