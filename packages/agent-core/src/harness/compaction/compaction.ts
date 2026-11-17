@@ -578,15 +578,8 @@ export function prepareCompaction(
 		return ok(undefined);
 	}
 
-	let prevCompactionIndex = -1;
-	for (let i = pathEntries.length - 1; i >= 0; i--) {
-		const entry = pathEntries[i];
-		if (!entry) throw new Error(`Missing session entry at index ${i}`);
-		if (entry.type === "compaction") {
-			prevCompactionIndex = i;
-			break;
-		}
-	}
+	let prevCompactionIndex = pathEntries.length - 1;
+	while (prevCompactionIndex >= 0 && pathEntries[prevCompactionIndex]?.type !== "compaction") prevCompactionIndex--;
 
 	let previousSummary: string | undefined;
 	let boundaryStart = 0;
@@ -598,7 +591,12 @@ export function prepareCompaction(
 	}
 	const boundaryEnd = pathEntries.length;
 
-	const tokensBefore = estimateContextTokens(buildSessionContext(pathEntries).messages).tokens;
+	const contextMessages = buildSessionContext(pathEntries).messages;
+	// Usage on messages kept by the previous compaction describes the old, larger context.
+	const hasFreshUsage = prevCompactionIndex < 0 || getLastAssistantUsage(pathEntries.slice(prevCompactionIndex + 1));
+	const tokensBefore = hasFreshUsage
+		? estimateContextTokens(contextMessages).tokens
+		: contextMessages.reduce((sum, message) => sum + estimateTokens(message), 0);
 
 	const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentMessages);
 	const firstKeptEntry = pathEntries[cutPoint.firstKeptEntryIndex];

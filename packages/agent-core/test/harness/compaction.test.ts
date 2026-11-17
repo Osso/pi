@@ -569,6 +569,22 @@ describe("harness compaction", () => {
 		expect(preparation?.tokensBefore).toBe(estimateContextTokens(buildSessionContext(pathEntries).messages).tokens);
 	});
 
+	it("estimates tokensBefore from content when only pre-compaction usage remains", () => {
+		const u1 = createMessageEntry(createUserMessage("user msg 1"));
+		const a1 = createMessageEntry(createAssistantMessage("assistant msg 1", createMockUsage(150_000, 1000)), u1.id);
+		const compaction1 = createCompactionEntry("First summary", u1.id, a1.id);
+		const u2 = createMessageEntry(createUserMessage("user msg 2"), compaction1.id);
+		const pathEntries = [u1, a1, compaction1, u2];
+
+		const preparation = getOrThrow(
+			prepareCompaction(pathEntries, { enabled: true, reserveTokens: 100, keepRecentMessages: 1 }),
+		);
+
+		const messages = buildSessionContext(pathEntries).messages;
+		expect(preparation?.tokensBefore).toBe(messages.reduce((sum, message) => sum + estimateTokens(message), 0));
+		expect(preparation?.tokensBefore).toBeLessThan(1000);
+	});
+
 	it("keeps the recent turn while preserving prior file-operation details", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1"));
 		const assistantMessage: AssistantMessage = {
