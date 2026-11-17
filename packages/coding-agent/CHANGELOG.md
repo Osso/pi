@@ -270,6 +270,7 @@
 
 ### Fixed
 
+- A Supervisor `escalate` reply that arrives after the user answered the question in the local panel is no longer delivered to the model as a stray `supervisor_response` message. Late Supervisor answers, and late escalations of questions not answered locally (for example after a restart), are still delivered.
 - Fixed answers to a nonblocking `ask_questions` call never appearing in the TUI when `hideCoordinationMessages` is on: the inbox reply was hidden as a coordination message. Answers to the session's own questions now always show, as `User answered questions:` (or `Supervisor answered questions:`) followed by each question and answer, without the mailbox envelope or request ID.
 - Fixed a steered child agent whose turn failed being recorded with only `Runtime mailbox steering turn failed`; the agent's error now carries the provider error that ended the turn.
 - Fixed child agents failing on a retryable provider error, such as `WebSocket closed 1000`, when their prompt was queued behind a running turn: the dispatcher read the result as soon as the agent went idle, before the session's automatic retry ran, and the retry was dropped. Child turns now wait until the whole dispatch settles.

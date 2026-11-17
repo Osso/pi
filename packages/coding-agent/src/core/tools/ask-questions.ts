@@ -231,10 +231,10 @@ async function askQuestions(
 	try {
 		const result = await queueQuestions(ctx.ui, params.questions, race);
 		if (result.answeredBy) supervisor?.stop();
-		else supervisor?.withdraw();
+		else supervisor?.withdraw(!result.cancelled);
 		return result;
 	} catch (error) {
-		supervisor?.withdraw();
+		supervisor?.withdraw(false);
 		throw error;
 	}
 }

@@ -265,6 +265,14 @@ interface ReplyWaiter {
 /** Runtimes of this process waiting for Supervisor replies, by route key. */
 const waiters = new Map<string, ReplyWaiter>();
 
+/** Route keys of questions the user answered locally in this process. */
+const locallyAnsweredQuestions = new Set<string>();
+
+/** Records that the user answered a question locally, so a late escalation for it is stale. */
+export function markSupervisorQuestionAnsweredLocally(route: SupervisorReplyRoute): void {
+	locallyAnsweredQuestions.add(routeKey(route));
+}
+
 /** The waited-for route key of a reply or of a relay "not running" notice for a request. */
 function readMailKey(message: RuntimeMailboxMessage): string | undefined {
 	const messageId = message.storeRef.messageId;
@@ -288,7 +296,8 @@ function readReply(message: RuntimeMailboxMessage, waiter: ReplyWaiter): Supervi
 /**
  * Hands a claimed mailbox message to its waiting caller. Returns true when the message was Supervisor
  * mail for this process: delivered to a waiter, or a stale reply dropped. A question reply with no
- * waiter (its panel was lost to a restart) returns false so it reaches the model as an inbox message.
+ * waiter (its panel was lost to a restart) returns false so it reaches the model as an inbox message,
+ * except an escalation of a question the user already answered locally.
  */
 export function deliverSupervisorMail(message: RuntimeMailboxMessage): boolean {
 	const key = readMailKey(message);
@@ -299,7 +308,9 @@ export function deliverSupervisorMail(message: RuntimeMailboxMessage): boolean {
 		return true;
 	}
 	if (!message.storeRef.messageId.startsWith(REPLY_PREFIX)) return true;
-	return parseBody(message).requestKind !== "question";
+	const reply = parseBody(message) as unknown as SupervisorReply;
+	if (reply.requestKind !== "question") return true;
+	return reply.response.kind === "escalate" && locallyAnsweredQuestions.has(key);
 }
 
 /**

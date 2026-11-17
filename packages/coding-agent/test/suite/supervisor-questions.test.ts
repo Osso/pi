@@ -10,6 +10,7 @@ import type { ExtensionUIContext } from "../../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../../src/core/keybindings.ts";
 import { getControlDbPath, readSupervisorRequest } from "../../src/core/session-control-db.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
+import { sendSupervisorReply } from "../../src/supervisor/mail.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
@@ -93,6 +94,16 @@ function resultText(harness: Harness): string {
 	return askResult(harness)
 		.content.map((part) => (part.type === "text" ? part.text : ""))
 		.join("");
+}
+
+function inboxText(harness: Harness): string {
+	return harness.session.messages
+		.flatMap((message) =>
+			message.role === "user" && Array.isArray(message.content)
+				? message.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
+				: [],
+		)
+		.join("\n");
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -215,6 +226,46 @@ describe("Supervisor question answering", () => {
 		expect(mail).toEqual([]);
 	}, 45_000);
 
+	it("drops an escalation that arrives after a local answer but delivers a late answer", async () => {
+		const controlDbPath = sharedControlDb();
+		const askerUi = panelUi();
+		const asker = await openSession(controlDbPath, askerUi, "test-supervisor");
+		asker.setResponses([askCall(true), fauxAssistantMessage("Using vitest."), fauxAssistantMessage("Noted.")]);
+		const turn = asker.session.prompt("Pick a runner.");
+		await waitFor(() => askerUi.panels.length === 1);
+		askerUi.panels[0]?.handleInput?.(ENTER);
+		await turn;
+		const route = {
+			sessionId: asker.sessionManager.getSessionId(),
+			agentId: null,
+			requestId: askResult(asker).toolCallId,
+		};
+
+		const reply = (response: Parameters<typeof sendSupervisorReply>[3]["response"]) =>
+			sendSupervisorReply(controlDbPath, "test-supervisor", route, { requestKind: "question", response });
+		reply({ kind: "escalate", reason: "Late escalation." });
+		reply({ kind: "answer", answers: { [QUESTION]: { answer: "jest", reason: "Late answer." } } });
+		await waitFor(() => inboxText(asker).includes("Late answer."));
+
+		expect(inboxText(asker)).not.toContain("Late escalation.");
+	});
+
+	it("delivers a late escalation of a question that was not answered locally", async () => {
+		const controlDbPath = sharedControlDb();
+		const asker = await openSession(controlDbPath, undefined, "test-supervisor");
+		asker.setResponses([fauxAssistantMessage("Ready."), fauxAssistantMessage("Noted.")]);
+		await asker.session.prompt("Start.");
+		// A panel lost to a restart: the question is unresolved and nothing waits for its reply.
+		const route = { sessionId: asker.sessionManager.getSessionId(), agentId: null, requestId: "lost-panel" };
+
+		sendSupervisorReply(controlDbPath, "test-supervisor", route, {
+			requestKind: "question",
+			response: { kind: "escalate", reason: "Late escalation." },
+		});
+
+		await waitFor(() => inboxText(asker).includes("Late escalation."));
+	});
+
 	it("delivers a Supervisor answer to a nonblocking question through the inbox", async () => {
 		const controlDbPath = sharedControlDb();
 		const supervisor = await openSupervisor(controlDbPath);
@@ -229,17 +280,9 @@ describe("Supervisor question answering", () => {
 		asker.setResponses([askCall(false), fauxAssistantMessage("Continuing."), fauxAssistantMessage("Noted.")]);
 		await asker.session.prompt("Pick a runner.");
 		expect(askResult(asker).details).toMatchObject({ queued: true });
-		const inboxText = () =>
-			asker.session.messages
-				.flatMap((message) =>
-					message.role === "user" && Array.isArray(message.content)
-						? message.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
-						: [],
-				)
-				.join("\n");
-		await waitFor(() => inboxText().includes("Supervisor answered questions (request"));
+		await waitFor(() => inboxText(asker).includes("Supervisor answered questions (request"));
 
-		expect(inboxText()).toContain("jest (Supervisor: The repo already uses jest)");
+		expect(inboxText(asker)).toContain("jest (Supervisor: The repo already uses jest)");
 		expect(askerUi.closed).toBe(1);
 	});
 });
