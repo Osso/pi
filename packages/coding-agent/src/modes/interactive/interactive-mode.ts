@@ -153,6 +153,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
+import { takeUnreportedDiagnostics } from "../runtime-diagnostics.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
 
 const MAX_AGENT_LOG_VIEW_BYTES = 64 * 1024;
@@ -691,6 +692,11 @@ export class InteractiveMode {
 		});
 		this.runtimeHost.setRebindSession(async () => {
 			await this.rebindCurrentSession({ renderBeforeBind: true });
+			for (const { type, message } of takeUnreportedDiagnostics(this.runtimeHost)) {
+				if (type === "error") this.showError(message);
+				else if (type === "warning") this.showWarning(message);
+				else this.showStatus(message);
+			}
 		});
 		this.version = VERSION;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
@@ -4184,14 +4190,6 @@ export class InteractiveMode {
 		});
 	}
 
-	private schedulePartialUpdateRender(): void {
-		this.scheduleDeferredRender(() => this.ui.requestRender());
-	}
-
-	private scheduleTranscriptTailUpdateRender(): void {
-		this.scheduleDeferredRender(() => this.transcriptTailRegion.requestRender());
-	}
-
 	private scheduleDeferredRender(render: () => void): void {
 		if (this.partialUpdateRenderTimeout) return;
 		this.partialUpdateRenderTimeout = setTimeout(() => {
@@ -4433,7 +4431,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
-					this.scheduleTranscriptTailUpdateRender();
+					this.scheduleDeferredRender(() => this.transcriptTailRegion.requestRender());
 				}
 				break;
 
@@ -4508,7 +4506,7 @@ export class InteractiveMode {
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.partialResult, isError: false }, true);
-					this.schedulePartialUpdateRender();
+					this.scheduleDeferredRender(() => this.ui.requestRender());
 				}
 				break;
 			}

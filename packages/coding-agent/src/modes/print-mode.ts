@@ -14,6 +14,7 @@ import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../utils/shell.ts";
 import { toJsonPrintModeEvent } from "./json-event.ts";
+import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "./runtime-diagnostics.ts";
 
 /**
  * Options for print mode.
@@ -83,12 +84,11 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 
 	registerSignalHandlers();
 
-	runtimeHost.setRebindSession(async () => {
-		await rebindSession();
-	});
+	runtimeHost.setRebindSession(() => rebindSession());
 
 	const rebindSession = async (): Promise<void> => {
 		session = runtimeHost.session;
+		writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtimeHost));
 		// Subscribe before binding so events emitted by session_start handlers reach the JSON output.
 		unsubscribe?.();
 		unsubscribe = session.subscribe((event) => {

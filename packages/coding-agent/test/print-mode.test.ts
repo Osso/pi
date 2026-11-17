@@ -41,6 +41,7 @@ type FakeRuntimeHost = {
 	switchSession: ReturnType<typeof vi.fn>;
 	dispose: ReturnType<typeof vi.fn>;
 	setRebindSession: ReturnType<typeof vi.fn>;
+	diagnostics: [];
 };
 
 function createAssistantMessage(options?: {
@@ -103,6 +104,7 @@ function createRuntimeHost(messages: AssistantMessage | AgentMessage[]): FakeRun
 			await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 		}),
 		setRebindSession: vi.fn(),
+		diagnostics: [],
 	};
 }
 

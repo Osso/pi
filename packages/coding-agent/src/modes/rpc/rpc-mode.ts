@@ -33,6 +33,7 @@ import { getControlDbPath } from "../../core/session-control-db.ts";
 import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
+import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "../runtime-diagnostics.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import { runRpcBash } from "./rpc-bash.ts";
 import type {
@@ -320,12 +321,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		},
 	});
 
-	runtimeHost.setRebindSession(async () => {
-		await rebindSession();
-	});
+	runtimeHost.setRebindSession(() => rebindSession());
 
 	const rebindSession = async (): Promise<void> => {
 		session = runtimeHost.session;
+		writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtimeHost)); // stderr: stdout carries the RPC protocol
 		// Subscribe before binding so events emitted by session_start handlers reach the client.
 		unsubscribe?.();
 		unsubscribeBackpressure?.();

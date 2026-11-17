@@ -142,6 +142,7 @@ import {
 	resolveThemeSetting,
 	stopThemeWatcher,
 } from "./modes/interactive/theme/theme.ts";
+import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "./modes/runtime-diagnostics.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { isExecutableAvailable } from "./utils/executable.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
@@ -182,14 +183,6 @@ function collectSettingsDiagnostics(
 		type: "warning",
 		message: `(${context}, ${scope} settings) ${error.message}`,
 	}));
-}
-
-function reportDiagnostics(diagnostics: readonly AgentSessionRuntimeDiagnostic[]): void {
-	for (const diagnostic of diagnostics) {
-		const color = diagnostic.type === "error" ? chalk.red : diagnostic.type === "warning" ? chalk.yellow : chalk.dim;
-		const prefix = diagnostic.type === "error" ? "Error: " : diagnostic.type === "warning" ? "Warning: " : "";
-		console.error(color(`${prefix}${diagnostic.message}`));
-	}
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
@@ -750,7 +743,7 @@ function rejectInvalidStandaloneWorkerStartup(args: string[], parsed: Args): voi
 	const requestsResidentConsole = args.includes("--architect");
 	const hasArgumentErrors = parsed.diagnostics.some((diagnostic) => diagnostic.type === "error");
 	if (hasArgumentErrors || requestsResidentConsole) {
-		reportDiagnostics(parsed.diagnostics);
+		writeDiagnosticsToStderr(parsed.diagnostics);
 		if (requestsResidentConsole) {
 			console.error("Error: resident consoles are unavailable in standalone worker mode");
 		}
@@ -856,7 +849,7 @@ function readTerminalExportSettings(): SettingsManager {
 }
 
 async function exportTerminalHistory(parsed: Args): Promise<void> {
-	reportDiagnostics(parsed.diagnostics);
+	writeDiagnosticsToStderr(parsed.diagnostics);
 	if (parsed.diagnostics.some((diagnostic) => diagnostic.type === "error")) {
 		process.exitCode = 1;
 		return;
@@ -1051,7 +1044,7 @@ export async function main(args: string[], options?: MainOptions) {
 	time("runMigrations");
 
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
-	reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
+	writeDiagnosticsToStderr(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
 
 	// Experimental first-time setup: theme choice and analytics opt-in.
 	// Runs before any runtime services are created so the chosen settings apply everywhere.
@@ -1296,7 +1289,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (parsed.listModels !== undefined) {
-		reportDiagnostics(runtime.diagnostics); // e.g. why a --models pattern matched nothing
+		writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtime)); // e.g. why a --models pattern matched nothing
 		await listModels(modelRegistry, typeof parsed.listModels === "string" ? parsed.listModels : undefined);
 		process.exit(0);
 	}
@@ -1336,7 +1329,8 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	time("resolveModelScope");
-	reportDiagnostics(runtime.diagnostics);
+	// Taking them marks them reported, so the modes do not repeat them after a session replacement.
+	writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtime));
 	if (runtime.diagnostics.some((diagnostic) => diagnostic.type === "error")) {
 		if (runtime.diagnostics.some((diagnostic) => diagnostic.message.includes("Failed to load extension"))) {
 			console.error(chalk.yellow(EXTENSION_LOAD_FAILURE_HINT));
