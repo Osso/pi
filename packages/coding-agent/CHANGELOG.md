@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed answers to a nonblocking `ask_questions` call never appearing in the TUI when `hideCoordinationMessages` is on: the inbox reply was hidden as a coordination message. Answers to the session's own questions now always show, as `User answered questions:` (or `Supervisor answered questions:`) followed by each question and answer, without the mailbox envelope or request ID.
 - Fixed a steered child agent whose turn failed being recorded with only `Runtime mailbox steering turn failed`; the agent's error now carries the provider error that ended the turn.
 - Fixed child agents failing on a retryable provider error, such as `WebSocket closed 1000`, when their prompt was queued behind a running turn: the dispatcher read the result as soon as the agent went idle, before the session's automatic retry ran, and the retry was dropped. Child turns now wait until the whole dispatch settles.
 - Fixed detached-job artifact cleanup failing with `Detached artifact cleanup failed: ENOENT ... lstat '/proc/<pid>'`, and Pyrun process-group termination throwing the same error, when a process exited while `/proc` was being listed. Both now list `/proc` by name.

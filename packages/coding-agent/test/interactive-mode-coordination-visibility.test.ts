@@ -388,6 +388,40 @@ describe("coordination visibility", () => {
 		expect(harness.session.getQueuedMessagePreviews()).toEqual({ steering: [], followUp: [] });
 	});
 
+	// 2026-11-17: with coordination messages hidden, the answer to a nonblocking ask_questions call never
+	// appeared; the call row kept showing "(queued)".
+	test("answers to the session's own questions stay visible without the mailbox envelope", async () => {
+		const harness = await createHarness({ settings: { hideCoordinationMessages: true } });
+		harnesses.push(harness);
+		const { view } = createView(harness);
+		const ownReply = (body: string) =>
+			formatRuntimeMailboxPrompt(
+				{
+					...mailbox,
+					kind: "reply",
+					sender: { sessionId: "recipient-session", agentId: null },
+					body,
+				},
+				"recipient-session",
+			);
+		const answered = ownReply(
+			"User answered questions (request call_1wyP|fc_07c8):\n- May I disable the cache? → Approve the CLI-only fix",
+		);
+		view.addMessageToChat(createRuntimeMailboxUserMessage(answered, "extension"));
+		view.addMessageToChat(
+			createRuntimeMailboxUserMessage(ownReply("Questions cancelled (request call_2)\n"), "extension"),
+		);
+		view.addMessageToChat(createRuntimeMailboxUserMessage(mailboxText, "extension"));
+
+		const shown = render(view.chatContainer);
+		expect(shown).toContain("User answered questions:");
+		expect(shown).toContain("- May I disable the cache? → Approve the CLI-only fix");
+		expect(shown).toContain("Questions cancelled");
+		expect(shown).not.toContain("(request");
+		expect(shown).not.toContain("From:");
+		expect(shown).not.toContain("child failed: owner exited");
+	});
+
 	test("periodic audit reports render as their tag line while other mailbox text stays whole", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

@@ -6,8 +6,25 @@ const MAILBOX_ENVELOPE =
 
 const PERIODIC_AUDIT_TAG = /^\[periodic-checks: [^\n]+\]$/;
 
-/** Shows a single delivered periodic-checks audit report as its leading `[periodic-checks: …]` tag line only. */
+/** The inbox reply to this session's own nonblocking ask_questions call: answered, cancelled or failed. */
+const QUESTION_REPLY =
+	/^(?:User|Supervisor) answered questions \(request [^\n]*\):|^Questions (?:cancelled|failed) \(request /;
+
+function readQuestionReply(text: string): string | undefined {
+	if (text.match(/^From:$/gm)?.length !== 1) return undefined;
+	const body = text.replace(MAILBOX_ENVELOPE, "");
+	if (body === text || !QUESTION_REPLY.test(body)) return undefined;
+	// The request ID is a long tool call ID; the questions identify the call.
+	return body.replace(/ \(request [^\n]*?\)(:?)/, "$1");
+}
+
+/**
+ * Shows the answers to the user's own questions without the mailbox envelope, and a single delivered
+ * periodic-checks audit report as its leading `[periodic-checks: …]` tag line only.
+ */
 export function compactCoordinationText(text: string, coordination: boolean): string {
+	const questionReply = readQuestionReply(text);
+	if (questionReply !== undefined) return questionReply;
 	if (!coordination || text.match(/^From:$/gm)?.length !== 1) return text;
 	const [tag] = text.replace(MAILBOX_ENVELOPE, "").split("\n", 1);
 	return tag !== undefined && PERIODIC_AUDIT_TAG.test(tag) ? tag : text;
@@ -30,5 +47,6 @@ export function isCoordinationMessage(message: AgentMessage): boolean {
 					.filter((part) => part.type === "text")
 					.map((part) => part.text)
 					.join("");
-	return MAILBOX_ENVELOPE.test(text);
+	// Answers to the user's own questions stay visible when coordination messages are hidden.
+	return MAILBOX_ENVELOPE.test(text) && readQuestionReply(text) === undefined;
 }
