@@ -12,6 +12,7 @@ import {
 	type UserMessage,
 	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
+import { endsInterruptibleBlock, STEERING_INTERRUPTION_NOTE } from "./steering-interruption.ts";
 import { capToolResult } from "./tool-result-cap.ts";
 import type {
 	AgentContext,
@@ -27,7 +28,6 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
-export const STEERING_INTERRUPTION_NOTE = "(Interrupted after thinking by a steering message.)";
 const END_TURN_CONTINUATION_INSTRUCTION =
 	"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
 
@@ -521,7 +521,7 @@ async function streamAssistantResponse(
 						assistantMessageEvent: event,
 						message: { ...partialMessage },
 					});
-					if (event.type === "thinking_end" && config.shouldInterruptAfterThinking?.()) {
+					if (endsInterruptibleBlock(event.type, partialMessage) && config.shouldInterruptAfterBlock?.()) {
 						requestController.abort();
 						// Keep the completed blocks; the note gives replayed thinking the following item providers require.
 						const note = { type: "text" as const, text: STEERING_INTERRUPTION_NOTE };

@@ -20,7 +20,7 @@
 
 ### Changed
 
-- `Agent.steer()` during a thinking block now waits for the block to end instead of aborting mid-thought; the request ends there, the completed signed thinking is kept with a short interruption note (stopReason `stop`), and the run continues with the steering message. New `AgentLoopConfig.shouldInterruptAfterThinking` hook and exported `STEERING_INTERRUPTION_NOTE`.
+- `Agent.steer()` during a thinking or text block now waits for the block to end instead of aborting mid-block; the request ends there, the completed blocks are kept with a short interruption note (stopReason `stop`), and the run continues with the steering message. A response that contains a tool call finishes, and the steer arrives after the tool results. New `AgentLoopConfig.shouldInterruptAfterBlock` hook and exported `STEERING_INTERRUPTION_NOTE`.
 
 ### Fixed
 
