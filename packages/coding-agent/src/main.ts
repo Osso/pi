@@ -57,7 +57,7 @@ import specValidationExtension from "../extensions/spec-validation/src/index.ts"
 import supervisorSessionExtension from "../extensions/supervisor-session/src/index.ts";
 import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
-import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+import { type Args, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
 import { handleDebugCommand } from "./cli/debug-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -201,10 +201,6 @@ function resolveAppMode(parsed: Args, stdinIsTTY: boolean, stdoutIsTTY: boolean)
 		return "print";
 	}
 	return "interactive";
-}
-
-function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc"> {
-	return appMode === "json" ? "json" : "text";
 }
 
 function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
@@ -1255,7 +1251,10 @@ export async function main(args: string[], options?: MainOptions) {
 		if (created.session.model && cliThinkingOverride) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
 		}
-
+		// "Could not restore model x/y. Using a/b." is recomputed on /resume and /fork; every mode reports diagnostics.
+		if (created.modelFallbackMessage && created.session.model) {
+			diagnostics.push({ type: "warning", message: created.modelFallbackMessage });
+		}
 		return { ...created, services, diagnostics };
 	};
 	time("createRuntime");
@@ -1323,7 +1322,6 @@ export async function main(args: string[], options?: MainOptions) {
 	initTheme(settingsManager.getTheme(), appMode === "interactive");
 	time("initTheme");
 
-	// Show deprecation warnings in interactive mode
 	if (appMode === "interactive" && deprecationWarnings.length > 0) {
 		await showDeprecationWarnings(deprecationWarnings);
 	}
@@ -1362,7 +1360,7 @@ export async function main(args: string[], options?: MainOptions) {
 	} else if (appMode === "interactive") {
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,
-			modelFallbackMessage,
+			modelFallbackMessage: session.model ? undefined : modelFallbackMessage, // no-model login guidance only
 			autoTrustOnReloadCwd,
 			initialMessage,
 			initialImages,
@@ -1410,7 +1408,7 @@ export async function main(args: string[], options?: MainOptions) {
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
-			mode: toPrintOutputMode(appMode),
+			mode: appMode === "json" ? "json" : "text",
 			messages: parsed.messages,
 			initialMessage,
 			initialImages,

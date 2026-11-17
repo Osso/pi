@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed the "Could not restore model" warning being dropped after `/resume` or `/fork` into a session whose model is gone, and in print, JSON and RPC modes; it is now reported like other runtime diagnostics, in the chat or on stderr ([#12234](https://github.com/earendil-works/pi/pull/12234))
 - Fixed diagnostics that first appear on a session replacement (`/new`, `/resume`, `/fork`, RPC `new_session`/`switch_session`), such as an unmatched `enabledModels` pattern or a failed extension load, being discarded; they now show in the chat in interactive mode and on stderr in print, JSON and RPC modes ([#12115](https://github.com/earendil-works/pi/issues/12115))
 - Fixed a closed child agent starting a new turn from agent messages queued during its aborted turn, which failed with `Child agent ... model metadata update was rejected`
 - Fixed RPC `new_session`, `switch_session`, `fork` and `clone` running extension `session_start` handlers twice for the new session, and RPC clients missing events emitted by `session_start` handlers ([#10470](https://github.com/earendil-works/pi/issues/10470))
