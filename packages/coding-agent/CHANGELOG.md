@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed child agents failing on a retryable provider error, such as `WebSocket closed 1000`, when their prompt was queued behind a running turn: the dispatcher read the result as soon as the agent went idle, before the session's automatic retry ran, and the retry was dropped. Child turns now wait until the whole dispatch settles.
 - Fixed detached-job artifact cleanup failing with `Detached artifact cleanup failed: ENOENT ... lstat '/proc/<pid>'`, and Pyrun process-group termination throwing the same error, when a process exited while `/proc` was being listed. Both now list `/proc` by name.
 - Fixed an exception thrown by an extension's `pi.events` handler being printed with `console.error` over the interactive TUI. It is now reported like other extension errors, and dropped once the session that registered the handler is replaced (ported from upstream #12233).
 - Fixed named Pyrun sessions keeping their proxy and Python process for the life of the Pi process: a restart keeps the process ID, so every `session_id` an agent used stayed alive, and agent-server ran out of memory with 588 proxies. A proxy now also exits after an hour without an evaluation (`PI_PYRUN_SESSION_IDLE_MS` overrides the hour)

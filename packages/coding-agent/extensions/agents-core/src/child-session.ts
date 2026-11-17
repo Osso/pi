@@ -22,7 +22,7 @@ function trackFinishedToolCalls(
 	session: UnboundChildAgentSession,
 ): ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>> {
 	const finished = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
-	session.subscribe?.((event) => {
+	session.subscribe((event) => {
 		if (event.type === "tool_execution_end") finished.set(event.toolCallId, event);
 		if (event.type === "message_end" && event.message.role === "toolResult")
 			finished.delete(event.message.toolCallId);
@@ -38,6 +38,18 @@ function trackFinishedToolCalls(
 async function promptChildTurn(session: UnboundChildAgentSession, text: string): Promise<void> {
 	await session.prompt(text, { streamingBehavior: "followUp" });
 	await session.agent.waitForIdle();
+	// The agent is idle while the session waits to retry a failed request; the dispatch has not ended yet.
+	while (session.isDispatching) await nextAgentSettled(session);
+}
+
+function nextAgentSettled(session: UnboundChildAgentSession): Promise<void> {
+	return new Promise((resolve) => {
+		const unsubscribe = session.subscribe((event) => {
+			if (event.type !== "agent_settled") return;
+			unsubscribe();
+			resolve();
+		});
+	});
 }
 
 export function bindProductionChildSession(session: UnboundChildAgentSession): LiveChildAgentSession {
@@ -67,7 +79,7 @@ export function bindProductionChildSession(session: UnboundChildAgentSession): L
 		setThinkingLevel: session.setThinkingLevel.bind(session),
 		cycleModel: session.cycleModel.bind(session),
 		prompt: (text) => promptChildTurn(session, text),
-		subscribe: session.subscribe?.bind(session),
+		subscribe: session.subscribe.bind(session),
 		get transcript() {
 			return session.transcript;
 		},

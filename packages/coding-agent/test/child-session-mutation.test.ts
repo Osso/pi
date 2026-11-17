@@ -32,6 +32,8 @@ class LiveChildSession implements UnboundChildAgentSession {
 	sessionManager = { getBranch: () => [] };
 	extensionRunner = { emit: async () => {} };
 	agent = { waitForIdle: async () => {} };
+	isDispatching = false;
+	subscribe = () => () => {};
 	messages = [];
 
 	get model() {

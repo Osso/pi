@@ -187,6 +187,8 @@ export interface UnboundChildAgentSession
 		"prompt"
 	> {
 	prompt: AgentSession["prompt"];
+	subscribe: AgentSession["subscribe"];
+	readonly isDispatching: boolean;
 	readonly agent: Pick<AgentSession["agent"], "waitForIdle">;
 	readonly sessionManager: Pick<SessionManager, "getBranch">;
 	extensionRunner: { emit(event: SessionShutdownEvent): Promise<unknown> };

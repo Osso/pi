@@ -1490,13 +1490,7 @@ export class AgentSession {
 	}
 
 	private _lastRuntimeMailboxAssistant(messages: AgentMessage[]): AssistantMessage | undefined {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const message = messages[index];
-			if (message?.role === "assistant") {
-				return message as AssistantMessage;
-			}
-		}
-		return undefined;
+		return [...messages].reverse().find((message): message is AssistantMessage => message.role === "assistant");
 	}
 
 	private _readAgentEndSessionContinuation(event: AgentEvent): AgentEndSessionContinuation | undefined {
@@ -4758,6 +4752,11 @@ export class AgentSession {
 	get hasActiveRetry(): boolean {
 		const dispatch = this._thinkingTimeoutDispatch;
 		return this._retryAttempt > 0 || (dispatch?.recoveryUsed === true && !dispatch.cancelled);
+	}
+
+	/** From a turn's start to its agent_settled event: the agent is idle while a retry or compaction is pending. */
+	get isDispatching(): boolean {
+		return this._thinkingTimeoutDispatch !== undefined;
 	}
 
 	/** Whether auto-retry backoff sleep is currently in progress. */
