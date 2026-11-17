@@ -626,11 +626,11 @@ export function prepareCompaction(
 		return ok(undefined);
 	}
 	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
-	if (cutPoint.isSplitTurn) {
-		for (const msg of turnPrefixMessages) {
-			extractFileOpsFromMessage(msg, fileOps);
-		}
+	// Built-in branch summaries carry the file lists of the branch they replaced.
+	for (const entry of pathEntries.slice(boundaryStart, cutPoint.firstKeptEntryIndex)) {
+		if (entry.type === "branch_summary") addSummaryFileOps(entry, fileOps);
 	}
+	for (const msg of turnPrefixMessages) extractFileOpsFromMessage(msg, fileOps);
 
 	return ok({
 		firstKeptEntryId,

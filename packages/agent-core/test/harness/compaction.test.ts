@@ -626,6 +626,32 @@ describe("harness compaction", () => {
 		expect([...(preparation?.fileOps.written ?? [])]).toContain("written.ts");
 	});
 
+	it("keeps the file lists of a summarized branch summary", () => {
+		const branchSummary: BranchSummaryEntry = {
+			type: "branch_summary",
+			id: createId(),
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			fromId: "branch",
+			summary: "branch summary",
+			details: { readFiles: ["branch-read.ts"], modifiedFiles: ["branch-edit.ts"] },
+		};
+		const user = createMessageEntry(createUserMessage("old"), branchSummary.id);
+		const assistant = createMessageEntry(createAssistantMessage("assistant"), user.id);
+		const latestUser = createMessageEntry(createUserMessage("latest"), assistant.id);
+		const preparation = getOrThrow(
+			prepareCompaction([branchSummary, user, assistant, latestUser], {
+				enabled: true,
+				reserveTokens: 100,
+				keepRecentMessages: 1,
+			}),
+		);
+
+		expect(preparation?.messagesToSummarize[0]?.role).toBe("branchSummary");
+		expect([...(preparation?.fileOps.read ?? [])]).toEqual(["branch-read.ts"]);
+		expect([...(preparation?.fileOps.edited ?? [])]).toEqual(["branch-edit.ts"]);
+	});
+
 	it("prepares custom and branch summary entries for summarization", () => {
 		const branchSummary: BranchSummaryEntry = {
 			type: "branch_summary",
