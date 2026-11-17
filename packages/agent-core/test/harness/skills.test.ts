@@ -79,6 +79,18 @@ Use this skill.
 		expect(skills[0]?.filePath).toBe(join(root, "skills-link/example/SKILL.md"));
 	});
 
+	it("loads a skill whose file starts with a UTF-8 BOM", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.createDir("skills/bom", { recursive: true });
+		await env.writeFile("skills/bom/SKILL.md", "\uFEFF---\r\nname: bom\r\ndescription: BOM skill\r\n---\r\nBody.");
+
+		const { skills, diagnostics } = await loadSkills(env, "skills");
+
+		expect(diagnostics).toEqual([]);
+		expect(skills.map((skill) => [skill.name, skill.description])).toEqual([["bom", "BOM skill"]]);
+	});
+
 	it("preserves source info for sourced skills", async () => {
 		const root = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: root });

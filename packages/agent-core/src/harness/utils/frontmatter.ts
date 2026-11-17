@@ -8,7 +8,11 @@ export function parseFrontmatter<T extends Record<string, unknown>>(
 	content: string,
 ): Result<{ frontmatter: T; body: string }, Error> {
 	try {
-		const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		// Editors on Windows may save a UTF-8 BOM, which would hide the opening `---`.
+		const normalized = content
+			.replace(/^\uFEFF/, "")
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n");
 		const match = FRONTMATTER.exec(normalized);
 		if (!match) return { ok: true, value: { frontmatter: {} as T, body: normalized } };
 		const body = normalized.slice(match[0].length).trim();
