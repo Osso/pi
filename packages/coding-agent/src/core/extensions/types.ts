@@ -317,9 +317,7 @@ export interface CompactOptions {
 	onError?: (error: Error) => void;
 }
 
-/**
- * Context passed to extension event handlers.
- */
+/** Context passed to extension event handlers. */
 export type ExtensionMode = "tui" | "rpc" | "json" | "print";
 
 export interface ExtensionContext {
@@ -516,9 +514,7 @@ export interface ToolRenderContext<TState = unknown, TArgs = unknown> {
 	isError: boolean;
 }
 
-/**
- * Tool definition for registerTool().
- */
+/** Tool definition for registerTool(). */
 export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
 	/** Tool name (used in LLM tool calls) */
 	name: string;
@@ -836,6 +832,11 @@ export interface AgentEndEvent {
 	type: "agent_end";
 	messages: AgentMessage[];
 	sessionContinuation?: AgentEndSessionContinuation;
+}
+
+/** Fired once a run has settled: no automatic retry, compaction retry, or queued continuation follows. */
+export interface AgentSettledEvent {
+	type: "agent_settled";
 }
 
 /** Fired at the start of each turn */
@@ -1220,6 +1221,7 @@ export type ExtensionEvent =
 	| ModelRequestStartEvent
 	| ModelRequestEndEvent
 	| AgentEndEvent
+	| AgentSettledEvent
 	| TurnStartEvent
 	| TurnEndEvent
 	| MessageStartEvent
@@ -1371,9 +1373,7 @@ export interface ResolvedCommand extends RegisteredCommand {
 // biome-ignore lint/suspicious/noConfusingVoidType: void allows bare return statements
 export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContext) => Promise<R | void> | R | void;
 
-/**
- * ExtensionAPI passed to extension factory functions.
- */
+/** ExtensionAPI passed to extension factory functions. */
 export interface ExtensionAPI {
 	/** Working directory bound to this extension instance, available during factory activation. */
 	readonly cwd: string;
@@ -1418,6 +1418,7 @@ export interface ExtensionAPI {
 	on(event: "model_request_start", handler: ExtensionHandler<ModelRequestStartEvent>): void;
 	on(event: "model_request_end", handler: ExtensionHandler<ModelRequestEndEvent>): void;
 	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): void;
+	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): void;
 	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
 	on(event: "turn_end", handler: ExtensionHandler<TurnEndEvent>): void;
 	on(event: "message_start", handler: ExtensionHandler<MessageStartEvent>): void;
@@ -1848,10 +1849,7 @@ export interface ExtensionActions {
 	setThinkingLevel: SetThinkingLevelHandler;
 }
 
-/**
- * Actions for ExtensionContext (ctx.* in event handlers).
- * Required by all modes.
- */
+/** Actions for ExtensionContext (ctx.* in event handlers). Required by all modes. */
 export interface ExtensionContextActions {
 	getNoSupervisor?: () => boolean;
 	getModel: () => Model<Api> | undefined;

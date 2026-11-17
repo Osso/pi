@@ -1890,9 +1890,7 @@ export class AgentSession {
 		return this.agent.state.tools.map((t) => t.name);
 	}
 
-	/**
-	 * Get all configured tools with name, description, parameter schema, prompt guidelines, and source metadata.
-	 */
+	/** Get all configured tools with name, description, parameter schema, prompt guidelines, and source metadata. */
 	getAllTools(): ToolInfo[] {
 		return Array.from(this._toolDefinitions.values()).map(({ definition, sourceInfo }) => ({
 			name: definition.name,
@@ -2164,6 +2162,7 @@ export class AgentSession {
 		this._systemPromptOverride = undefined;
 		this._flushPendingBashMessages();
 		this._scheduleIdleCompaction();
+		void this._extensionRunner.emit({ type: "agent_settled" });
 		this._emit({
 			type: "agent_settled",
 			aborted:

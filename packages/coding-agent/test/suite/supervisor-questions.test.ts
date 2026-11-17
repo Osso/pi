@@ -165,6 +165,24 @@ describe("Supervisor question answering", () => {
 		expect(requestStatuses(controlDbPath)).toEqual(["completed"]);
 	});
 
+	it("returns the answer the Supervisor gives after an automatic retry", async () => {
+		const controlDbPath = sharedControlDb();
+		const supervisor = await openSupervisor(controlDbPath);
+		supervisor.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } });
+		supervisor.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "Request timed out." }),
+			supervisorResponse({ kind: "answer", answers: { [QUESTION]: { answer: "vitest", reason: "Retried." } } }),
+		]);
+		const askerUi = panelUi();
+		const asker = await openSession(controlDbPath, askerUi, supervisor.sessionManager.getSessionId());
+		asker.setResponses([askCall(true), fauxAssistantMessage("Using vitest.")]);
+
+		await asker.session.prompt("Pick a runner.");
+
+		expect(resultText(asker)).toContain("vitest (Supervisor: Retried.)");
+		expect(requestStatuses(controlDbPath)).toEqual(["completed"]);
+	});
+
 	it("withdraws the queued question when the user answers locally first", async () => {
 		const controlDbPath = sharedControlDb();
 		const askerUi = panelUi();

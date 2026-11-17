@@ -23,6 +23,7 @@ export type {
 	AfterProviderResponseEvent,
 	AgentEndEvent,
 	AgentEndSessionContinuation,
+	AgentSettledEvent,
 	AgentStartEvent,
 	// Re-exports
 	AgentToolResult,

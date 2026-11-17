@@ -122,6 +122,7 @@
 
 ### Added
 
+- Added the `agent_settled` extension event, fired once a run has settled with no automatic retry, auto-compaction retry, or queued continuation left (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - Added `compaction.backgroundStartTokens`: an absolute context token count that starts speculative background compaction instead of 70% of the context window. It takes effect only below the normal compaction trigger.
 - Added `/mission`, a continuous user-owned objective above the working goal. Whenever the working goal is absent, completed, cleared, or paused by the model, Pi copies the mission into a new goal that cannot be completed. Only `/mission pause` and `/mission clear` stop it; no tool can change it.
 
@@ -270,6 +271,7 @@
 
 ### Fixed
 
+- The Supervisor session no longer fails a request with "Supervisor turn ended without a supervisor_response call" when its first attempt hits a retryable provider error. It waited for `agent_end`, which fires before the automatic retry. It now waits for the new `agent_settled` extension event, so the retry's response is returned and the next request is not started while the retry is pending.
 - `RpcClient.waitForIdle()`, `collectEvents()` and `promptAndWait()` now resolve on `agent_settled` instead of the first `agent_end`, so they no longer return the failed attempt while an automatic retry, compaction or queued continuation is still running. Their events are typed as `AgentSessionEvent` (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - A Supervisor `escalate` reply that arrives after the user answered the question in the local panel is no longer delivered to the model as a stray `supervisor_response` message. Late Supervisor answers, and late escalations of questions not answered locally (for example after a restart), are still delivered.
 - Fixed answers to a nonblocking `ask_questions` call never appearing in the TUI when `hideCoordinationMessages` is on: the inbox reply was hidden as a coordination message. Answers to the session's own questions now always show, as `User answered questions:` (or `Supervisor answered questions:`) followed by each question and answer, without the mailbox envelope or request ID.

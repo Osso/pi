@@ -317,7 +317,8 @@ user sends prompt ────────────────────�
   │   │                                            │       │
   │   └─► turn_end                                 │       │
   │                                                        │
-  └─► agent_end                                            │
+  ├─► agent_end                                            │
+  └─► agent_settled (no retry/compaction/follow-up left)   │
                                                            │
 user sends another prompt ◄────────────────────────────────┘
 
@@ -603,6 +604,14 @@ pi.on("agent_end", async (event, ctx) => {
   // tool-free policy review, not operative work or goal-completion evidence.
   // Defer ordinary idle/goal continuation for that validation event.
 });
+```
+
+#### agent_settled
+
+Fired once the run has settled: no automatic retry, auto-compaction retry, or queued continuation follows. A failed attempt that Pi retries fires `agent_end` before the retry starts, so use `agent_settled` to detect the end of the work a prompt started.
+
+```typescript
+pi.on("agent_settled", async (_event, ctx) => {});
 ```
 
 `codex_restriction_validation` marks the normal main agent's tool-free review of an untrusted Supervisor proposal. Its strict JSON decision is not task completion. `willRetry` reports whether a permitted follow-on attempt is actually eligible; it does not turn the proposal or validation call into authorization. Denied, malformed, errored, tool-calling, or canceled validation must not cause ordinary continuation from review JSON. See the [recovery contract](../../../docs/specs/supervisor-service.md#codex-cybersecurity-risk-advisory-recovery).

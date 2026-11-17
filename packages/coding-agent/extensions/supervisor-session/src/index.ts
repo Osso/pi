@@ -132,9 +132,8 @@ class SupervisorSessionServer {
 		this.wakeServer = undefined;
 	}
 
-	onAgentEnd(ctx: ExtensionContext): void {
+	onAgentSettled(): void {
 		if (!this.active || !this.controlDbPath) return;
-		if (ctx.hasActiveRetry()) return;
 		this.releaseTurnWaiters();
 		// The wake arrives after the run settles, so the loop sees the session idle.
 		notifySupervisorRequest(this.controlDbPath);
@@ -309,9 +308,10 @@ export default function supervisorSessionExtension(pi: ExtensionAPI, options: Pa
 		await server.stop();
 	});
 	pi.on("agent_end", async (_event, ctx) => {
-		server.onAgentEnd(ctx);
 		await dueTasks.settle(ctx);
 	});
+	// A failed attempt ends a run before its automatic retry; the request turn is over only once it settles.
+	pi.on("agent_settled", () => server.onAgentSettled());
 	pi.on("runtime_mailbox", (event, ctx) => {
 		const controlDbPath = ctx.controlDbPath;
 		const ingested =
