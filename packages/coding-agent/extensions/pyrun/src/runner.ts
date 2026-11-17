@@ -126,9 +126,10 @@ function readLinuxProcessGroupId(pid: number): number | undefined {
 
 function signalInheritedProcessGroupMembers(processGroupId: number, signal: NodeJS.Signals): void {
 	if (process.platform !== "linux") return;
-	const memberPids = readdirSync("/proc", { withFileTypes: true }).flatMap((entry) => {
-		if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) return [];
-		const pid = Number(entry.name);
+	// Names only: withFileTypes lstats an entry whose process exits mid-listing and throws ENOENT.
+	const memberPids = readdirSync("/proc").flatMap((name) => {
+		if (!/^\d+$/.test(name)) return [];
+		const pid = Number(name);
 		if (pid === process.pid || readLinuxProcessGroupId(pid) !== processGroupId) return [];
 		return [pid];
 	});

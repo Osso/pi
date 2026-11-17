@@ -381,9 +381,11 @@ function readDirectoryByteSize(directoryPath: string, errors: string[]): number 
 export function readLinuxProcessReferences(): Set<string> | undefined {
 	if (process.platform !== "linux" || !existsSync("/proc")) return undefined;
 	const references = new Set<string>();
-	for (const processEntry of readdirSync("/proc", { withFileTypes: true })) {
-		if (!processEntry.isDirectory() || !/^\d+$/.test(processEntry.name)) continue;
-		const processDirectory = join("/proc", processEntry.name);
+	// Names only: procfs reports DT_UNKNOWN for a process exiting during the listing, and withFileTypes
+	// then lstats it, so the whole scan threw ENOENT. Numeric /proc entries are always process directories.
+	for (const processName of readdirSync("/proc")) {
+		if (!/^\d+$/.test(processName)) continue;
+		const processDirectory = join("/proc", processName);
 		addLinkReference(references, join(processDirectory, "cwd"));
 		addLinkReference(references, join(processDirectory, "exe"));
 		addDescriptorReferences(references, join(processDirectory, "fd"));
