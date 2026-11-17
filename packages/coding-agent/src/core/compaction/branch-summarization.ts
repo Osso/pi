@@ -25,6 +25,7 @@ import {
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
 	serializeConversation,
+	summarizationFailureReason,
 } from "./utils.ts";
 
 // ============================================================================
@@ -353,6 +354,9 @@ export async function generateBranchSummary(
 	}
 	if (response.stopReason === "error") {
 		return { error: response.errorMessage || "Summarization failed" };
+	}
+	if (response.stopReason === "length") {
+		return { error: `Branch summarization failed: ${summarizationFailureReason(response)}` };
 	}
 
 	let summary = response.content

@@ -18,6 +18,7 @@ import {
 	type FileOperations,
 	formatFileOperations,
 	serializeConversation,
+	summarizationFailureReason,
 } from "./utils.ts";
 
 /** File-operation details stored on generated branch summary entries. */
@@ -233,11 +234,11 @@ export async function generateBranchSummary(
 	if (response.stopReason === "aborted") {
 		return err(new BranchSummaryError("aborted", response.errorMessage || "Branch summary aborted"));
 	}
-	if (response.stopReason === "error") {
+	if (response.stopReason === "error" || response.stopReason === "length") {
 		return err(
 			new BranchSummaryError(
 				"summarization_failed",
-				`Branch summary failed: ${response.errorMessage || "Unknown error"}`,
+				`Branch summary failed: ${summarizationFailureReason(response)}`,
 			),
 		);
 	}

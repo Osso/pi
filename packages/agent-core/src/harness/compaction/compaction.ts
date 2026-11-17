@@ -16,6 +16,7 @@ import {
 	type FileOperations,
 	formatFileOperations,
 	serializeConversation,
+	summarizationFailureReason,
 } from "./utils.ts";
 
 /** File-operation details stored on generated compaction entries. */
@@ -531,12 +532,9 @@ export async function generateSummary(
 	if (response.stopReason === "aborted") {
 		return err(new CompactionError("aborted", response.errorMessage || "Summarization aborted"));
 	}
-	if (response.stopReason === "error") {
+	if (response.stopReason === "error" || response.stopReason === "length") {
 		return err(
-			new CompactionError(
-				"summarization_failed",
-				`Summarization failed: ${response.errorMessage || "Unknown error"}`,
-			),
+			new CompactionError("summarization_failed", `Summarization failed: ${summarizationFailureReason(response)}`),
 		);
 	}
 
@@ -771,11 +769,11 @@ async function generateTurnPrefixSummary(
 	if (response.stopReason === "aborted") {
 		return err(new CompactionError("aborted", response.errorMessage || "Turn prefix summarization aborted"));
 	}
-	if (response.stopReason === "error") {
+	if (response.stopReason === "error" || response.stopReason === "length") {
 		return err(
 			new CompactionError(
 				"summarization_failed",
-				`Turn prefix summarization failed: ${response.errorMessage || "Unknown error"}`,
+				`Turn prefix summarization failed: ${summarizationFailureReason(response)}`,
 			),
 		);
 	}

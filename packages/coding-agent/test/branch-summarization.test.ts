@@ -1,7 +1,7 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import { createAssistantMessageEventStream, fauxAssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { prepareBranchEntries } from "../src/core/compaction/branch-summarization.ts";
+import { generateBranchSummary, prepareBranchEntries } from "../src/core/compaction/branch-summarization.ts";
 import { computeFileLists } from "../src/core/compaction/utils.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 
@@ -61,5 +61,49 @@ describe("branch summarization file operations", () => {
 			readFiles: ["pi-read.ts"],
 			modifiedFiles: ["pi-modified.ts"],
 		});
+	});
+});
+
+describe("generateBranchSummary", () => {
+	it("rejects a summary cut off at the token cap instead of persisting partial text", async () => {
+		const model: Model<"anthropic-messages"> = {
+			id: "test-model",
+			name: "Test Model",
+			api: "anthropic-messages",
+			provider: "anthropic",
+			baseUrl: "https://api.anthropic.com",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200000,
+			maxTokens: 8192,
+		};
+		const streamFn: StreamFn = () => {
+			const stream = createAssistantMessageEventStream();
+			const message = { ...fauxAssistantMessage("partial summar"), stopReason: "length" as const };
+			queueMicrotask(() => stream.push({ type: "done", reason: "length", message }));
+			return stream;
+		};
+		const entries: SessionEntry[] = [
+			{
+				type: "message",
+				id: "branch-user",
+				parentId: null,
+				timestamp: new Date(1).toISOString(),
+				message: { role: "user", content: "Abandoned request", timestamp: 1 },
+			},
+		];
+
+		const result = await generateBranchSummary(entries, {
+			model,
+			apiKey: "test-key",
+			signal: new AbortController().signal,
+			streamFn,
+		});
+
+		expect(result.summary).toBeUndefined();
+		expect(result.error).toBe(
+			"Branch summarization failed: generation hit the token cap and the summary is incomplete",
+		);
 	});
 });

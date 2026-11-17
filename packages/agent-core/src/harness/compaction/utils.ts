@@ -1,4 +1,4 @@
-import type { Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "../../types.ts";
 import { sliceHead } from "../utils/truncate.ts";
 
@@ -173,4 +173,10 @@ export function serializeConversation(messages: Message[]): string {
 	}
 
 	return parts.join("\n\n");
+}
+
+/** Why a summarization response cannot be persisted; a length stop holds partial text. */
+export function summarizationFailureReason(response: AssistantMessage): string {
+	if (response.stopReason === "length") return "generation hit the token cap and the summary is incomplete";
+	return response.errorMessage || "Unknown error";
 }

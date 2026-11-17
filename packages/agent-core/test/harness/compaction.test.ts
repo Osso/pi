@@ -914,6 +914,16 @@ describe("harness compaction", () => {
 			error: { code: "summarization_failed", message: "Summarization failed: boom" },
 		});
 
+		const { faux: lengthFaux, model: lengthModel } = createFauxModel(false);
+		lengthFaux.setResponses([fauxAssistantMessage("partial summar", { stopReason: "length" })]);
+		expect(await generateSummary(messages, models, lengthModel, 2000)).toMatchObject({
+			ok: false,
+			error: {
+				code: "summarization_failed",
+				message: "Summarization failed: generation hit the token cap and the summary is incomplete",
+			},
+		});
+
 		const { faux: abortedFaux, model: abortedModel } = createFauxModel(false);
 		abortedFaux.setResponses([fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "stopped" })]);
 		const abortedResult = await generateSummary(messages, models, abortedModel, 2000);

@@ -34,6 +34,7 @@ import {
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
 	serializeConversation,
+	summarizationFailureReason,
 } from "./utils.ts";
 
 // ============================================================================
@@ -645,8 +646,8 @@ function readSummarizationText(
 	failurePrefix: string,
 	emptyResponseMessage: string,
 ): string {
-	if (response.stopReason === "error") {
-		throw new Error(`${failurePrefix}: ${response.errorMessage || "Unknown error"}`);
+	if (response.stopReason === "error" || response.stopReason === "length") {
+		throw new Error(`${failurePrefix}: ${summarizationFailureReason(response)}`);
 	}
 	const summary = response.content
 		.filter((content): content is { type: "text"; text: string } => content.type === "text")
@@ -692,10 +693,8 @@ function buildCompactionMaterializationMessages(entry: CompactionEntry): Message
 
 function readCompactionMaterializationResponse(response: AssistantMessage): MaterializeCompactionSummaryResult {
 	if (response.stopReason === "aborted") return { aborted: true };
-	if (response.stopReason === "error") {
-		throw new Error(
-			`Compaction summary materialization failed: ${response.errorMessage || "Unknown provider error"}`,
-		);
+	if (response.stopReason === "error" || response.stopReason === "length") {
+		throw new Error(`Compaction summary materialization failed: ${summarizationFailureReason(response)}`);
 	}
 	const summary = response.content
 		.filter((content): content is { type: "text"; text: string } => content.type === "text")
