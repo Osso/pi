@@ -145,6 +145,27 @@ describe("child report required", () => {
 		});
 	});
 
+	// Observed with explore children: the report ended without end_turn, the end_turn continuation request drew
+	// a filler line, and the parent received the filler instead of the findings.
+	it("keeps the report when the end_turn continuation draws more text", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { child, request } = await spawnInheritedChild(agent);
+			const report = "Findings: two concrete bugs in the relay";
+			agent.respondToLlmRequest(request.id, fauxAssistantMessage(report));
+			const continuation = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
+			expect(continuation.userMessages.at(-1)).toContain("Call `end_turn` now");
+			agent.respondToLlmRequest(continuation.id, fauxAssistantMessage("The bug hunt is complete."));
+			const second = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
+			const end = fauxToolCall("end_turn", { reason: "Reported" });
+			agent.respondToLlmRequest(second.id, fauxAssistantMessage(end, { stopReason: "toolUse" }));
+			await expectToolResult(agent, child.id, end.id, false);
+			const terminal = await agent.waitForAgent(
+				(candidate) => candidate.id === child.id && candidate.lifecycle === "completed",
+			);
+			expect(terminal.result?.summary).toBe(report);
+		});
+	});
+
 	it.each(["private thinking", "whitespace"] as const)("does not treat %s as a report", async (kind) => {
 		await withHeadlessPi(async (agent) => {
 			const { child, request } = await spawnInheritedChild(agent);
