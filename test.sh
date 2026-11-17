@@ -68,5 +68,11 @@ unset AWS_CONTAINER_CREDENTIALS_FULL_URI
 unset AWS_WEB_IDENTITY_TOKEN_FILE
 unset BEDROCK_EXTENSIVE_MODEL_TEST
 
+# Real-process tests start Pi as a child process, which imports these workspace packages from dist.
+echo "Building workspace libraries..."
+for package in tui ai agent-core; do
+    npm --prefix "packages/$package" run build
+done
+
 echo "Running tests without API keys..."
 npm test
