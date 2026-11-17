@@ -10,7 +10,7 @@ import {
 	type Transport,
 } from "@earendil-works/pi-ai/compat";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
-import { updateBlockOpen } from "./steering-interruption.ts";
+import { hasToolCall, updateBlockOpen } from "./steering-interruption.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -195,7 +195,7 @@ export class Agent {
 	private readonly listeners = new Set<(event: AgentEvent, signal: AbortSignal) => Promise<void> | void>();
 	private readonly steeringQueue: PendingMessageQueue;
 	private readonly followUpQueue: PendingMessageQueue;
-	/** A content block (thinking, text or tool call) of the active model request is streaming. */
+	/** A thinking or text block of the active model request is streaming. */
 	private blockOpen = false;
 	/** Steering arrived during a content block; end the request when that block ends. */
 	private interruptAfterBlock = false;
@@ -303,12 +303,13 @@ export class Agent {
 
 	/**
 	 * Queue steering and interrupt the active model request without aborting tools.
-	 * During a content block the interrupt waits for the block to end, so the finished blocks stay in context.
+	 * During a thinking or text block of a message without a tool call, the interrupt waits for the block to end,
+	 * so the finished blocks stay in context.
 	 */
 	steer(message: AgentMessage): void {
 		this.steeringQueue.enqueue(message);
 		if (!this._state.isModelRequestActive) return;
-		if (this.blockOpen) this.interruptAfterBlock = true;
+		if (this.blockOpen && !hasToolCall(this._state.streamingMessage)) this.interruptAfterBlock = true;
 		else this.activeRun?.abortController.abort();
 	}
 

@@ -144,9 +144,9 @@ describe("steering during a content block", () => {
 		expect(steer).toMatchObject(steering);
 	});
 
-	it("lets a response with a tool call finish and delivers the steer after the tool result", async () => {
-		const requests: Array<{ context: Context; signal?: AbortSignal }> = [];
-		let finishToolCall = () => {};
+	it("aborts at once during a tool call, so the steered tool does not run", async () => {
+		let signal: AbortSignal | undefined;
+		let toolRuns = 0;
 		const toolCall = { type: "toolCall" as const, id: "call-1", name: "noop", arguments: {} };
 		const tool: AgentTool<ReturnType<typeof Type.Object>> = {
 			name: "noop",
@@ -154,32 +154,26 @@ describe("steering during a content block", () => {
 			description: "Does nothing",
 			parameters: Type.Object({}),
 			async execute() {
+				toolRuns += 1;
 				return { content: [{ type: "text", text: "noop done" }], details: undefined };
 			},
 		};
 		const agent = new Agent({
 			initialState: { tools: [tool] },
-			streamFn: (_model, context, options) => {
-				requests.push({
-					context: { ...context, messages: structuredClone(context.messages) },
-					signal: options?.signal,
-				});
+			streamFn: (_model, _context, options) => {
+				signal = options?.signal;
 				const stream = createStream();
-				if (requests.length > 1) {
-					queueMicrotask(() =>
-						stream.push({ type: "done", reason: "stop", message: assistant([{ type: "text", text: "done" }]) }),
-					);
-					return stream;
-				}
 				queueMicrotask(() => {
 					stream.push({ type: "start", partial: assistant([]) });
 					stream.push({ type: "toolcall_start", contentIndex: 0, partial: assistant([toolCall]) });
 				});
-				finishToolCall = () => {
-					const message = { ...assistant([toolCall]), stopReason: "toolUse" as const };
-					stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: message });
-					stream.push({ type: "done", reason: "toolUse", message });
-				};
+				options?.signal?.addEventListener("abort", () =>
+					stream.push({
+						type: "error",
+						reason: "aborted",
+						error: { ...assistant([toolCall]), stopReason: "aborted" },
+					}),
+				);
 				return stream;
 			},
 		});
@@ -187,14 +181,11 @@ describe("steering during a content block", () => {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
 		agent.steer(steering);
-		finishToolCall();
-		await prompt;
 
-		expect(requests[0]?.signal?.aborted).toBe(false);
-		const [, assistantMessage, toolResult, steer] = requests[1]?.context.messages ?? [];
-		expect(assistantMessage).toMatchObject({ role: "assistant", stopReason: "toolUse", content: [toolCall] });
-		expect(toolResult).toMatchObject({ role: "toolResult", toolCallId: "call-1" });
-		expect(steer).toMatchObject(steering);
+		expect(signal?.aborted).toBe(true);
+		await prompt;
+		expect(toolRuns).toBe(0);
+		expect(agent.state.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted" });
 	});
 
 	it("still aborts at once when steering arrives before any content block", async () => {
