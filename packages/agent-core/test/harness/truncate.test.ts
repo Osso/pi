@@ -62,6 +62,26 @@ function sampledByteLimits(input: string): number[] {
 }
 
 describe("truncate utilities", () => {
+	it("does not count a final newline as a line or against the byte limit", () => {
+		// Ten lines plus nine separators fill the limit exactly; the final newline is one byte over.
+		const lines = Array.from({ length: 10 }, (_, i) => `${i}`.padEnd(i === 0 ? 100 : 99, "x"));
+		const content = `${lines.join("\n")}\n`;
+		expect(byteLength(content)).toBe(1001);
+
+		for (const result of [
+			truncateHead(content, { maxBytes: 1000, maxLines: 10 }),
+			truncateTail(content, { maxBytes: 1000, maxLines: 10 }),
+		]) {
+			expect(result).toMatchObject({
+				content,
+				truncated: false,
+				truncatedBy: null,
+				totalLines: 10,
+				outputLines: 10,
+			});
+		}
+	});
+
 	it("counts UTF-8 bytes without Node Buffer", () => {
 		const content = "aé🙂\nb";
 		const result = truncateHead(content, { maxBytes: 100, maxLines: 10 });

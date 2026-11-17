@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed `truncateHead` and `truncateTail` reporting truncation for output that ends in a newline and fits the limits: the final newline was counted as an extra line (`truncateHead`) and against the byte limit (port of the coding-agent fix)
 - Fixed harness skills and prompt templates ignoring their frontmatter when the file starts with a UTF-8 BOM (port of the coding-agent fix)
 - Fixed `AgentHarness.compact()` sending whole tool call arguments (for example a large `write` content) to the summarization model; each argument is now cut to 1000 characters, as in coding-agent
 - Fixed harness compaction counting hidden `!!` bash executions (`excludeFromContext`) in token estimates and toward `keepRecentMessages`; trailing hidden commands used up the kept window and the real recent messages were summarized

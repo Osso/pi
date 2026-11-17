@@ -102,6 +102,25 @@ function replaceUnpairedSurrogates(content: string): string {
 	return output;
 }
 
+function splitLinesForCounting(content: string): string[] {
+	if (content.length === 0) return [];
+	const lines = content.split("\n");
+	if (content.endsWith("\n")) lines.pop();
+	return lines;
+}
+
+/** Whether the content fits both limits; a final newline ends the last line and counts toward neither. */
+function fitsLimits(
+	content: string,
+	totalBytes: number,
+	totalLines: number,
+	maxLines: number,
+	maxBytes: number,
+): boolean {
+	const lineBytes = content.endsWith("\n") ? totalBytes - 1 : totalBytes;
+	return totalLines <= maxLines && lineBytes <= maxBytes;
+}
+
 /**
  * Format bytes as human-readable size.
  */
@@ -127,11 +146,11 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
 	const totalBytes = utf8ByteLength(content);
-	const lines = content.split("\n");
+	const lines = splitLinesForCounting(content);
 	const totalLines = lines.length;
 
 	// Check if no truncation needed
-	if (totalLines <= maxLines && totalBytes <= maxBytes) {
+	if (fitsLimits(content, totalBytes, totalLines, maxLines, maxBytes)) {
 		return {
 			content,
 			truncated: false,
@@ -219,12 +238,11 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 	const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
 	const totalBytes = utf8ByteLength(content);
-	const lines = content.split("\n");
-	if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+	const lines = splitLinesForCounting(content);
 	const totalLines = lines.length;
 
 	// Check if no truncation needed
-	if (totalLines <= maxLines && totalBytes <= maxBytes) {
+	if (fitsLimits(content, totalBytes, totalLines, maxLines, maxBytes)) {
 		return {
 			content,
 			truncated: false,
