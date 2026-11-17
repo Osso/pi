@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- - Fixed Codex sessions failing with "The 'web_search' tool is not available for this request" after a request without hosted tools (such as a compaction summary) opened the session's cached websocket; cached sockets are now scoped to the request's hosted tools.
 - Fixed the OpenAI Codex WebSocket 60-minute connection limit failing the turn when it hit mid-stream, for example during long thinking. The error is now retried on a fresh connection, and new requests stop reusing a cached connection after 45 minutes instead of 55 ([#12124](https://github.com/earendil-works/pi/issues/12124))
 - Fixed LiteLLM `ContextWindowExceededError` pre-call rejections not being detected as context overflow ([#11494](https://github.com/earendil-works/pi-mono/issues/11494))
 - OpenAI-compatible chat completions no longer send empty text parts in user messages, which made some providers reject image-only prompts ([#9797](https://github.com/earendil-works/pi-mono/issues/9797))

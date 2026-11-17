@@ -1402,6 +1402,86 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
+	it("never sends hosted web_search on a cached websocket opened without it", async () => {
+		// Codex fixes hosted tools at a socket's first request: a compaction summary (no tools) that opened the
+		// session socket made the next agent turn fail with "The 'web_search' tool is not available for this request".
+		const socketsFirstTools: unknown[] = [];
+		let responseId = 0;
+
+		class MockWebSocket extends ListenerWebSocket {
+			static OPEN = 1;
+			readyState = MockWebSocket.OPEN;
+			private sent = 0;
+
+			constructor() {
+				super();
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			send(data: string): void {
+				const tools = (JSON.parse(data) as { tools?: { type: string }[] }).tools ?? [];
+				if (this.sent++ === 0) socketsFirstTools.push(tools.map((tool) => tool.type));
+				const opened = socketsFirstTools[socketsFirstTools.length - 1] as string[];
+				const rejected = tools.some((tool) => tool.type === "web_search") && !opened.includes("web_search");
+				queueMicrotask(() => {
+					this.dispatch("message", {
+						data: JSON.stringify(
+							rejected
+								? {
+										type: "error",
+										error: {
+											code: "unsupported_parameter",
+											message: "The 'web_search' tool is not available for this request.",
+										},
+									}
+								: {
+										type: "response.completed",
+										response: {
+											id: `resp_${++responseId}`,
+											status: "completed",
+											usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+										},
+									},
+						),
+					});
+				});
+			}
+
+			close(): void {
+				this.readyState = 3;
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
+		);
+
+		const model = codexModel();
+		const context: Context = { systemPrompt: "", messages: [] };
+		const options = { sessionId: "hosted-tools", transport: "websocket-cached" as const, apiKey: mockToken() };
+		const withWebSearch = {
+			...options,
+			onPayload: (payload: unknown) => ({
+				...(payload as object),
+				tools: [{ type: "web_search", external_web_access: true }],
+			}),
+		};
+
+		const summary = await streamOpenAICodexResponses(model, context, options).result();
+		const turn = await streamOpenAICodexResponses(model, context, withWebSearch).result();
+		const nextTurn = await streamOpenAICodexResponses(model, context, withWebSearch).result();
+
+		expect([summary.stopReason, turn.stopReason, nextTurn.stopReason]).toEqual(["stop", "stop", "stop"]);
+		expect(turn.errorMessage).toBeUndefined();
+		expect(socketsFirstTools).toEqual([[], ["web_search"]]);
+		expect(getOpenAICodexWebSocketDebugStats("hosted-tools")).toMatchObject({
+			connectionsCreated: 2,
+			connectionsReused: 1,
+		});
+	});
+
 	it("sends native websocket pings while waiting for events", async () => {
 		vi.useFakeTimers();
 		const token = mockToken();

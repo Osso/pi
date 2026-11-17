@@ -1104,6 +1104,7 @@ async function connectWebSocket(
 async function acquireWebSocket(
 	url: string,
 	headers: Headers,
+	body: RequestBody,
 	cacheSessionId: string | undefined,
 	signal?: AbortSignal,
 	connectTimeoutMs?: number,
@@ -1122,8 +1123,9 @@ async function acquireWebSocket(
 			release: () => closeWebSocketSilently(socket),
 		};
 	}
-	// A socket is authenticated as the account that opened it; never reuse it for another account.
-	const sessionId = `${cacheSessionId}\n${headers.get("chatgpt-account-id")}`;
+	// A socket keeps the account and hosted tools (web_search) of its first request and rejects others.
+	const hostedTools = JSON.stringify(body.tools?.filter((tool) => tool.type !== "function") ?? []);
+	const sessionId = `${cacheSessionId}\n${headers.get("chatgpt-account-id")}\n${hostedTools}`;
 
 	const cached = websocketSessionCache.get(sessionId);
 	if (cached) {
@@ -1153,13 +1155,7 @@ async function acquireWebSocket(
 		}
 		if (cached.busy) {
 			const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
-			return {
-				socket,
-				reused: false,
-				release: () => {
-					closeWebSocketSilently(socket);
-				},
-			};
+			return { socket, reused: false, release: () => closeWebSocketSilently(socket) };
 		}
 		if (!isWebSocketReusable(cached.socket)) {
 			closeWebSocketSilently(cached.socket);
@@ -1524,6 +1520,7 @@ async function processWebSocketStream(
 	const { socket, entry, reused, release } = await acquireWebSocket(
 		url,
 		headers,
+		body,
 		options?.sessionId,
 		options?.signal,
 		websocketConnectTimeoutMs,
