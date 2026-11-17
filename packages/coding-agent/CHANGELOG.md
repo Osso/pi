@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed a steered child agent whose turn failed being recorded with only `Runtime mailbox steering turn failed`; the agent's error now carries the provider error that ended the turn.
 - Fixed child agents failing on a retryable provider error, such as `WebSocket closed 1000`, when their prompt was queued behind a running turn: the dispatcher read the result as soon as the agent went idle, before the session's automatic retry ran, and the retry was dropped. Child turns now wait until the whole dispatch settles.
 - Fixed detached-job artifact cleanup failing with `Detached artifact cleanup failed: ENOENT ... lstat '/proc/<pid>'`, and Pyrun process-group termination throwing the same error, when a process exited while `/proc` was being listed. Both now list `/proc` by name.
 - Fixed an exception thrown by an extension's `pi.events` handler being printed with `console.error` over the interactive TUI. It is now reported like other extension errors, and dropped once the session that registered the handler is replaced (ported from upstream #12233).

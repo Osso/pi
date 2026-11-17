@@ -698,7 +698,7 @@ export class AgentSession {
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 	private readonly _runtimeMailboxPendingTerminal = new Map<
 		string,
-		{ lifecycle: "completed" | "failed" | "aborted"; summary?: string }
+		{ lifecycle: "completed" | "failed" | "aborted"; detail?: string }
 	>();
 	private _runtimeMailboxPendingTerminalUnsubscribe: (() => void) | undefined;
 
@@ -1370,14 +1370,14 @@ export class AgentSession {
 		}
 
 		const lifecycle = this._runtimeMailboxSteeringLifecycle(messages);
-		const summary = lifecycle === "completed" ? this._lastRuntimeMailboxAssistantText(messages) : undefined;
+		const detail = lifecycle === "aborted" ? undefined : this._runtimeMailboxSteeringDetail(messages);
 		for (const agentId of this._runtimeMailboxSteeringAgentIds) {
-			if (this._completeRuntimeMailboxSteeredAgent(agentId, lifecycle, summary)) continue;
+			if (this._completeRuntimeMailboxSteeredAgent(agentId, lifecycle, detail)) continue;
 			if (!this._isTerminalMultiAgentLifecycle(lifecycle)) continue;
 			const hasActiveDescendants = this._multiAgentStore
 				.listDescendants(agentId)
 				.some((agent) => !this._isTerminalMultiAgentLifecycle(agent.lifecycle));
-			if (hasActiveDescendants) this._deferRuntimeMailboxSteeredTerminal(agentId, lifecycle, summary);
+			if (hasActiveDescendants) this._deferRuntimeMailboxSteeredTerminal(agentId, lifecycle, detail);
 		}
 		this._runtimeMailboxSteeringAgentIds.clear();
 	}
@@ -1385,7 +1385,7 @@ export class AgentSession {
 	private _completeRuntimeMailboxSteeredAgent(
 		agentId: string,
 		lifecycle: AgentLifecycleState,
-		summary: string | undefined,
+		detail: string | undefined,
 	): boolean {
 		if (!this._multiAgentStore) {
 			return false;
@@ -1395,8 +1395,8 @@ export class AgentSession {
 			return true;
 		}
 		if (!this._isTerminalMultiAgentLifecycle(lifecycle)) return true;
-		const result = summary ? { summary } : undefined;
-		const error = lifecycle === "failed" ? { message: "Runtime mailbox steering turn failed" } : undefined;
+		const result = detail && lifecycle === "completed" ? { summary: detail } : undefined;
+		const error = lifecycle === "failed" ? { message: detail ?? "Runtime mailbox steering turn failed" } : undefined;
 		if (!this._finalizeReservedMultiAgent(current, lifecycle, { error, result })) {
 			return false;
 		}
@@ -1406,10 +1406,10 @@ export class AgentSession {
 	private _deferRuntimeMailboxSteeredTerminal(
 		agentId: string,
 		lifecycle: "completed" | "failed" | "aborted",
-		summary: string | undefined,
+		detail: string | undefined,
 	): void {
 		if (!this._multiAgentStore) return;
-		this._runtimeMailboxPendingTerminal.set(agentId, { lifecycle, summary });
+		this._runtimeMailboxPendingTerminal.set(agentId, { lifecycle, detail });
 		if (this._runtimeMailboxPendingTerminalUnsubscribe) return;
 		this._runtimeMailboxPendingTerminalUnsubscribe = this._multiAgentStore.subscribeAgentUpdates(() => {
 			this._retryRuntimeMailboxSteeredTerminals();
@@ -1425,7 +1425,7 @@ export class AgentSession {
 				.some((agent) => !this._isTerminalMultiAgentLifecycle(agent.lifecycle));
 			if (hasActiveDescendants) continue;
 			this._runtimeMailboxPendingTerminal.delete(agentId);
-			if (!this._completeRuntimeMailboxSteeredAgent(agentId, pending.lifecycle, pending.summary)) {
+			if (!this._completeRuntimeMailboxSteeredAgent(agentId, pending.lifecycle, pending.detail)) {
 				this._runtimeMailboxPendingTerminal.set(agentId, pending);
 			}
 		}
@@ -1480,13 +1480,12 @@ export class AgentSession {
 		return "completed";
 	}
 
-	private _lastRuntimeMailboxAssistantText(messages: AgentMessage[]): string | undefined {
+	/** A completed steering turn's reply text, or a failed one's provider error. */
+	private _runtimeMailboxSteeringDetail(messages: AgentMessage[]): string | undefined {
 		const assistant = this._lastRuntimeMailboxAssistant(messages);
-		if (!assistant) {
-			return undefined;
-		}
-		const text = getAssistantMessageText(assistant).trim();
-		return text.length > 0 ? text : undefined;
+		const text =
+			assistant?.stopReason === "error" ? assistant.errorMessage : assistant && getAssistantMessageText(assistant);
+		return text?.trim() || undefined;
 	}
 
 	private _lastRuntimeMailboxAssistant(messages: AgentMessage[]): AssistantMessage | undefined {
