@@ -8,7 +8,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
@@ -41,7 +41,10 @@ describe("relay automatic startup runtime", () => {
 	it.skipIf(process.platform !== "linux")(
 		"replaces a same-version relay whose executable a deployment removed",
 		async () => {
-			const tempDir = mkdtempSync(join(tmpdir(), "pi-relay-runtime-"));
+			// The copied node binary runs; keep it out of tmpfs scratch dirs, where Sentinel flags executables.
+			const cacheDir = join(homedir(), ".cache");
+			mkdirSync(cacheDir, { recursive: true });
+			const tempDir = mkdtempSync(join(cacheDir, "pi-relay-runtime-"));
 			const agentDir = join(tempDir, "agent");
 			const homeDir = join(tempDir, "home");
 			for (const dir of [agentDir, homeDir]) mkdirSync(dir, { recursive: true });
