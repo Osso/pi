@@ -75,6 +75,23 @@ describe("Pyrun session context", () => {
 		await vi.waitFor(() => expect(isAlive(proxyPid)).toBe(false), { interval: 100, timeout: 10_000 });
 	}, 60_000);
 
+	it("stops an idle named session while its Pi process keeps running", async () => {
+		await withHeadlessPi(
+			async (pi) => {
+				await pi.send({ type: "prompt", message: "Probe an idle Pyrun session" });
+				const first = await runProbe(pi, await pi.waitForLlmRequest((request) => request.agentId === null), "work");
+				const proxyPid = Number(first.line.split("parent=")[1]);
+
+				await vi.waitFor(() => expect(isAlive(proxyPid)).toBe(false), { interval: 100, timeout: 15_000 });
+				const after = await runProbe(pi, first.next, "work");
+				expect(after.line).toMatch(/^probe calls=1 /);
+				expect(after.line).not.toContain(`parent=${proxyPid}`);
+				await pi.crash();
+			},
+			{ env: { PI_PYRUN_SESSION_IDLE_MS: "1000" } },
+		);
+	}, 60_000);
+
 	it("fails a call to a busy named session at once while unnamed calls still run", async () => {
 		await withHeadlessPi(
 			async (pi) => {

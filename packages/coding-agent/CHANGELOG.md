@@ -269,6 +269,7 @@
 
 ### Fixed
 
+- Fixed named Pyrun sessions keeping their proxy and Python process for the life of the Pi process: a restart keeps the process ID, so every `session_id` an agent used stayed alive, and agent-server ran out of memory with 588 proxies. A proxy now also exits after an hour without an evaluation (`PI_PYRUN_SESSION_IDLE_MS` overrides the hour)
 - Fixed `find` path patterns matching nested directories of the same name: `src/*.ts` also returned `lib/src/*.ts`. Path patterns are now relative to the search path, as `grep`'s `glob` is; use `**/src/*.ts` to match at any depth (ported from upstream [#12116](https://github.com/earendil-works/pi/pull/12116))
 - Fixed the `pyrun_eval` `session_id` description, which said a named session keeps its Python state: only `ctx` persists across calls, other globals start empty on each call.
 - Fixed a child agent's report being replaced by a filler line when its final reply did not call `end_turn` and the end_turn continuation request drew more text; the parent now receives the report

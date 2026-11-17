@@ -28,10 +28,13 @@ import {
  * across calls and Pi restarts. Names are scoped to the Pi session and shared by its agents. Each durable
  * evaluation runner sends its request to the session's proxy over a Unix socket in the pyrun-jsonl line
  * protocol. A call to a session that is still running an evaluation fails at once instead of waiting.
- * The proxy exits once its owner Pi process is gone and no evaluation is connected.
+ * The proxy exits when no evaluation is connected and either its owner Pi process is gone or it has been
+ * idle for an hour. A restart keeps the Pi process ID, so without the idle limit every named session an
+ * agent ever used would keep its Python for the life of the session.
  */
 export const PYRUN_SESSION_PROXY_MODE = "--internal-pyrun-session-proxy";
 const OWNER_POLL_MS = 2_000;
+const DEFAULT_IDLE_EXIT_MS = 60 * 60 * 1000;
 const START_POLL_MS = 20;
 const START_TIMEOUT_MS = 30_000;
 
@@ -137,12 +140,15 @@ async function readStdin(): Promise<string> {
 export async function runPyrunSessionProxy(): Promise<void> {
 	const config = JSON.parse(await readStdin()) as PyrunSessionProxyConfig;
 	let owner = config.owner;
+	const idleExitMs = Number(process.env.PI_PYRUN_SESSION_IDLE_MS) || DEFAULT_IDLE_EXIT_MS;
 	let connections = 0;
+	let idleSince = Date.now();
 	const session = { busy: false, client: new PyrunRunnerClient(config.runnerOptions) };
 	const server = createServer((socket) => {
 		connections += 1;
 		socket.once("close", () => {
 			connections -= 1;
+			idleSince = Date.now();
 		});
 		servePyrunConnection(session, socket, (next) => {
 			owner = next;
@@ -155,7 +161,8 @@ export async function runPyrunSessionProxy(): Promise<void> {
 	});
 	await new Promise<void>((resolve) => {
 		const timer = setInterval(() => {
-			if (connections > 0 || isProcessIdentityAlive(owner)) return;
+			if (connections > 0) return;
+			if (Date.now() - idleSince < idleExitMs && isProcessIdentityAlive(owner)) return;
 			clearInterval(timer);
 			resolve();
 		}, OWNER_POLL_MS);
