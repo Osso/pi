@@ -716,7 +716,7 @@ export async function compact(
 			model,
 			settings.reserveTokens,
 			signal,
-			thinkingLevel,
+			customInstructions,
 		);
 		if (!turnPrefixResult.ok) return err(turnPrefixResult.error);
 		summary = `${historyResult.value}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.value}`;
@@ -752,7 +752,7 @@ async function generateTurnPrefixSummary(
 	model: Model<Api>,
 	reserveTokens: number,
 	signal?: AbortSignal,
-	_thinkingLevel?: ThinkingLevel,
+	customInstructions?: string,
 ): Promise<Result<string, CompactionError>> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
@@ -760,7 +760,7 @@ async function generateTurnPrefixSummary(
 	);
 	const llmMessages = convertToLlm(messages);
 	const conversationText = serializeConversation(llmMessages).slice(0, MAX_COMPACTION_CONTEXT_CHARS);
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}${customInstructions ? `\n\nAdditional focus: ${customInstructions}` : ""}`;
 	const summarizationMessages = [
 		{
 			role: "user" as const,

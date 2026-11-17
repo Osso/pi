@@ -867,6 +867,32 @@ describe("harness compaction", () => {
 		expect(seenOptions[0]).not.toHaveProperty("reasoning");
 	});
 
+	it("applies custom instructions to the turn-prefix summary of a split turn", async () => {
+		const prompts: string[] = [];
+		const { faux, model } = createFauxModel(false);
+		const capture = (context: { messages: AgentMessage[] }) => {
+			const message = context.messages[0];
+			const content = message?.role === "user" ? message.content : [];
+			prompts.push(Array.isArray(content) && content[0]?.type === "text" ? content[0].text : "");
+			return fauxAssistantMessage("## Goal\nTest summary");
+		};
+		faux.setResponses([capture, capture]);
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [createUserMessage("Older history")],
+			turnPrefixMessages: [createUserMessage("Refactor the parser")],
+			isSplitTurn: true,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
+		};
+
+		getOrThrow(await compact(preparation, models, model, "keep the parser API names"));
+
+		expect(prompts).toHaveLength(2);
+		for (const prompt of prompts) expect(prompt).toContain("Additional focus: keep the parser API names");
+	});
+
 	it("keeps the previous summary when a split turn has no new history to summarize", async () => {
 		const { faux, model } = createFauxModel(false);
 		faux.setResponses([fauxAssistantMessage("## Original Request\nRefactor the parser")]);

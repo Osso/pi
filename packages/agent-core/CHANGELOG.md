@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed `AgentHarness.compact()` custom instructions being ignored for the turn-prefix summary of a split turn ([#11058](https://github.com/earendil-works/pi-mono/issues/11058))
 - Compaction serialization and `truncateLine` no longer cut an emoji in half at the truncation limit ([#7121](https://github.com/earendil-works/pi-mono/issues/7121))
 - `parseCommandArgs` keeps apostrophes inside words, keeps an unclosed quote as text, and unescapes the enclosing quote character inside a quoted argument (upstream [#11861](https://github.com/earendil-works/pi/issues/11861))
 - Fixed aborting during a tool batch leaving the calls the loop had not reached without a tool result; each now gets start/end events and an `Operation aborted` result, and `beforeToolCall` is not asked about them (ported from upstream #9986).
