@@ -375,6 +375,7 @@ export class ExtensionRunner {
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
+		this.runtime.reportError = (error) => this.staleMessage === undefined && this.emitError(error);
 		this.uiContext = noOpUIContext;
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
@@ -697,13 +698,7 @@ export class ExtensionRunner {
 	}
 
 	hasHandlers(eventType: string): boolean {
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get(eventType);
-			if (handlers && handlers.length > 0) {
-				return true;
-			}
-		}
-		return false;
+		return this.extensions.some((ext) => (ext.handlers.get(eventType)?.length ?? 0) > 0);
 	}
 
 	hasApprovalReviewers(): boolean {

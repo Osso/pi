@@ -22,7 +22,7 @@ import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.ts";
 // avoiding a circular dependency. Extensions can import from @earendil-works/pi-coding-agent.
 import * as _bundledPiCodingAgent from "../../index.ts";
 import { canonicalizePath, resolvePath } from "../../utils/paths.ts";
-import { createEventBus, type EventBus } from "../event-bus.ts";
+import { createEventBus, createExtensionEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
@@ -429,7 +429,7 @@ function createExtensionAPI(
 			runtime.unregisterProvider(name, extension.path);
 		},
 
-		events: eventBus,
+		events: createExtensionEventBus(eventBus, extension.path, runtime),
 	} as ExtensionAPI;
 
 	return api;

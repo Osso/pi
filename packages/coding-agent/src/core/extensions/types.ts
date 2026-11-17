@@ -1817,12 +1817,9 @@ export interface ExtensionRuntimeState {
 	assertActive: () => void;
 	/** Marks this extension instance as stale after runtime replacement or reload. */
 	invalidate: (message?: string) => void;
-	/**
-	 * Register or unregister a provider.
-	 *
-	 * Before bindCore(): queues registrations / removes from queue.
-	 * After bindCore(): calls ModelRegistry directly for immediate effect.
-	 */
+	/** Reports an error thrown by a `pi.events` handler; set by the runner, which drops it once stale. */
+	reportError?: (error: ExtensionError) => void;
+	/** Register or unregister a provider: queued before bindCore(), applied to ModelRegistry after it. */
 	registerProvider: (name: string, config: ProviderConfig, extensionPath?: string) => void;
 	unregisterProvider: (name: string, extensionPath?: string) => void;
 }
