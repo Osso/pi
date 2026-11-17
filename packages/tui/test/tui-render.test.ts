@@ -693,6 +693,31 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("keeps each row once in scrollback when rows are inserted above the viewport", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const heading = new TestComponent();
+		const body = new TestComponent();
+		tui.addChild(heading);
+		tui.addChild(body);
+		heading.lines = ["| table pending |"];
+		body.lines = Array.from({ length: 12 }, (_, i) => `line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		// A Markdown table that scrolled off re-renders with three more rows, as when a streamed table completes.
+		for (const extraRows of [3, 0, 3]) {
+			heading.lines = ["| table |", ...Array.from({ length: extraRows }, (_, i) => `| wrapped row ${i} |`)];
+			tui.requestRender();
+			await terminal.waitForRender();
+			const bodyRows = terminal.getScrollBuffer().filter((line) => line.startsWith("line "));
+			assert.deepStrictEqual(bodyRows, body.lines, "rows already in scrollback must not be repainted into it again");
+			assert.deepStrictEqual(terminal.getViewport(), ["line 7", "line 8", "line 9", "line 10", "line 11"]);
+		}
+
+		tui.stop();
+	});
+
 	it("renders chat growth before the editor without clearing scrollback", async () => {
 		const terminal = new LoggingVirtualTerminal(20, 5);
 		const tui = new TUI(terminal);

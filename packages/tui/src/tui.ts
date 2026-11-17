@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "./keys.ts";
+import { viewportTopAfterOffscreenChange } from "./scrollback.ts";
 import type { Terminal } from "./terminal.ts";
 import {
 	isOsc11BackgroundColorResponse,
@@ -2115,12 +2116,11 @@ export class TUI extends Container {
 		// replaying the whole history for them turns a live line that scrolled off (e.g. an elapsed timer)
 		// into a full history replay on every tick, so repaint from the viewport down and leave scrollback stale.
 		if (firstChanged < prevViewportTop) {
-			const reason = `firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`;
 			// Image lines reserve multiple rows and need the full renderer's placement.
 			if (newLines.slice(prevViewportTop).some(isImageLine)) {
-				return fallbackToFullRender(reason, true);
+				return fallbackToFullRender(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`, true);
 			}
-			viewportRender(prevViewportTop);
+			viewportRender(viewportTopAfterOffscreenChange(this.previousLines, newLines, prevViewportTop));
 			return true;
 		}
 

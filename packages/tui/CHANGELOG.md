@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed rows that were already in scrollback being written into it again when content above the viewport grew or shrank, for example when a scrolled-off Markdown table re-rendered with more rows.
 - Fixed OSC 8 hyperlink detection for Alacritty, which sets `TERM=alacritty` or `ALACRITTY_WINDOW_ID` but not `TERM_PROGRAM` ([#11777](https://github.com/earendil-works/pi-mono/issues/11777))
 - The terminal cursor, bracketed paste and keyboard modes are restored when the process exits without `TUI.stop()`, for example through `process.exit()` in an extension; the shell was left with a hidden cursor ([#11170](https://github.com/earendil-works/pi-mono/issues/11170))
 - `Input`, `SelectList` and `SettingsList` no longer render lines wider than a 1- to 3-column terminal; opening `/settings` or a selector at such a width crashed pi with a line-width error
