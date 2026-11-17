@@ -391,6 +391,10 @@ export function findCutPoint(
 	}
 	const recentStartIndex = findRecentMessagesStartIndex(entries, protectedStartIndex, endIndex, keepRecentMessages);
 	let cutIndex = findCutPointAtOrBefore(cutPoints, recentStartIndex);
+	const cutEntry = entries[cutIndex];
+	if (!cutEntry) throw new Error(`Missing session entry at index ${cutIndex}`);
+	// A cut at a turn start keeps whole turns; the backward scan below only adds non-context entries.
+	const isTurnStart = isTurnStartEntry(cutEntry);
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		if (!prevEntry) throw new Error(`Missing session entry at index ${cutIndex - 1}`);
@@ -402,16 +406,8 @@ export function findCutPoint(
 		}
 		cutIndex--;
 	}
-	const cutEntry = entries[cutIndex];
-	if (!cutEntry) throw new Error(`Missing session entry at index ${cutIndex}`);
-	const isUserMessage = cutEntry.type === "message" && cutEntry.message.role === "user";
-	const turnStartIndex = isUserMessage ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
-
-	return {
-		firstKeptEntryIndex: cutIndex,
-		turnStartIndex,
-		isSplitTurn: !isUserMessage && turnStartIndex !== -1,
-	};
+	const turnStartIndex = isTurnStart ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
+	return { firstKeptEntryIndex: cutIndex, turnStartIndex, isSplitTurn: !isTurnStart && turnStartIndex !== -1 };
 }
 
 export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.

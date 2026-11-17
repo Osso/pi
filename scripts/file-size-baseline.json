@@ -1,7 +1,7 @@
 {
 	"packages/agent-core/src/agent-loop.ts": 951,
 	"packages/agent-core/src/harness/agent-harness.ts": 1038,
-	"packages/agent-core/src/harness/compaction/compaction.ts": 795,
+	"packages/agent-core/src/harness/compaction/compaction.ts": 791,
 	"packages/agent-core/src/harness/types.ts": 846,
 	"packages/ai/src/api/anthropic-messages.ts": 1188,
 	"packages/ai/src/api/bedrock-converse-stream.ts": 1159,

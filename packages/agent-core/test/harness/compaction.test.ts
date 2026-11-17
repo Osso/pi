@@ -292,6 +292,44 @@ describe("harness compaction", () => {
 		expect(result).toEqual({ firstKeptEntryIndex: 3, turnStartIndex: 2, isSplitTurn: true });
 	});
 
+	it("does not split a turn when non-context entries precede the kept user message", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const modelChange = createModelChangeEntry("faux", "other-model", oldAssistant.id);
+		const thinking = createThinkingLevelEntry("high", modelChange.id);
+		const latestUser = createMessageEntry(createUserMessage("latest user"), thinking.id);
+		const latestAssistant = createMessageEntry(createAssistantMessage("latest assistant"), latestUser.id);
+		const entries = [oldUser, oldAssistant, modelChange, thinking, latestUser, latestAssistant];
+
+		expect(findCutPoint(entries, 0, entries.length, 2)).toEqual({
+			firstKeptEntryIndex: 2,
+			turnStartIndex: -1,
+			isSplitTurn: false,
+		});
+	});
+
+	it("does not split a turn when the cut lands on a custom message", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const custom: CustomMessageEntry = {
+			type: "custom_message",
+			id: createId(),
+			parentId: oldAssistant.id,
+			timestamp: new Date().toISOString(),
+			customType: "note",
+			content: "extension note",
+			display: true,
+		};
+		const latestAssistant = createMessageEntry(createAssistantMessage("latest assistant"), custom.id);
+		const entries = [oldUser, oldAssistant, custom, latestAssistant];
+
+		expect(findCutPoint(entries, 0, entries.length, 2)).toEqual({
+			firstKeptEntryIndex: 2,
+			turnStartIndex: -1,
+			isSplitTurn: false,
+		});
+	});
+
 	it("prepares compaction that keeps the latest turn when it spans keepRecentMessages", () => {
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);

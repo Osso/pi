@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed harness compaction treating a clean cut as a split turn when model, thinking-level or label entries precede the kept user message, or when the cut lands on a custom message; the previous turn was summarized as the split-turn prefix
 - Fixed `AgentHarness.compact()` custom instructions being ignored for the turn-prefix summary of a split turn ([#11058](https://github.com/earendil-works/pi-mono/issues/11058))
 - Compaction serialization and `truncateLine` no longer cut an emoji in half at the truncation limit ([#7121](https://github.com/earendil-works/pi-mono/issues/7121))
 - `parseCommandArgs` keeps apostrophes inside words, keeps an unclosed quote as text, and unescapes the enclosing quote character inside a quoted argument (upstream [#11861](https://github.com/earendil-works/pi/issues/11861))
