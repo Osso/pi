@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed `AgentHarness.compact()` sending whole tool call arguments (for example a large `write` content) to the summarization model; each argument is now cut to 1000 characters, as in coding-agent
 - Fixed harness compaction counting hidden `!!` bash executions (`excludeFromContext`) in token estimates and toward `keepRecentMessages`; trailing hidden commands used up the kept window and the real recent messages were summarized
 - Fixed harness compaction dropping the read and modified file lists of summarized branch summary entries
 - Fixed harness compaction reporting `tokensBefore` from usage of messages kept by the previous compaction, which describes the old, larger context; it now estimates from message content when no newer usage exists

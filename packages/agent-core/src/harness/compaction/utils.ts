@@ -80,15 +80,8 @@ export function formatFileOperations(readFiles: string[], modifiedFiles: string[
 	return `\n\n${sections.join("\n\n")}`;
 }
 
+const TOOL_CALL_ARGUMENT_MAX_CHARS = 1000;
 const TOOL_RESULT_MAX_CHARS = 2000;
-
-function safeJsonStringify(value: unknown): string {
-	try {
-		return JSON.stringify(value) ?? "undefined";
-	} catch {
-		return "[unserializable]";
-	}
-}
 
 function truncateForSummary(text: string, maxChars: number): string {
 	if (text.length <= maxChars) return text;
@@ -121,6 +114,17 @@ function serializeToolResultForSummary(content: string, details: unknown): strin
 	return `${serialized}\n\n[Output truncated. Full output: ${fullOutputPath}]`;
 }
 
+function serializeToolCallArgument(value: unknown): string {
+	let serialized: string | undefined;
+	try {
+		serialized = JSON.stringify(value);
+	} catch {
+		return "[unserializable]";
+	}
+	if (serialized === undefined) return "undefined";
+	return truncateForSummary(serialized, TOOL_CALL_ARGUMENT_MAX_CHARS);
+}
+
 /** Serialize LLM messages to plain text for summarization prompts. */
 export function serializeConversation(messages: Message[]): string {
 	const parts: string[] = [];
@@ -145,7 +149,7 @@ export function serializeConversation(messages: Message[]): string {
 				} else if (block.type === "toolCall") {
 					const args = block.arguments as Record<string, unknown>;
 					const argsStr = Object.entries(args)
-						.map(([k, v]) => `${k}=${safeJsonStringify(v)}`)
+						.map(([k, v]) => `${k}=${serializeToolCallArgument(v)}`)
 						.join(", ");
 					toolCalls.push(`${block.name}(${argsStr})`);
 				}

@@ -745,6 +745,28 @@ describe("harness compaction", () => {
 		expect(result).not.toContain("[Assistant thinking]");
 	});
 
+	it("truncates long tool call arguments in serialized summaries", () => {
+		const messages = convertMessages([
+			{
+				...createAssistantMessage(""),
+				content: [
+					{
+						type: "toolCall",
+						id: "tc1",
+						name: "write",
+						arguments: { path: "large.txt", content: "x".repeat(5000) },
+					},
+				],
+			},
+		]);
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain('[Assistant tool calls]: write(path="large.txt", content="');
+		expect(result).toContain("[... 4002 more characters truncated]");
+		expect(result).not.toContain("x".repeat(1001));
+	});
+
 	it("serializes conversation with truncated tool results", () => {
 		const longContent = "x".repeat(5000);
 		const messages = convertMessages([
