@@ -250,10 +250,8 @@ export function estimateTokens(message: AgentMessage): number {
 			chars = estimateTextAndImageContentChars(message.content);
 			return Math.ceil(chars / 4);
 		}
-		case "bashExecution": {
-			chars = message.command.length + message.output.length;
-			return Math.ceil(chars / 4);
-		}
+		case "bashExecution":
+			return message.excludeFromContext ? 0 : Math.ceil((message.command.length + message.output.length) / 4);
 		case "branchSummary":
 		case "compactionSummary": {
 			chars = message.summary.length;
@@ -275,7 +273,9 @@ function findRecentMessagesStartIndex(
 	for (let i = endIndex - 1; i >= startIndex; i--) {
 		const entry = entries[i];
 		if (!entry) throw new Error(`Missing session entry at index ${i}`);
-		if (!getMessageFromEntry(entry)) continue;
+		const message = getMessageFromEntry(entry);
+		// Hidden `!!` commands never reach the model, so they do not count as retained context.
+		if (!message || (message.role === "bashExecution" && message.excludeFromContext)) continue;
 		messageCount++;
 		if (messageCount >= keepRecentMessages) return i;
 	}

@@ -24,6 +24,7 @@ import {
 	serializeConversation,
 	shouldCompact,
 } from "../../src/harness/compaction/compaction.ts";
+import type { BashExecutionMessage } from "../../src/harness/messages.ts";
 import { buildSessionContext } from "../../src/harness/session/session.ts";
 import type {
 	BranchSummaryEntry,
@@ -72,6 +73,19 @@ function createAssistantMessage(text: string, usage = createMockUsage(100, 50)):
 		usage,
 		stopReason: "stop",
 		timestamp: Date.now(),
+	};
+}
+
+function createHiddenBashMessage(command: string): BashExecutionMessage {
+	return {
+		role: "bashExecution",
+		command,
+		output: "x".repeat(40_000),
+		exitCode: 0,
+		cancelled: false,
+		truncated: false,
+		timestamp: Date.now(),
+		excludeFromContext: true,
 	};
 }
 
@@ -328,6 +342,24 @@ describe("harness compaction", () => {
 			turnStartIndex: -1,
 			isSplitTurn: false,
 		});
+	});
+
+	it("does not count hidden !! output in token estimates", () => {
+		const hidden = createHiddenBashMessage("ls");
+		expect(estimateTokens(hidden)).toBe(0);
+		expect(estimateTokens({ ...hidden, excludeFromContext: false })).toBe(10_001);
+	});
+
+	it("does not count hidden !! commands toward keepRecentMessages", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const latestUser = createMessageEntry(createUserMessage("latest user"), oldAssistant.id);
+		const latestAssistant = createMessageEntry(createAssistantMessage("latest assistant"), latestUser.id);
+		const hidden1 = createMessageEntry(createHiddenBashMessage("git status"), latestAssistant.id);
+		const hidden2 = createMessageEntry(createHiddenBashMessage("git log"), hidden1.id);
+		const entries = [oldUser, oldAssistant, latestUser, latestAssistant, hidden1, hidden2];
+
+		expect(findCutPoint(entries, 0, entries.length, 2).firstKeptEntryIndex).toBe(2);
 	});
 
 	it("prepares compaction that keeps the latest turn when it spans keepRecentMessages", () => {

@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed harness compaction counting hidden `!!` bash executions (`excludeFromContext`) in token estimates and toward `keepRecentMessages`; trailing hidden commands used up the kept window and the real recent messages were summarized
 - Fixed harness compaction dropping the read and modified file lists of summarized branch summary entries
 - Fixed harness compaction reporting `tokensBefore` from usage of messages kept by the previous compaction, which describes the old, larger context; it now estimates from message content when no newer usage exists
 - Fixed harness compaction treating a clean cut as a split turn when model, thinking-level or label entries precede the kept user message, or when the cut lands on a custom message; the previous turn was summarized as the split-turn prefix
