@@ -271,6 +271,7 @@
 
 ### Fixed
 
+- Prompt templates now substitute `${@:-default}` and `${ARGUMENTS:-default}` (all arguments, or the default when none are given) instead of leaving them as literal text (port of upstream 64f83c85d, [#6695](https://github.com/earendil-works/pi-mono/issues/6695)).
 - The Supervisor session no longer fails a request with "Supervisor turn ended without a supervisor_response call" when its first attempt hits a retryable provider error. It waited for `agent_end`, which fires before the automatic retry. It now waits for the new `agent_settled` extension event, so the retry's response is returned and the next request is not started while the retry is pending.
 - `RpcClient.waitForIdle()`, `collectEvents()` and `promptAndWait()` now resolve on `agent_settled` instead of the first `agent_end`, so they no longer return the failed attempt while an automatic retry, compaction or queued continuation is still running. Their events are typed as `AgentSessionEvent` (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - A Supervisor `escalate` reply that arrives after the user answered the question in the local panel is no longer delivered to the model as a stray `supervisor_response` message. Late Supervisor answers, and late escalations of questions not answered locally (for example after a restart), are still delivered.

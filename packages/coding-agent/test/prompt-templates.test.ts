@@ -223,6 +223,15 @@ describe("substituteArgs - positional defaults", () => {
 		expect(substituteArgs(`\${1:-7}`, ["$1"])).toBe("$1");
 	});
 
+	test("should support defaults for all arguments", () => {
+		const template = `\${@:-default}\n\${ARGUMENTS:-default}`;
+
+		expect(substituteArgs(template, [])).toBe("default\ndefault");
+		expect(substituteArgs(template, ["This", "would", "be", "the", "arguments"])).toBe(
+			"This would be the arguments\nThis would be the arguments",
+		);
+	});
+
 	test("should not recursively substitute patterns in default values", () => {
 		expect(substituteArgs(`\${1:-$ARGUMENTS}`, ["a", "b"])).toBe("a");
 		expect(substituteArgs(`\${3:-$ARGUMENTS}`, ["a", "b"])).toBe("$ARGUMENTS");
