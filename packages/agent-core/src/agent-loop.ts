@@ -591,11 +591,7 @@ async function executeToolCallsSequential(
 		await emitToolExecutionStart(toolCall, preparation, startedAt, emit);
 		let finalized: FinalizedToolCallOutcome;
 		if (preparation.kind === "immediate") {
-			finalized = {
-				toolCall,
-				result: preparation.result,
-				isError: preparation.isError,
-			};
+			finalized = { toolCall, result: preparation.result, isError: preparation.isError };
 		} else if (signal?.aborted) {
 			// Start listeners are awaited; the user can abort while one runs.
 			finalized = { toolCall, result: createErrorToolResult("Operation aborted"), isError: true };
