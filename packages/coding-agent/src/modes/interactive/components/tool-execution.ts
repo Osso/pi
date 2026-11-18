@@ -376,7 +376,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	override render(width: number): string[] {
-		if (this.hideComponent) {
+		if (this.hideComponent || this.isSettledWait()) {
 			return [];
 		}
 		switch (this.resolveRenderMode()) {
@@ -387,6 +387,11 @@ export class ToolExecutionComponent extends Container {
 			case "default":
 				return super.render(width);
 		}
+	}
+
+	/** A finished wait_agent row carries no information; the agent report follows it. Errors and expanded view keep it. */
+	private isSettledWait(): boolean {
+		return this.toolName === "wait_agent" && !this.isPartial && !this.result?.isError && !this.expanded;
 	}
 
 	private resolveRenderMode(): "compact" | "self" | "default" {

@@ -110,6 +110,12 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 					finishedAt,
 				);
 				const completed = component.render(120);
+				if (toolName === "wait_agent") {
+					expect(completed).toEqual([]);
+					component.setExpanded(true);
+					expect(stripAnsi(component.render(120).join("\n"))).toContain("successful detail");
+					continue;
+				}
 				expect(completed).toHaveLength(2);
 				expect(completed[0]).toBe("");
 				expect(stripAnsi(completed.join("\n"))).toContain("Elapsed: 1s");

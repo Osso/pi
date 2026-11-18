@@ -136,6 +136,10 @@ describe("ToolExecutionComponent mode matrix", () => {
 		"$toolKind (hideOutput=$hideOutput, expanded=$expanded, state=$state) preserves margins, width bounds, and visibility",
 		({ toolKind, hideOutput, expanded, state }) => {
 			const component = buildComponent(toolKind, hideOutput, expanded, state);
+			if (toolKind === "wait_agent" && state === "success" && !expanded) {
+				expect(component.render(80)).toEqual([]);
+				return;
+			}
 
 			for (const width of [24, 80]) {
 				const rawLines = component.render(width);
