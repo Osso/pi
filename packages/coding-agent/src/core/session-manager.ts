@@ -889,9 +889,8 @@ async function listDefaultSessionRoot(progress: SessionListProgress | undefined)
 
 	try {
 		const entries = await readdir(sessionsDir, { withFileTypes: true });
-		const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => join(sessionsDir, entry.name));
-		const dirFiles = await listSessionFilesByDir(dirs);
-		return await buildSortedSessionInfos(dirFiles.flat(), progress);
+		const dirs = entries.filter((e) => e.isDirectory() || e.isSymbolicLink()).map((e) => join(sessionsDir, e.name));
+		return await buildSortedSessionInfos((await listSessionFilesByDir(dirs)).flat(), progress);
 	} catch {
 		return [];
 	}

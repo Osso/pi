@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- Session listing now finds sessions in symlinked project directories under the sessions root (port of upstream da66636cc, [#7497](https://github.com/earendil-works/pi-mono/issues/7497))
 - A directory named like a context file (for example `AGENTS.md/`) no longer produces an EISDIR warning or hides the `CLAUDE.md` fallback (port of upstream 58c0bc2fb, [#7106](https://github.com/earendil-works/pi-mono/issues/7106))
 - Background compaction now tries again 60 seconds after a transient provider failure such as "Our servers are currently overloaded". One failure stopped background compaction until the compaction threshold, which then ran a blocking foreground compaction
 - Tree navigation now rejects while a response streams: `/tree`, RPC `navigate_tree`, or `ctx.navigateTree()` moved the leaf under the running turn, so its reply landed on the target branch. Interactive `/tree` stops the response once you confirm the navigation (port of upstream cefa40ed8, [#7022](https://github.com/earendil-works/pi-mono/issues/7022))
