@@ -153,7 +153,10 @@ describe("provider retry classification", () => {
 		"WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: Expected 101 status code",
 		"Error: WebSocket connection to 'wss://proxy.example.test/codex/responses?session=abc' failed: Expected 101 status code",
 		"error: websocket connection to 'wss://example.test/responses' failed: expected 101 status\t code",
-	])("retries runtime Expected-101 handshake failures: %s", (errorMessage) => {
+		// Bun's WebSocket error when the connection never opened (session 01a1e65a, 2026-11-18).
+		"WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: Failed to connect",
+		"Error: WebSocket connection to 'wss://proxy.example.test/codex/responses' failed: Failed to connect",
+	])("retries runtime WebSocket handshake and connect failures: %s", (errorMessage) => {
 		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
 	});
 
@@ -164,6 +167,7 @@ describe("provider retry classification", () => {
 		"WebSocket connection to 'wss://example.test/responses' failed: invalid_api_key",
 		"WebSocket connection to 'wss://example.test/responses' failed: Expected 101 status code; received 403 Forbidden",
 		"Expected 101 status code",
+		"WebSocket connection to 'wss://example.test/responses' failed: Failed to connect: 401 Unauthorized",
 	])("does not broaden handshake retries to permanent or unrelated failures: %s", (errorMessage) => {
 		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
 	});

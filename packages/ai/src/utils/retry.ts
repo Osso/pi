@@ -146,7 +146,9 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"websocket.?error",
 	// Codex 60-minute WebSocket lifetime limit (code or message text); a retry opens a fresh connection.
 	"websocket.?connection.?limit.?reached",
-	"^(?:Error:\\s*)?WebSocket connection to 'wss://[^'\\s]+' failed: Expected 101 status\\s+code$",
+	// Bun reports a handshake rejection as "Expected 101 status code" and a connection that never
+	// opened (DNS, TCP or TLS failure) as "Failed to connect".
+	"^(?:Error:\\s*)?WebSocket connection to 'wss://[^'\\s]+' failed: (?:Expected 101 status\\s+code|Failed to connect)$",
 
 	// Premature or incomplete stream endings from SDKs and transports. Anthropic can throw
 	// "stream ended without ..." and "Anthropic stream ended before message_stop"

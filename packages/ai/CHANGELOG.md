@@ -107,6 +107,7 @@
 - Fixed Anthropic replay to preserve signed empty thinking blocks returned with `thinkingDisplay: "omitted"` for multi-turn continuity.
 - Fixed Google AI Studio and Vertex streams replacing error and token-limit stop reasons with tool use after a function call.
 - Fixed Google AI Studio and Vertex streams merging the distinct text parts of one response chunk, which moved a part's thought signature onto earlier text during replay.
+- Fixed the WebSocket error `failed: Failed to connect` (a connection that never opened) not being retried; the turn stopped until the user continued it.
 
 ### Added
 
