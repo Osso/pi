@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai/compat";
+import { type Api, type AssistantMessage, classifyProviderErrorText, type Model } from "@earendil-works/pi-ai/compat";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -15,6 +15,8 @@ import type { CompactionEntry, SessionEntry } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 
 export const BACKGROUND_COMPACTION_CONTEXT_RATIO = 0.7;
+/** Wait after a transient generation failure (overload, 5xx, timeout) before the next background attempt. */
+export const BACKGROUND_COMPACTION_RETRY_DELAY_MS = 60_000;
 
 export interface BackgroundCompactionCache {
 	state: "pending" | "ready" | "failed";
@@ -77,6 +79,7 @@ interface BackgroundCompactionDependencies {
 export class BackgroundCompactionState {
 	private cache: BackgroundCompactionCache | undefined;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
+	private retryAt = 0;
 
 	private readonly dependencies: BackgroundCompactionDependencies;
 
@@ -216,11 +219,15 @@ export class BackgroundCompactionState {
 			this.storeReady(cache, compaction, extensionCompaction !== undefined, startedAt);
 		} catch (error) {
 			if (cache.abortController.signal.aborted) return;
+			const message = error instanceof Error ? error.message : String(error);
 			cache.state = "failed";
-			this.dependencies.recordCompactionFailure(error instanceof Error ? error.message : String(error));
-			console.error(
-				`Background compaction cache generation failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			this.dependencies.recordCompactionFailure(message);
+			console.error(`Background compaction cache generation failed: ${message}`);
+			// A transient failure frees the slot so a later turn retries; a deterministic one stays failed.
+			if (classifyProviderErrorText(message).retryable && this.cache === cache) {
+				this.cache = undefined;
+				this.retryAt = Date.now() + BACKGROUND_COMPACTION_RETRY_DELAY_MS;
+			}
 		} finally {
 			await cache.extensionRunner.emit({ type: "background_compaction_end" });
 		}
@@ -245,7 +252,7 @@ export class BackgroundCompactionState {
 	}
 
 	start(contextTokens: number, contextWindow: number): void {
-		if (Date.now() < this.dependencies.getCooldownUntil()) return;
+		if (Date.now() < Math.max(this.dependencies.getCooldownUntil(), this.retryAt)) return;
 		if (contextWindow <= 0) return;
 		const configuredStartTokens =
 			this.dependencies.settingsManager.getMergedSettings().compaction?.backgroundStartTokens;

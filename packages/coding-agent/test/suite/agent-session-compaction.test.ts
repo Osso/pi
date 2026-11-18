@@ -1772,6 +1772,57 @@ describe("AgentSession compaction characterization", () => {
 		}
 	});
 
+	it.each([
+		{
+			name: "a transient",
+			error: "Codex error: Our servers are currently overloaded. Please try again later.",
+			retries: true,
+		},
+		{ name: "a deterministic", error: "Invalid API key provided", retries: false },
+	])(
+		"after $name background failure, retries speculative compaction only after the delay: $retries",
+		async ({ error, retries }) => {
+			const failures = vi.spyOn(console, "error").mockImplementation(() => {});
+			const harness = await createTrackedHarness({
+				settings: {
+					compaction: {
+						enabled: true,
+						keepRecentMessages: 1,
+						reserveTokens: 0,
+						thresholdTokens: 50,
+						backgroundStartTokens: 40,
+					},
+				},
+				models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+			});
+			seedCompactableSession(harness);
+			// The summarization request itself fails, as the provider error did in production.
+			harness.setResponses([
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: error }),
+				fauxAssistantMessage("retried summary"),
+			]);
+			const summaryRequests = () => harness.faux.state.callCount;
+			const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+			const start = Date.now();
+			const now = vi.spyOn(Date, "now").mockReturnValue(start);
+			const check = (offset: number) =>
+				sessionInternals._checkCompaction(
+					createAssistant(harness, { stopReason: "stop", totalTokens: 40, timestamp: start + offset }),
+				);
+
+			await check(1);
+			await vi.waitFor(() => expect(failures).toHaveBeenCalledWith(expect.stringContaining(error)));
+			await check(2);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(summaryRequests()).toBe(1);
+
+			now.mockReturnValue(start + 61_000);
+			await check(3);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(summaryRequests()).toBe(retries ? 2 : 1);
+		},
+	);
+
 	it("installs a completed background compaction cache while idle after the branch advances", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
