@@ -4,6 +4,12 @@ import { visibleWidth } from "../src/utils.ts";
 import { wrapTextWithAnsi } from "../src/wrap-ansi.ts";
 
 describe("wrapTextWithAnsi", () => {
+	it("leaves out a grapheme wider than the whole width instead of exceeding it", () => {
+		assert.deepStrictEqual(wrapTextWithAnsi("界", 1), [""]);
+		assert.deepStrictEqual(wrapTextWithAnsi("a界b", 1), ["a", "b"]);
+		assert.deepStrictEqual(wrapTextWithAnsi("a界b", 2), ["a", "界", "b"]);
+	});
+
 	describe("underline styling", () => {
 		it("should not apply underline style before the styled text", () => {
 			const underlineOn = "\x1b[4m";

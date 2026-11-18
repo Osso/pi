@@ -52,6 +52,7 @@
 - Fixed the editor keeping a stale autocomplete picker open after Home, End, or word cursor moves, so Tab inserted a suggestion computed for the old cursor position (for example `/help /he`).
 - Fixed the editor's backward character jump (Ctrl+Alt+]) staying on the current character when the cursor is at column 0 and that character matches.
 - Fixed Backspace in the editor's character jump mode (Ctrl+]) being taken as the jump target: it now cancels the jump and deletes a character. Jump mode and the Ctrl+R history search reject DEL and C1 control characters, like `Input`.
+- Fixed `wrapTextWithAnsi` returning a line wider than the width when a single grapheme (a CJK character or emoji) is wider than the whole width. `Text` with padding in a 3-column terminal crashed pi with a line-width error. Such a grapheme is now left out, like strict slicing does
 - Fixed the editor keeping DEL and C1 control characters from pasted text. The editor wrote them to the terminal, where a single-byte CSI (`\x9b`) runs as a control sequence and under `remote-agent-rs` can end the session.
 - Fixed `matchesKey` matching a Kitty digit key by its base-layout key on remapped layouts, so `alt+2` reported on the physical `1` key also matched `alt+1`; digits are now authoritative like letters and symbols, as `parseKey` already did.
 - Fixed rxvt Shift-modified keys such as `ESC [ 2 $` (Shift+Insert) swallowing the next typed character when both arrived in one stdin chunk.

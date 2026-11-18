@@ -276,6 +276,8 @@ function breakLongWord(word: string, width: number, tracker: AnsiCodeTracker): s
 		if (!grapheme) continue;
 
 		const graphemeWidth = visibleWidth(grapheme);
+		// Wider than a whole line (a wide character at width 1): no line can hold it. Like strict slicing, leave it out.
+		if (graphemeWidth > width) continue;
 
 		if (currentWidth + graphemeWidth > width) {
 			// Add specific reset for underline only (preserves background)
