@@ -66,14 +66,19 @@ export function readSupervisorResponseAfter(entries: SessionEntry[], previousLea
 	const boundary = previousLeafId ? entries.findIndex((entry) => entry.id === previousLeafId) : -1;
 	if (previousLeafId && boundary === -1) throw new Error("Supervisor request boundary is missing from the branch");
 	let response: unknown;
+	let failedRequest: string | undefined;
 	for (const entry of entries.slice(boundary + 1)) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+		failedRequest = entry.message.stopReason === "error" ? entry.message.errorMessage : undefined;
 		for (const part of entry.message.content) {
 			if (part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME) response = part.arguments;
 		}
 	}
-	if (response === undefined) throw new Error("Supervisor turn ended without a supervisor_response call");
-	return response;
+	if (response !== undefined) return response;
+	// A failed model request is the cause; reporting only the missing call hid it (for example an
+	// exhausted provider account).
+	if (failedRequest) throw new Error(`Supervisor model request failed: ${failedRequest}`);
+	throw new Error("Supervisor turn ended without a supervisor_response call");
 }
 
 /**

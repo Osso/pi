@@ -127,7 +127,10 @@ describe("interactive Supervisor session", () => {
 
 	it("records an error response when the turn ends without supervisor_response", async () => {
 		const harness = await openSession({ supervisor: true });
-		harness.setResponses([fauxAssistantMessage("I think this is fine.")]);
+		harness.setResponses([
+			fauxAssistantMessage("I think this is fine."),
+			fauxAssistantMessage([fauxToolCall("end_turn", { reason: "answered" })], { stopReason: "toolUse" }),
+		]);
 
 		const id = postRequest(harness, "supervisor_advisory", { question: "Is this fine?" });
 		const request = await waitForCompletion(harness, id);
@@ -135,6 +138,22 @@ describe("interactive Supervisor session", () => {
 		expect(request.response).toEqual({
 			kind: "error",
 			reason: "Supervisor turn ended without a supervisor_response call",
+		});
+	});
+
+	// agent-server 2026-11-17 02:43Z: the provider account ran out of credits, and goal reviews
+	// reported only the missing supervisor_response call.
+	it("records the provider error when the Supervisor model request fails", async () => {
+		const harness = await openSession({ supervisor: true });
+		const providerError = "OpenAI API error: You have no credits remaining.";
+		harness.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: providerError })]);
+
+		const id = postRequest(harness, "supervisor_advisory", { question: "Is this fine?" });
+		const request = await waitForCompletion(harness, id);
+
+		expect(request.response).toEqual({
+			kind: "error",
+			reason: `Supervisor model request failed: ${providerError}`,
 		});
 	});
 

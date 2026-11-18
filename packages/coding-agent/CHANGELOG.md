@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- When the Supervisor model request fails, the Supervisor answer now gives the provider error (for example, no credits remaining). Before, it said only "Supervisor turn ended without a supervisor_response call"
 - The `/tree` search now accepts keys that tmux sends as modifyOtherKeys sequences, such as shift+space and capital letters; they were dropped
 - Compaction no longer fails on one transient provider error such as `ECONNRESET`: the summary request is sent again up to three times with backoff (manual, idle, threshold, overflow and background compaction)
 - Session listing now finds sessions in symlinked project directories under the sessions root (port of upstream da66636cc, [#7497](https://github.com/earendil-works/pi-mono/issues/7497))
