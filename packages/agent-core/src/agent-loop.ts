@@ -596,6 +596,9 @@ async function executeToolCallsSequential(
 				result: preparation.result,
 				isError: preparation.isError,
 			};
+		} else if (signal?.aborted) {
+			// Start listeners are awaited; the user can abort while one runs.
+			finalized = { toolCall, result: createErrorToolResult("Operation aborted"), isError: true };
 		} else {
 			const executed = await executePreparedToolCall(preparation, signal, emit, startedAt);
 			finalized = await finalizeExecutedToolCall(

@@ -190,6 +190,41 @@ describe("Agent streamed interruption", () => {
 	);
 });
 
+describe("Agent tool start interruption", () => {
+	it.each(["sequential", "parallel"] as const)(
+		"does not run a %s tool call aborted while its start is announced",
+		async (executionMode) => {
+			const stream = new MockAssistantStream();
+			const toolSchema = Type.Object({});
+			const tool: AgentTool<typeof toolSchema> = {
+				name: "stuck_tool",
+				label: "Interrupted Tool",
+				description: "Must not execute an aborted call",
+				parameters: toolSchema,
+				executionMode,
+				execute: vi.fn(async () => ({ content: [{ type: "text" as const, text: "unexpected" }], details: {} })),
+			};
+			const agent = new Agent({ initialState: { tools: [tool] }, streamFn: () => stream });
+			const events: AgentEvent[] = [];
+			agent.subscribe(async (event) => {
+				events.push(event);
+				// The user cancels while an extension handles the start event.
+				if (event.type === "tool_execution_start") agent.abort();
+			});
+
+			const prompt = agent.prompt("Run the tool");
+			stream.push({ type: "done", reason: "toolUse", message: createToolUseMessage() });
+			await prompt;
+
+			expect(tool.execute).not.toHaveBeenCalled();
+			const results = events.flatMap((event) =>
+				event.type === "tool_execution_end" ? [event.result.content[0]] : [],
+			);
+			expect(results).toEqual([{ type: "text", text: "Operation aborted" }]);
+		},
+	);
+});
+
 describe("Agent pre-stream interruption", () => {
 	it.each(["abort", "failure"] as const)("finalizes %s before any assistant start", async (interruption) => {
 		const stream = new MockAssistantStream();
