@@ -636,6 +636,8 @@ export class AgentSession {
 	private _duplicateTurnLoopDetected = false;
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
+	/** Context-only custom messages sent during a run; appended once the turn's tool results are in (upstream #8537). */
+	private _pendingCustomMessages: CustomMessage[] = [];
 	/** User prompts held outside Agent queues, such as TUI input replay after abort. */
 	private _externalUserInputReservations = 0;
 	/** Serializes turn-start checks through the Agent core transition. */
@@ -1666,7 +1668,7 @@ export class AgentSession {
 			releaseTurnStart();
 			await continuation;
 		} finally {
-			this._flushPendingBashMessages();
+			this._flushPendingRunMessages();
 		}
 	}
 
@@ -1718,6 +1720,8 @@ export class AgentSession {
 			};
 			await this._extensionRunner.emit(extensionEvent);
 			this._turnIndex++;
+			// The turn's tool results are persisted, so queued custom messages no longer split a call from its result.
+			this._flushPendingCustomMessages();
 		} else if (event.type === "message_start") {
 			const extensionEvent: MessageStartEvent = {
 				type: "message_start",
@@ -1798,19 +1802,13 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * Reconnect to agent events after _disconnectFromAgent().
-	 * Preserves all existing listeners.
-	 */
+	/** Reconnect to agent events after _disconnectFromAgent(). Preserves all existing listeners. */
 	private _reconnectToAgent(): void {
 		if (this._unsubscribeAgent) return; // Already connected
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 	}
 
-	/**
-	 * Remove all listeners and disconnect from agent.
-	 * Call this when completely done with the session.
-	 */
+	/** Remove all listeners and disconnect from agent. Call this when completely done with the session. */
 	dispose(): void {
 		if (this._disposed) {
 			return;
@@ -1896,10 +1894,7 @@ export class AgentSession {
 		return requested;
 	}
 
-	/**
-	 * Get the names of currently active tools.
-	 * Returns the names of tools currently set on the agent.
-	 */
+	/** Get the names of currently active tools. Returns the names of tools currently set on the agent. */
 	getActiveToolNames(): string[] {
 		return this.agent.state.tools.map((t) => t.name);
 	}
@@ -2174,7 +2169,7 @@ export class AgentSession {
 		this._thinkingTimeoutDispatch = undefined;
 		this._clearThinkingPhaseDeadline();
 		this._systemPromptOverride = undefined;
-		this._flushPendingBashMessages();
+		this._flushPendingRunMessages();
 		this._scheduleIdleCompaction();
 		void this._extensionRunner.emit({ type: "agent_settled" });
 		this._emit({
@@ -2292,7 +2287,7 @@ export class AgentSession {
 				throw new Error("Agent is already processing. Wait for completion before continuing.");
 			}
 
-			this._flushPendingBashMessages();
+			this._flushPendingRunMessages();
 
 			const lastMessage = this.messages[this.messages.length - 1];
 			if (!lastMessage) {
@@ -2414,7 +2409,7 @@ export class AgentSession {
 			}
 
 			// Flush any pending bash messages before the new prompt
-			this._flushPendingBashMessages();
+			this._flushPendingRunMessages();
 
 			// Validate model
 			this.validateModelAuthentication();
@@ -3132,11 +3127,8 @@ export class AgentSession {
 
 	/**
 	 * Send a custom message to the session. Creates a CustomMessageEntry.
-	 *
-	 * Handles three cases:
-	 * - Streaming: queues message, processed when loop pulls from queue
-	 * - Not streaming + triggerTurn: appends to state/session, starts new turn
-	 * - Not streaming + no trigger: appends to state/session, no turn
+	 * Streaming: steered or queued as follow-up; with triggerTurn false, appended once the current turn ends.
+	 * Not streaming: appended to state/session, and starts a turn when triggerTurn is set.
 	 *
 	 * @param message Custom message with customType, content, display, details
 	 * @param options.triggerTurn If true and not streaming, triggers a new LLM turn
@@ -3177,17 +3169,26 @@ export class AgentSession {
 				release();
 				await run;
 			});
+		} else if (this.isStreaming) {
+			// Appending now could land between an assistant tool call and its result; providers reject that order.
+			this._pendingCustomMessages.push(appMessage);
 		} else {
-			this.agent.state.messages.push(appMessage);
-			this.sessionManager.appendCustomMessageEntry(
-				message.customType,
-				message.content,
-				message.display,
-				message.details,
-			);
-			this._emit({ type: "message_start", message: appMessage });
-			this._emit({ type: "message_end", message: appMessage });
+			this._appendCustomMessage(appMessage);
 		}
+	}
+
+	private _appendCustomMessage(appMessage: CustomMessage): void {
+		this.agent.state.messages.push(appMessage);
+		const { customType, content, display, details } = appMessage;
+		this.sessionManager.appendCustomMessageEntry(customType, content, display, details);
+		this._emit({ type: "message_start", message: appMessage });
+		this._emit({ type: "message_end", message: appMessage });
+	}
+
+	private _flushPendingCustomMessages(): void {
+		const pending = this._pendingCustomMessages;
+		this._pendingCustomMessages = [];
+		for (const appMessage of pending) this._appendCustomMessage(appMessage);
 	}
 
 	/**
@@ -4864,10 +4865,13 @@ export class AgentSession {
 		return this._pendingBashMessages.length > 0;
 	}
 
-	/**
-	 * Flush pending bash messages to agent state and session.
-	 * Called after agent turn completes to maintain proper message ordering.
-	 */
+	/** Appends custom and bash messages held back while the agent ran. */
+	private _flushPendingRunMessages(): void {
+		this._flushPendingCustomMessages();
+		this._flushPendingBashMessages();
+	}
+
+	/** Flush pending bash messages to agent state and session after the run, keeping message order. */
 	private _flushPendingBashMessages(): void {
 		if (this._pendingBashMessages.length === 0) return;
 
@@ -5366,16 +5370,12 @@ export class AgentSession {
 		return context;
 	}
 
-	/**
-	 * Check if extensions have handlers for a specific event type.
-	 */
+	/** Check if extensions have handlers for a specific event type. */
 	hasExtensionHandlers(eventType: string): boolean {
 		return this._extensionRunner.hasHandlers(eventType);
 	}
 
-	/**
-	 * Get the extension runner (for setting UI context and error handlers).
-	 */
+	/** Get the extension runner (for setting UI context and error handlers). */
 	get extensionRunner(): ExtensionRunner {
 		return this._extensionRunner;
 	}
