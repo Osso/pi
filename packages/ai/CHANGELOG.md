@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Google and Vertex requests dropping empty text and thinking parts that carry a thought signature when replaying history to the same model (port of upstream 6138f5a07, [#7362](https://github.com/earendil-works/pi-mono/pull/7362))
 - Fixed Anthropic Messages streams dropping text, thinking and signature content sent in `content_block_start`; only the deltas were kept (port of upstream 59ad3dead, [#7283](https://github.com/earendil-works/pi-mono/issues/7283))
 - Fixed uncached Codex requests (summaries and compaction) dropping their WebSocket failures from the session's WebSocket debug statistics
 - Fixed OpenAI Responses HTTP errors from other providers (for example OpenRouter) being labelled `OpenAI API error`; the label now names the model's provider (port of upstream 0c7bb7c5c, [#9298](https://github.com/earendil-works/pi-mono/issues/9298))
