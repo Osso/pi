@@ -18,7 +18,7 @@
 ### Fixed
 
 - Codex requests with `cacheRetention: "none"`, such as compaction and branch summaries, no longer send the session's prompt cache key or use the session's cached WebSocket. Before, a summary sent while the session was idle replaced the socket's continuation state, so the next turn resent the full context instead of a delta (port of upstream 241431c69, [#6618](https://github.com/earendil-works/pi-mono/pull/6618)).
-- - Fixed Codex sessions failing with "The 'web_search' tool is not available for this request" after a request without hosted tools (such as a compaction summary) opened the session's cached websocket; cached sockets are now scoped to the request's hosted tools.
+- Fixed Codex sessions failing with "The 'web_search' tool is not available for this request" after a request without hosted tools (such as a compaction summary) opened the session's cached websocket; cached sockets are now scoped to the request's hosted tools.
 - Fixed the OpenAI Codex WebSocket 60-minute connection limit failing the turn when it hit mid-stream, for example during long thinking. The error is now retried on a fresh connection, and new requests stop reusing a cached connection after 45 minutes instead of 55 ([#12124](https://github.com/earendil-works/pi/issues/12124))
 - Fixed LiteLLM `ContextWindowExceededError` pre-call rejections not being detected as context overflow ([#11494](https://github.com/earendil-works/pi-mono/issues/11494))
 - OpenAI-compatible chat completions no longer send empty text parts in user messages, which made some providers reject image-only prompts ([#9797](https://github.com/earendil-works/pi-mono/issues/9797))
