@@ -31,6 +31,18 @@ describe("Input component", () => {
 		assert.strictEqual(input.getValue(), "\\x");
 	});
 
+	it("inserts shifted printable keys sent as Kitty CSI-u or modifyOtherKeys sequences", () => {
+		const input = new Input();
+
+		input.handleInput("a");
+		input.handleInput("\x1b[32;2u");
+		input.handleInput("b");
+		input.handleInput("\x1b[27;2;32~");
+		input.handleInput("\x1b[27;2;65~");
+
+		assert.strictEqual(input.getValue(), "a b A");
+	});
+
 	describe("render", () => {
 		it("does not overflow with wide CJK and fullwidth text", () => {
 			const width = 93;

@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed `Input` dropping shifted keys sent as xterm modifyOtherKeys sequences, for example shift+space under tmux extended keys (`ESC[27;2;32~`). Single-line inputs such as the `ask_questions` free-text answer did not print a space for shift+space.
 - Fixed rows that were already in scrollback being written into it again when content above the viewport grew or shrank, for example when a scrolled-off Markdown table re-rendered with more rows.
 - Fixed OSC 8 hyperlink detection for Alacritty, which sets `TERM=alacritty` or `ALACRITTY_WINDOW_ID` but not `TERM_PROGRAM` ([#11777](https://github.com/earendil-works/pi-mono/issues/11777))
 - The terminal cursor, bracketed paste and keyboard modes are restored when the process exits without `TUI.stop()`, for example through `process.exit()` in an extension; the shell was left with a hidden cursor ([#11170](https://github.com/earendil-works/pi-mono/issues/11170))

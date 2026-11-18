@@ -1,5 +1,5 @@
 import { getKeybindings } from "../keybindings.ts";
-import { decodeKittyPrintable } from "../keys.ts";
+import { decodePrintableKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
 import { type Component, CURSOR_MARKER, type Focusable } from "../tui.ts";
 import { UndoStack } from "../undo-stack.ts";
@@ -208,13 +208,11 @@ export class Input implements Component, Focusable {
 			return;
 		}
 
-		// Kitty CSI-u printable character (e.g. \x1b[97u for 'a').
-		// Terminals with Kitty protocol flag 1 (disambiguate) send CSI-u for all keys,
-		// including plain printable characters. Decode before the control-char check
-		// since CSI-u sequences contain \x1b which would be rejected.
-		const kittyPrintable = decodeKittyPrintable(data);
-		if (kittyPrintable !== undefined) {
-			this.insertCharacter(kittyPrintable);
+		// Kitty CSI-u (\x1b[32;2u) or xterm modifyOtherKeys (\x1b[27;2;32~, sent by tmux) printable keys,
+		// such as shift+space. Decode before the control-char check, which rejects their \x1b.
+		const printable = decodePrintableKey(data);
+		if (printable !== undefined) {
+			this.insertCharacter(printable);
 			return;
 		}
 
