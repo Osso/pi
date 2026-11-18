@@ -1676,6 +1676,51 @@ describe("edit tool fuzzy matching", () => {
 		expect(readFileSync(testFile, "utf-8")).toBe(expectedContent);
 		expect(applyPatch(originalContent, result.details?.patch ?? "")).toBe(expectedContent);
 	});
+
+	it("applies an exact edit where it matched when another edit in the batch needs fuzzy matching", async () => {
+		const testFile = join(testDir, "fuzzy-batch-exact-location.txt");
+		// NFKC turns the decomposed "Cafe\u0301" into "Café" and the fullwidth line into "Cafe".
+		writeFileSync(testFile, "Cafe\u0301\n\uFF23\uFF41\uFF46\uFF45\nmode=\u2018off\u2019\n");
+
+		await editTool.execute("test-fuzzy-batch-exact-location", {
+			path: testFile,
+			edits: [
+				{ oldText: "Cafe", newText: "Caffe" },
+				{ oldText: "mode='off'", newText: "mode='on'" },
+			],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("Caffe\u0301\n\uFF23\uFF41\uFF46\uFF45\nmode='on'\n");
+	});
+
+	it("applies a fuzzy edit when the untouched last line holds only spaces and no newline", async () => {
+		const testFile = join(testDir, "fuzzy-trailing-space-line.txt");
+		writeFileSync(testFile, "mode=\u2018off\u2019\n  ");
+
+		await editTool.execute("test-fuzzy-trailing-space-line", {
+			path: testFile,
+			edits: [{ oldText: "mode='off'", newText: "mode='on'" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("mode='on'\n  ");
+	});
+
+	it("rejects an exact and a fuzzy edit on the same line without writing", async () => {
+		const testFile = join(testDir, "fuzzy-mixed-same-line.txt");
+		const originalContent = "x = \u2018a\u2019 # \uFF23\uFF41\uFF46\uFF45 Cafe\n";
+		writeFileSync(testFile, originalContent);
+
+		await expect(
+			editTool.execute("test-fuzzy-mixed-same-line", {
+				path: testFile,
+				edits: [
+					{ oldText: "Cafe", newText: "Caffe" },
+					{ oldText: "x = 'a'", newText: "x = 'b'" },
+				],
+			}),
+		).rejects.toThrow("change the same line");
+		expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
+	});
 });
 
 describe("edit tool CRLF handling", () => {

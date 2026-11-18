@@ -272,6 +272,8 @@
 
 ### Fixed
 
+- `edit` no longer changes the wrong text when one edit in a batch needs fuzzy (whitespace or Unicode) matching: an exact edit was searched again in the normalized file, where it could match another line. Exact edits now apply where they matched; an exact and a fuzzy edit on the same line are rejected with a request to merge them
+- `edit` fuzzy matching no longer fails with "different line count" when the file ends in a whitespace-only line without a newline
 - HTML export no longer shows a custom tool's result from another branch under a tool call whose result is not on the displayed path
 - `wait_agent` no longer takes a child's pending lifecycle notice (for example `Worker is waiting for input.`) as ordinary mail. The coordination filter read a parsed mailbox message as if it were the stored payload, so the notice's thread was missing and only JSON terminal notices were recognized
 - `wait_agent` now returns and consumes the pending notification of an aborted child (`Worker failed.`). The notice is recorded as failed, and the wait required it to match the agent's `aborted` lifecycle exactly, so it stayed pending

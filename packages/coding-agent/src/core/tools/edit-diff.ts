@@ -133,6 +133,8 @@ interface MatchedEdit {
 	matchIndex: number;
 	matchLength: number;
 	newText: string;
+	/** Exact matches index the original content; fuzzy matches index its normalized form. */
+	inOriginal: boolean;
 }
 
 type TextReplacement = Pick<MatchedEdit, "matchIndex" | "matchLength" | "newText">;
@@ -146,13 +148,17 @@ type TextOccurrence = {
 	length: number;
 };
 
+/** Normalization never adds or removes "\n", so both forms of a file split into the same number of lines. */
 function getLineSpans(content: string): LineSpan[] {
 	let offset = 0;
-	return splitLinesWithEndings(content).map((line) => {
-		const span = { start: offset, end: offset + line.length };
-		offset = span.end;
-		return span;
-	});
+	const parts = content.split("\n");
+	return parts
+		.map((part, index) => (index < parts.length - 1 ? `${part}\n` : part))
+		.map((line) => {
+			const span = { start: offset, end: offset + line.length };
+			offset = span.end;
+			return span;
+		});
 }
 
 function getReplacementLineRange(lines: LineSpan[], replacement: TextReplacement) {
@@ -199,59 +205,59 @@ function applyReplacements(content: string, replacements: TextReplacement[], off
 }
 
 /**
- * Apply replacements matched against `baseContent` to `originalContent` while
- * preserving unchanged line blocks from the original.
- *
- * This is useful when `baseContent` is a normalized view of the original. Each
- * replacement is widened to the lines it actually touches, those touched lines
- * are rewritten from the normalized base, and all other lines are copied back
- * from `originalContent`. The actual replacement ranges drive preservation so
- * duplicate normalized lines cannot be aligned to the wrong occurrence.
+ * Apply replacements to `originalContent`, where fuzzy ones were matched against `baseContent`, its normalized
+ * form. Each replacement is widened to the lines it touches; those lines are rewritten from the content the
+ * replacement indexes, and all other lines are copied from `originalContent`, so unchanged lines keep their bytes.
  */
-export function applyReplacementsPreservingUnchangedLines(
+function applyReplacementsPreservingUnchangedLines(
 	originalContent: string,
 	baseContent: string,
-	replacements: TextReplacement[],
+	replacements: MatchedEdit[],
 ): string {
-	const originalLines = splitLinesWithEndings(originalContent);
+	const originalLines = getLineSpans(originalContent);
 	const baseLines = getLineSpans(baseContent);
 	if (originalLines.length !== baseLines.length) {
 		throw new Error("Cannot preserve unchanged lines because the base content has a different line count.");
 	}
 
-	const groups: Array<{ startLine: number; endLine: number; replacements: TextReplacement[] }> = [];
-	const sortedReplacements = [...replacements].sort((a, b) => a.matchIndex - b.matchIndex);
-	for (const replacement of sortedReplacements) {
-		const range = getReplacementLineRange(baseLines, replacement);
+	const located = replacements
+		.map((replacement) => ({
+			replacement,
+			...getReplacementLineRange(replacement.inOriginal ? originalLines : baseLines, replacement),
+		}))
+		.sort((a, b) => a.startLine - b.startLine || a.replacement.matchIndex - b.replacement.matchIndex);
+	const groups: Array<{ startLine: number; endLine: number; replacements: MatchedEdit[] }> = [];
+	for (const { replacement, startLine, endLine } of located) {
 		const current = groups[groups.length - 1];
-		if (current && range.startLine < current.endLine) {
-			current.endLine = Math.max(current.endLine, range.endLine);
-			current.replacements.push(replacement);
+		if (!current || startLine >= current.endLine) {
+			groups.push({ startLine, endLine, replacements: [replacement] });
 			continue;
 		}
-		groups.push({ ...range, replacements: [replacement] });
+		const other = current.replacements.find((previous) => previous.inOriginal !== replacement.inOriginal);
+		if (other) {
+			throw new Error(
+				`edits[${other.editIndex}] and edits[${replacement.editIndex}] change the same line, but only one matched exactly. Merge them into one edit.`,
+			);
+		}
+		current.endLine = Math.max(current.endLine, endLine);
+		current.replacements.push(replacement);
 	}
 
-	let originalLineIndex = 0;
 	let result = "";
+	let originalLineIndex = 0;
 	for (const group of groups) {
-		result += originalLines.slice(originalLineIndex, group.startLine).join("");
-
-		const firstLine = baseLines[group.startLine];
-		const lastLine = baseLines[group.endLine - 1];
-		if (!firstLine || !lastLine) throw new Error("Replacement group line is missing");
-		const groupStartOffset = firstLine.start;
-		const groupEndOffset = lastLine.end;
-		result += applyReplacements(
-			baseContent.slice(groupStartOffset, groupEndOffset),
-			group.replacements,
-			groupStartOffset,
+		const inOriginal = group.replacements[0]?.inOriginal ?? true;
+		const [content, lines] = inOriginal ? [originalContent, originalLines] : [baseContent, baseLines];
+		const groupStart = lines[group.startLine]?.start ?? 0;
+		const groupEnd = lines[group.endLine - 1]?.end ?? 0;
+		result += originalContent.slice(
+			originalLines[originalLineIndex]?.start ?? 0,
+			originalLines[group.startLine]?.start ?? 0,
 		);
+		result += applyReplacements(content.slice(groupStart, groupEnd), group.replacements, groupStart);
 		originalLineIndex = group.endLine;
 	}
-	result += originalLines.slice(originalLineIndex).join("");
-
-	return result;
+	return result + originalContent.slice(originalLines[originalLineIndex]?.start ?? originalContent.length);
 }
 
 export interface FuzzyMatchResult {
@@ -482,39 +488,45 @@ export function applyEditsToNormalizedContent(
 	const matchedEdits: MatchedEdit[] = [];
 	for (let i = 0; i < normalizedEdits.length; i++) {
 		const edit = normalizedEdits[i];
-		if (!edit) throw new Error(`Edit ${i} is missing`);
-		const matchResult = fuzzyFindText(replacementBaseContent, edit.oldText);
-		if (!matchResult.found) {
+		const initialMatch = initialMatches[i];
+		if (!edit || !initialMatch) throw new Error(`Edit ${i} is missing`);
+		if (!initialMatch.found) {
 			throw getNotFoundError(path, i, normalizedEdits.length);
 		}
 
-		// Count occurrences in the content the replacement is applied to. Without fuzzy matching that is the original
-		// text, where an exact match is unique even when fuzzy twins exist. With fuzzy matching every edit applies to
-		// normalized content (replacementBaseContent), so oldText is normalized too: trailing whitespace that told two
-		// lines apart no longer does there.
-		const searchText = usedFuzzyMatch ? normalizeForFuzzyMatch(edit.oldText) : edit.oldText;
-		const occurrences = findTextOccurrences(replacementBaseContent, searchText).length;
+		// An exact match applies to the original text, where it is unique even when fuzzy twins exist. A fuzzy match
+		// applies to normalized content, so oldText is normalized too: trailing whitespace that told two lines apart
+		// no longer does there.
+		const inOriginal = !initialMatch.usedFuzzyMatch;
+		const searchContent = inOriginal ? normalizedContent : replacementBaseContent;
+		const searchText = inOriginal ? edit.oldText : normalizeForFuzzyMatch(edit.oldText);
+		const occurrences = findTextOccurrences(searchContent, searchText).length;
 		if (occurrences > 1) {
-			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, searchText);
+			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, searchContent, searchText);
 		}
 
 		matchedEdits.push({
 			editIndex: i,
-			matchIndex: matchResult.index,
-			matchLength: matchResult.matchLength,
+			matchIndex: initialMatch.index,
+			matchLength: initialMatch.matchLength,
 			newText: edit.newText,
+			inOriginal,
 		});
 	}
 
+	// Offsets are comparable only within one content; edits in different contents conflict per line, checked later.
 	matchedEdits.sort((a, b) => a.matchIndex - b.matchIndex);
-	for (let i = 1; i < matchedEdits.length; i++) {
-		const previous = matchedEdits[i - 1];
-		const current = matchedEdits[i];
-		if (!previous || !current) throw new Error(`Matched edit ${i} is missing`);
-		if (previous.matchIndex + previous.matchLength > current.matchIndex) {
-			throw new Error(
-				`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${path}. Merge them into one edit or target disjoint regions.`,
-			);
+	for (const inOriginal of [true, false]) {
+		const sameContent = matchedEdits.filter((edit) => edit.inOriginal === inOriginal);
+		for (let i = 1; i < sameContent.length; i++) {
+			const previous = sameContent[i - 1];
+			const current = sameContent[i];
+			if (!previous || !current) throw new Error(`Matched edit ${i} is missing`);
+			if (previous.matchIndex + previous.matchLength > current.matchIndex) {
+				throw new Error(
+					`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${path}. Merge them into one edit or target disjoint regions.`,
+				);
+			}
 		}
 	}
 
