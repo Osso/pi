@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
-import { parseCompactionThresholdTokens } from "./compaction-threshold.ts";
+import { parseCompactionThresholdTokens, removedCompactionSettingError } from "./compaction-threshold.ts";
 import type { RelaySettings } from "./host-relay-client.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
@@ -357,11 +357,10 @@ export class SettingsManager {
 		const globalLoad = SettingsManager.tryLoadFromStorage(storage, "global");
 		const projectLoad = SettingsManager.tryLoadFromStorage(storage, "project", projectTrusted);
 		const initialErrors: SettingsError[] = [];
-		if (globalLoad.error) {
-			initialErrors.push({ scope: "global", error: globalLoad.error });
-		}
-		if (projectLoad.error) {
-			initialErrors.push({ scope: "project", error: projectLoad.error });
+		for (const [scope, load] of [["global", globalLoad] as const, ["project", projectLoad] as const]) {
+			if (load.error) initialErrors.push({ scope, error: load.error });
+			const removed = removedCompactionSettingError(load.settings.compaction);
+			if (removed) initialErrors.push({ scope, error: removed });
 		}
 
 		return new SettingsManager(

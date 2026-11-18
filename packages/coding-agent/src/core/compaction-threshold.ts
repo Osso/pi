@@ -17,3 +17,9 @@ export function parseCompactionThresholdTokens(value: unknown): number | undefin
 export function parseBackgroundCompactionStartTokens(value: unknown): number | undefined {
 	return parseTokenCountSetting("backgroundStartTokens", value);
 }
+
+/** Report the removed `thresholdPercent` key; ignoring it would silently turn the configured threshold off. */
+export function removedCompactionSettingError(compaction: unknown): Error | undefined {
+	if (typeof compaction !== "object" || compaction === null || !("thresholdPercent" in compaction)) return undefined;
+	return new Error("compaction.thresholdPercent was removed and is ignored; set compaction.thresholdTokens");
+}

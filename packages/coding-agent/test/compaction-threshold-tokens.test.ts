@@ -61,6 +61,21 @@ describe("compaction.thresholdTokens", () => {
 		expect(manager.getCompactionReserveTokens()).toBe(12345);
 	});
 
+	it("reports the removed thresholdPercent key instead of ignoring it", () => {
+		const storage = new InMemorySettingsStorage();
+		storage.withLock("global", () => JSON.stringify({ compaction: { thresholdPercent: 50 } }));
+		storage.withLock("project", () =>
+			JSON.stringify({ compaction: { thresholdPercent: 40, thresholdTokens: 500_000 } }),
+		);
+		const manager = SettingsManager.fromStorage(storage);
+
+		expect(manager.drainErrors().map(({ scope, error }) => [scope, error.message])).toEqual([
+			["global", "compaction.thresholdPercent was removed and is ignored; set compaction.thresholdTokens"],
+			["project", "compaction.thresholdPercent was removed and is ignored; set compaction.thresholdTokens"],
+		]);
+		expect(manager.getCompactionSettings().thresholdTokens).toBe(500_000);
+	});
+
 	it.each([0, -1, 1.5, NaN, Infinity, "500000", null])(
 		"rejects invalid token count %s with an actionable error",
 		(value) => {
