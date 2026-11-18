@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- The `/tree` search now accepts keys that tmux sends as modifyOtherKeys sequences, such as shift+space and capital letters; they were dropped
 - Compaction no longer fails on one transient provider error such as `ECONNRESET`: the summary request is sent again up to three times with backoff (manual, idle, threshold, overflow and background compaction)
 - Session listing now finds sessions in symlinked project directories under the sessions root (port of upstream da66636cc, [#7497](https://github.com/earendil-works/pi-mono/issues/7497))
 - A directory named like a context file (for example `AGENTS.md/`) no longer produces an EISDIR warning or hides the `CLAUDE.md` fallback (port of upstream 58c0bc2fb, [#7106](https://github.com/earendil-works/pi-mono/issues/7106))

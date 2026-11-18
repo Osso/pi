@@ -1,7 +1,7 @@
 import { getKeybindings } from "../keybindings.ts";
-import { decodePrintableKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
 import { type Component, CURSOR_MARKER, type Focusable } from "../tui.ts";
+import { decodeTypedText } from "../typed-text.ts";
 import { UndoStack } from "../undo-stack.ts";
 import { getGraphemeSegmenter, isWhitespaceChar, sliceByColumn, visibleWidth } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
@@ -208,23 +208,8 @@ export class Input implements Component, Focusable {
 			return;
 		}
 
-		// Kitty CSI-u (\x1b[32;2u) or xterm modifyOtherKeys (\x1b[27;2;32~, sent by tmux) printable keys,
-		// such as shift+space. Decode before the control-char check, which rejects their \x1b.
-		const printable = decodePrintableKey(data);
-		if (printable !== undefined) {
-			this.insertCharacter(printable);
-			return;
-		}
-
-		// Regular character input - accept printable characters including Unicode,
-		// but reject control characters (C0: 0x00-0x1F, DEL: 0x7F, C1: 0x80-0x9F)
-		const hasControlChars = [...data].some((ch) => {
-			const code = ch.charCodeAt(0);
-			return code < 32 || code === 0x7f || (code >= 0x80 && code <= 0x9f);
-		});
-		if (!hasControlChars) {
-			this.insertCharacter(data);
-		}
+		const text = decodeTypedText(data);
+		if (text !== undefined) this.insertCharacter(text);
 	}
 
 	private insertCharacter(char: string): void {

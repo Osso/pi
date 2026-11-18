@@ -125,6 +125,7 @@ export {
 	type SizeValue,
 	TUI,
 } from "./tui.ts";
+export { decodeTypedText } from "./typed-text.ts";
 // Utilities
 export { sliceByColumn, truncateToWidth, visibleWidth } from "./utils.ts";
 export { wrapTextWithAnsi } from "./wrap-ansi.ts";

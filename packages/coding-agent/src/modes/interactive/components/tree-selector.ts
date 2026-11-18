@@ -1,6 +1,7 @@
 import {
 	type Component,
 	Container,
+	decodeTypedText,
 	type Focusable,
 	getKeybindings,
 	Input,
@@ -1077,12 +1078,9 @@ class TreeList implements Component {
 		} else if (kb.matches(keyData, "app.tree.toggleLabelTimestamp")) {
 			this.showLabelTimestamps = !this.showLabelTimestamps;
 		} else {
-			const hasControlChars = [...keyData].some((ch) => {
-				const code = ch.charCodeAt(0);
-				return code < 32 || code === 0x7f || (code >= 0x80 && code <= 0x9f);
-			});
-			if (!hasControlChars && keyData.length > 0) {
-				this.searchQuery += keyData;
+			const text = decodeTypedText(keyData);
+			if (text !== undefined) {
+				this.searchQuery += text;
 				this.foldedNodes.clear();
 				this.applyFilter();
 			}

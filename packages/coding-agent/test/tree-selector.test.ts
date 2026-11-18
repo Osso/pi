@@ -706,6 +706,22 @@ describe("TreeSelectorComponent", () => {
 			expect(list.getSelectedNode()?.entry.id).toBe("asst-3a");
 		});
 
+		test("search accepts modifyOtherKeys printable keys sent by tmux", () => {
+			const selector = new TreeSelectorComponent(
+				buildBranchingTree(),
+				"asst-4a",
+				24,
+				() => {},
+				() => {},
+			);
+
+			selector.handleInput("a");
+			selector.handleInput("\x1b[27;2;32~"); // shift+space
+			selector.handleInput("\x1b[27;2;66~"); // shift+b
+
+			expect(selector.getTreeList().getSearchQuery()).toBe("a B");
+		});
+
 		test("filter mode change resets fold state", () => {
 			const tree = buildBranchingTree();
 			const selector = new TreeSelectorComponent(
