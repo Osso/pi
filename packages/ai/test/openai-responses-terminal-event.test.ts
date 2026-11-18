@@ -445,6 +445,35 @@ describe("OpenAI Responses terminal event handling", () => {
 		);
 	});
 
+	it("ends with a length stop and drops a tool call cut off by the output limit", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.output_item.added",
+				sequence_number: 0,
+				output_index: 0,
+				item: { type: "function_call", id: "fc_1", call_id: "call_1", name: "read", arguments: "" },
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.function_call_arguments.delta",
+				sequence_number: 1,
+				output_index: 0,
+				item_id: "fc_1",
+				delta: '{"path":"README',
+			} as ResponseStreamEvent;
+			yield* createIncompleteEvents();
+		}
+
+		await processResponsesStream(events(), output, stream, model);
+
+		expect(output.stopReason).toBe("length");
+		expect(output.content).toEqual([]);
+		expect(output.responseId).toBe("resp_incomplete");
+		expect(output.usage).toMatchObject({ output: 12, cacheRead: 5 });
+	});
+
 	it("keeps a completed response whose tool call finished", async () => {
 		const model = createModel();
 		const output = createOutput(model);

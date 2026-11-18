@@ -31,6 +31,7 @@ import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash, truncateWithHash } from "../utils/hash.ts";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { settleUnfinishedToolCalls } from "./openai-responses-unfinished-call.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -724,14 +725,7 @@ export async function processResponsesStream<TApi extends Api>(
 	if (!sawTerminalResponseEvent) {
 		throw new Error("OpenAI Responses stream ended before a terminal response event");
 	}
-	// The agent runs every tool call in the final message. A call whose output_item.done never arrived keeps its
-	// scratch buffer and may carry cut-off or mixed-up arguments (#9974), so refuse to hand it over.
-	const unfinished = output.content.find((block) => block.type === "toolCall" && "partialJson" in block);
-	if (unfinished?.type === "toolCall") {
-		throw new Error(
-			`OpenAI Responses stream completed with an unfinished tool call: ${unfinished.name} (${unfinished.id})`,
-		);
-	}
+	settleUnfinishedToolCalls(output);
 }
 
 const STOP_REASONS: Record<OpenAI.Responses.ResponseStatus, StopReason> = {
