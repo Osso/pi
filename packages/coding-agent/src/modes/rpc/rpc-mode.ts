@@ -34,8 +34,9 @@ import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "../runtime-diagnostics.ts";
-import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+import { serializeJsonLine } from "./jsonl.ts";
 import { runRpcBash } from "./rpc-bash.ts";
+import { readRpcInputFromStartup } from "./rpc-input.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -392,6 +393,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
+	const input = readRpcInputFromStartup(process.stdin, (response) => {
+		pendingExtensionRequests.get(response.id)?.resolve(response);
+		pendingExtensionRequests.delete(response.id);
+	});
 	await rebindSession();
 	registerSignalHandlers();
 
@@ -813,18 +818,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
-	const onInputEnd = () => void shutdown();
-	process.stdin.on("end", onInputEnd);
-
-	detachInput = (() => {
-		const detachJsonl = attachJsonlLineReader(process.stdin, (line) => {
-			void handleInputLine(line);
-		});
-		return () => {
-			detachJsonl();
-			process.stdin.off("end", onInputEnd);
-		};
-	})();
+	detachInput = input.start(
+		(line) => void handleInputLine(line),
+		() => void shutdown(),
+	);
 
 	continueRestoredSession(session);
 

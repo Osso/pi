@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- RPC mode now reads `extension_ui_response` replies while `session_start` handlers run, so a dialog opened during startup gets the client's answer instead of timing out; other commands sent during startup run after it completes
 - `bash` no longer reports truncation and writes a full-output file when only the final newline is over the byte limit; it now counts bytes like the shared truncation helper
 - Compaction and branch summaries keep the 100 most recently modified files: an edit no longer drops out in favor of older `write` paths, which were ranked as newer
 - `/tree` on a reopened compacted session no longer drops the earlier conversation when you select an entry that compaction kept: the summarized ancestors are now loaded, as for entries outside the loaded slice
