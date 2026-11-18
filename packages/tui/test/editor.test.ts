@@ -3193,6 +3193,19 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "ohello world");
 		});
 
+		it("cancels jump mode on Backspace and deletes the character before the cursor", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.setText("hello world");
+
+			editor.handleInput("\x1d"); // Ctrl+] - enter jump mode
+			editor.handleInput("\x7f"); // Backspace - cancel jump mode
+
+			assert.strictEqual(editor.getText(), "hello worl");
+			editor.handleInput("o");
+			assert.strictEqual(editor.getText(), "hello worlo");
+		});
+
 		it("cancels backward jump mode when Ctrl+Alt+] is pressed again", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

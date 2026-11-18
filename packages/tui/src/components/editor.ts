@@ -4,6 +4,7 @@ import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
 import { type Component, CURSOR_MARKER, type FixedCell, type Focusable, type TUI } from "../tui.ts";
+import { decodeTypedText } from "../typed-text.ts";
 import { UndoStack } from "../undo-stack.ts";
 import {
 	cjkBreakRegex,
@@ -674,7 +675,7 @@ export class Editor implements Component, Focusable {
 			this.updateHistorySearch(0);
 			return true;
 		}
-		const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
+		const printable = decodeTypedText(data);
 		if (printable !== undefined) {
 			this.historySearchQuery += printable;
 			this.updateHistorySearch(0);
@@ -891,9 +892,8 @@ export class Editor implements Component, Focusable {
 				return;
 			}
 
-			const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
+			const printable = decodeTypedText(data);
 			if (printable !== undefined) {
-				// Printable character - perform the jump
 				const direction = this.jumpMode;
 				this.jumpMode = null;
 				this.jumpToChar(printable, direction);
