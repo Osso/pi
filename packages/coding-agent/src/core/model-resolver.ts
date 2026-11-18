@@ -435,18 +435,22 @@ export function resolveCliModel(options: {
 	// explicit provider to avoid silently selecting an unusable provider.
 	if (!provider) {
 		const lower = cliModel.toLowerCase();
-		const exactMatches = availableModels.filter(
-			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
-		);
-		if (exactMatches.length === 1) {
-			return { model: exactMatches[0], warning: undefined, thinkingLevel: undefined, error: undefined };
+		const findExact = (id: string) =>
+			availableModels.filter((m) => m.id.toLowerCase() === id || `${m.provider}/${m.id}`.toLowerCase() === id);
+		// "<id>:<thinking>" names the same models as "<id>", so it gets the same ambiguity check. When one model
+		// is chosen, its provider is fixed and the pattern parsing below applies the thinking level.
+		const colon = lower.lastIndexOf(":");
+		let exactMatches = findExact(lower);
+		const byBaseId = exactMatches.length === 0 && colon !== -1 && isValidThinkingLevel(lower.slice(colon + 1));
+		if (byBaseId) exactMatches = findExact(lower.slice(0, colon));
+		const authenticated = exactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
+		const chosen = exactMatches.length === 1 ? exactMatches[0] : undefined;
+		const chosenModel = chosen ?? (authenticated.length === 1 ? authenticated[0] : undefined);
+		if (chosenModel && !byBaseId) {
+			return { model: chosenModel, warning: undefined, thinkingLevel: undefined, error: undefined };
 		}
-		if (exactMatches.length > 1) {
-			const authenticated = exactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
-			if (authenticated.length === 1) {
-				return { model: authenticated[0], warning: undefined, thinkingLevel: undefined, error: undefined };
-			}
-
+		if (chosenModel) provider = chosenModel.provider;
+		else if (exactMatches.length > 1) {
 			const matches = exactMatches
 				.map((m) => `${m.provider}/${m.id}`)
 				.sort((a, b) => a.localeCompare(b))

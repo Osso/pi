@@ -426,6 +426,36 @@ describe("resolveCliModel", () => {
 		expect(result.error).toContain("Use --provider or provider/model");
 	});
 
+	test("applies the same provider ambiguity rules to a bare exact model id with a thinking suffix", () => {
+		const sharedModel = (provider: string): Model<"anthropic-messages"> => ({
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider,
+			reasoning: true,
+		});
+		const registryWithAuth = (authenticated: string[]) =>
+			({
+				getAll: () => [sharedModel("openai"), sharedModel("openai-codex")],
+				hasConfiguredAuth: (model: { provider: string }) => authenticated.includes(model.provider),
+			}) as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+		const ambiguous = resolveCliModel({
+			cliModel: "gpt-5.6-sol:high",
+			modelRegistry: registryWithAuth(["openai", "openai-codex"]),
+		});
+		expect(ambiguous.model).toBeUndefined();
+		expect(ambiguous.error).toContain('Model "gpt-5.6-sol:high" is ambiguous across providers');
+
+		const sole = resolveCliModel({
+			cliModel: "gpt-5.6-sol:high",
+			modelRegistry: registryWithAuth(["openai-codex"]),
+		});
+		expect(sole.error).toBeUndefined();
+		expect(sole.model?.provider).toBe("openai-codex");
+		expect(sole.thinkingLevel).toBe("high");
+	});
+
 	test("prefers provider/model split over gateway model with matching id", () => {
 		// When a user writes "zai/glm-5", and both a zai provider model (id: "glm-5")
 		// and a gateway model (id: "zai/glm-5") exist, prefer the zai provider model.

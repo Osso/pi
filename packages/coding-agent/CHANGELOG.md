@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- `--model <id>:<thinking>` (for example `gpt-5.6-sol:high`) now follows the same provider rules as `--model <id>`: when several authenticated providers serve the ID it asks for `--provider` or `provider/model` instead of silently choosing one
 - The Claude bridge keeps text, thinking and signature content that a stream sends in `content_block_start`; it kept only the deltas
 - The Supervisor no longer gets an llm-tasks reminder two or more times when the reminder is queued during a model attempt that fails and is retried. It released the queued reminder at the failed attempt's `agent_end`, so the next poll sent it again; it now settles reminders when the run settles
 - A detached Pyrun runner now exits when its evaluation ends while a `pi.*` bridge request is still unanswered. Before, it polled for the answer forever; one runner whose answer was lost in a Pi restart stayed alive for 25 days
