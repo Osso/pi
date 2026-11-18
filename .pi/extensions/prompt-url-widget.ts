@@ -79,10 +79,7 @@ function parseAdvisoryUrl(value: string): AdvisoryRef | undefined {
 
 function unquoteYamlValue(value: string): string {
 	const trimmed = value.trim();
-	if (
-		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-		(trimmed.startsWith("'") && trimmed.endsWith("'"))
-	) {
+	if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
 		return trimmed.slice(1, -1);
 	}
 	return trimmed;
@@ -173,9 +170,7 @@ export default function promptUrlWidgetExtension(pi: ExtensionAPI) {
 	const setWidget = (ctx: ExtensionContext, match: PromptMatch, metadata?: GhMetadata) => {
 		ctx.ui.setWidget("prompt-url", (_tui, thm) => {
 			const displayTarget = metadata?.displayUrl ?? match.target;
-			const titleText = metadata?.title
-				? thm.fg("accent", metadata.title)
-				: thm.fg("accent", displayTarget);
+			const titleText = metadata?.title ? thm.fg("accent", metadata.title) : thm.fg("accent", displayTarget);
 			const detailText = metadata?.detail ?? formatAuthor(metadata?.author);
 			const detailLine = detailText ? thm.fg("muted", detailText) : undefined;
 			const urlLine = thm.fg("dim", displayTarget);
@@ -191,7 +186,7 @@ export default function promptUrlWidgetExtension(pi: ExtensionAPI) {
 		});
 	};
 
-	const applySessionName = (ctx: ExtensionContext, match: PromptMatch, metadata?: GhMetadata) => {
+	const applySessionName = (match: PromptMatch, metadata?: GhMetadata) => {
 		const label = getPromptLabel(match.kind);
 		const displayTarget = metadata?.displayUrl ?? match.target;
 		const trimmedTitle = metadata?.title?.trim();
@@ -210,10 +205,10 @@ export default function promptUrlWidgetExtension(pi: ExtensionAPI) {
 
 	const updatePromptContext = (ctx: ExtensionContext, match: PromptMatch) => {
 		setWidget(ctx, match);
-		applySessionName(ctx, match);
+		applySessionName(match);
 		void fetchGhMetadata(pi, match.kind, match.target, ctx.cwd).then((meta) => {
 			setWidget(ctx, match, meta);
-			applySessionName(ctx, match, meta);
+			applySessionName(match, meta);
 		});
 	};
 
@@ -225,10 +220,6 @@ export default function promptUrlWidgetExtension(pi: ExtensionAPI) {
 		}
 
 		updatePromptContext(ctx, match);
-	});
-
-	pi.on("session_switch", async (_event, ctx) => {
-		rebuildFromSession(ctx);
 	});
 
 	const getUserText = (content: string | { type: string; text?: string }[] | undefined): string => {

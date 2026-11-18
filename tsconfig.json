@@ -26,7 +26,11 @@
 		"packages/*/src/**/*",
 		"packages/*/test/**/*",
 		"packages/coding-agent/examples/**/*",
-		"packages/coding-agent/extensions/**/*"
+		"packages/coding-agent/extensions/**/*",
+		"packages/ai/scripts/**/*.ts",
+		"packages/*/vitest*.config.ts",
+		"scripts/*.ts",
+		".pi/**/*.ts"
 	],
 	"exclude": [
 		"**/dist/**",

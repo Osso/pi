@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Extracts session transcripts for a given cwd, splits into context-sized files,
  * optionally spawns subagents to analyze patterns.
@@ -9,14 +10,17 @@
  *   cwd            Working directory to extract sessions for (defaults to current)
  */
 
-import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { spawn } from "child_process";
 import { createInterface } from "node:readline";
+import chalk from "chalk";
+import { spawn } from "child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { parseSessionEntries, type SessionMessageEntry } from "../packages/coding-agent/src/core/session-manager.ts";
-import chalk from "chalk";
-import { isSessionTranscriptFile, readSessionTranscriptText } from "../packages/coding-agent/src/core/session-transcript.ts";
+import {
+	isSessionTranscriptFile,
+	readSessionTranscriptText,
+} from "../packages/coding-agent/src/core/session-transcript.ts";
 
 const MAX_CHARS_PER_FILE = 100_000; // ~20k tokens, leaving room for prompt + analysis + output
 
@@ -29,10 +33,7 @@ function extractTextContent(content: string | Array<{ type: string; text?: strin
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 
-	return content
-		.filter((c) => c.type === "text" && c.text)
-		.map((c) => c.text!)
-		.join("\n");
+	return content.flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("\n");
 }
 
 function parseSession(filePath: string): string[] {
@@ -42,12 +43,11 @@ function parseSession(filePath: string): string[] {
 
 	for (const entry of entries) {
 		if (entry.type !== "message") continue;
-		const msgEntry = entry as SessionMessageEntry;
-		const { role, content } = msgEntry.message;
-
+		const message = (entry as SessionMessageEntry).message;
+		const role = message.role;
 		if (role !== "user" && role !== "assistant") continue;
 
-		const text = extractTextContent(content as string | Array<{ type: string; text?: string }>);
+		const text = extractTextContent(message.content as string | Array<{ type: string; text?: string }>);
 		if (!text.trim()) continue;
 
 		messages.push(`[${role.toUpperCase()}]\n${text}`);
@@ -61,7 +61,7 @@ const MAX_DISPLAY_WIDTH = 100;
 function truncateLine(text: string, maxWidth: number): string {
 	const singleLine = text.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
 	if (singleLine.length <= maxWidth) return singleLine;
-	return singleLine.slice(0, maxWidth - 3) + "...";
+	return `${singleLine.slice(0, maxWidth - 3)}...`;
 }
 
 interface JsonEvent {
@@ -99,7 +99,7 @@ function runSubagent(prompt: string, cwd: string): Promise<{ success: boolean }>
 				} else if (event.type === "tool_execution_start" && event.toolName) {
 					// Print accumulated text before tool starts
 					if (textBuffer.trim()) {
-						console.log(chalk.dim("  " + truncateLine(textBuffer, MAX_DISPLAY_WIDTH)));
+						console.log(chalk.dim(`  ${truncateLine(textBuffer, MAX_DISPLAY_WIDTH)}`));
 						textBuffer = "";
 					}
 					// Format tool call with args
@@ -117,7 +117,7 @@ function runSubagent(prompt: string, cwd: string): Promise<{ success: boolean }>
 				} else if (event.type === "turn_end") {
 					// Print any remaining text at turn end
 					if (textBuffer.trim()) {
-						console.log(chalk.dim("  " + truncateLine(textBuffer, MAX_DISPLAY_WIDTH)));
+						console.log(chalk.dim(`  ${truncateLine(textBuffer, MAX_DISPLAY_WIDTH)}`));
 					}
 					textBuffer = "";
 				}
@@ -173,9 +173,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	const sessionFiles = readdirSync(sessionDir)
-		.filter(isSessionTranscriptFile)
-		.sort();
+	const sessionFiles = readdirSync(sessionDir).filter(isSessionTranscriptFile).sort();
 
 	console.log(`Found ${sessionFiles.length} session files in ${sessionDir}`);
 

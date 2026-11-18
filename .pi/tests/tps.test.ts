@@ -94,7 +94,9 @@ describe("formatStats", () => {
 		});
 
 		const line = formatStats(stats);
-		expect(line).toBe("TPS 20.0 tok/s (120 tok in 6.0s of requests) · 1 req · out 120, in 500, total 620 · loop 6.0s");
+		expect(line).toBe(
+			"TPS 20.0 tok/s (120 tok in 6.0s of requests) · 1 req · out 120, in 500, total 620 · loop 6.0s",
+		);
 	});
 });
 

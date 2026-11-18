@@ -36,8 +36,9 @@ async function fetchOpenRouterImageModels(): Promise<ImagesModel<"openrouter-ima
 		for (const model of data.data ?? []) {
 			const input = Array.from(
 				new Set(
-					(model.architecture?.input_modalities ?? [])
-						.filter((modality): modality is "text" | "image" => modality === "text" || modality === "image"),
+					(model.architecture?.input_modalities ?? []).filter(
+						(modality): modality is "text" | "image" => modality === "text" || modality === "image",
+					),
 				),
 			);
 			const output = Array.from(
