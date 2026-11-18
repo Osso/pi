@@ -2103,6 +2103,15 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "line1\nline2\nline3");
 		});
 
+		it("drops DEL and C1 controls from pasted text so they never reach the terminal", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			// \x9b is the single-byte CSI: \x9b2J would clear the screen when the editor line is written.
+			editor.handleInput("\x1b[200~a\x7fb\x9b2Jc\x85d\x1b[201~");
+			assert.strictEqual(editor.getText(), "ab2Jcd");
+			assert.doesNotMatch(editor.render(80).join("\n"), /[\x7f-\x9f]/);
+		});
+
 		it("undoes multi-line paste atomically", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

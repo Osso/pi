@@ -1460,7 +1460,7 @@ export class Editor implements Component, Focusable {
 		// Filter out non-printable characters except newlines
 		let filteredText = cleanText
 			.split("")
-			.filter((char) => char === "\n" || char.charCodeAt(0) >= 32)
+			.filter((char) => char === "\n" || !/[\x00-\x1f\x7f-\x9f]/.test(char))
 			.join("");
 
 		// If pasting a file path (starts with /, ~, or .) and the character before
