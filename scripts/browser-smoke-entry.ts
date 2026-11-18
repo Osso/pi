@@ -1,5 +1,3 @@
-import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
-import { complete, getModel, getProviders } from "@earendil-works/pi-ai/compat";
 import {
 	Agent,
 	bashExecutionToText,
@@ -17,6 +15,8 @@ import {
 	toError,
 	truncateHead,
 } from "@earendil-works/pi-agent-core";
+import { createAssistantMessageEventStream, Type } from "@earendil-works/pi-ai";
+import { complete, getModel, getProviders } from "@earendil-works/pi-ai/compat";
 
 // Keep this entry browser-safe. It is bundled by scripts/check-browser-smoke.mjs
 // to catch accidental Node-only runtime imports in browser-facing package exports.
@@ -30,7 +30,12 @@ const repo = new InMemorySessionRepo();
 const result = getOrThrow(ok({ value: 1 }));
 const customMessage = createCustomMessage("note", "hello", true, undefined, "2026-01-01T00:00:00.000Z");
 const llmMessages = convertToLlm([customMessage]);
-const skill = { name: "browser-safe", description: "Smoke test", content: "Use browser APIs.", filePath: "/skills/browser-safe/SKILL.md" };
+const skill = {
+	name: "browser-safe",
+	description: "Smoke test",
+	content: "Use browser APIs.",
+	filePath: "/skills/browser-safe/SKILL.md",
+};
 
 console.log(
 	model.id,

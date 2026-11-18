@@ -3,10 +3,7 @@ import { join } from "node:path";
 import ts from "typescript";
 
 const ignoredDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
-const codingAgentPackageSpecifiers = new Set([
-	"@earendil-works/pi-coding-agent",
-	"@mariozechner/pi-coding-agent",
-]);
+const codingAgentPackageSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]);
 const files = [];
 
 function collectTypescriptFiles(directory) {
@@ -88,7 +85,8 @@ for (const file of files.sort()) {
 		if (!isAutoLoadedExtensionFile(file)) return;
 		if (!codingAgentPackageSpecifiers.has(specifier.text)) return;
 
-		const hasRuntimeImport = importHasRuntimeBindings(node) || exportHasRuntimeBindings(node) || isDynamicImport(node);
+		const hasRuntimeImport =
+			importHasRuntimeBindings(node) || exportHasRuntimeBindings(node) || isDynamicImport(node);
 		if (!hasRuntimeImport) return;
 
 		const { line, character } = sourceFile.getLineAndCharacterOfPosition(specifier.getStart(sourceFile));
