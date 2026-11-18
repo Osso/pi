@@ -4933,8 +4933,8 @@ export class AgentSession {
 	 * Navigate to a different node in the session tree, in the same session file (unlike fork()).
 	 * `summarize` summarizes the abandoned branch; `customInstructions`/`replaceInstructions` adjust the summarizer
 	 * prompt; `label` labels the branch summary entry. Returns editorText when the target is a user message.
-	 * Rejects while compaction or another navigation runs: compaction prepared on the old branch would land on the new one.
-	 * Holds the turn-start lock until the new leaf is installed, so a prompt sent meanwhile runs on the new branch.
+	 * Rejects while a response streams or compaction or another navigation runs: their output would land on the new
+	 * branch. Holds the turn-start lock until the new leaf is installed, so a prompt sent meanwhile runs on it.
 	 */
 	async navigateTree(targetId: string, options: NavigateTreeOptions = {}): Promise<NavigateTreeResult> {
 		if (this.isCompacting) {
@@ -4950,12 +4950,11 @@ export class AgentSession {
 		options: NavigateTreeOptions,
 		releaseTurnStart: () => void,
 	): Promise<NavigateTreeResult> {
+		// Checked under the lock: a prompt that held it during preflight is streaming once it is released.
+		if (this.isStreaming)
+			throw new Error("Wait for the current response to finish before navigating the session tree.");
 		const oldLeafId = this.sessionManager.getLeafId();
-
-		// No-op if already at target
-		if (targetId === oldLeafId) {
-			return { cancelled: false };
-		}
+		if (targetId === oldLeafId) return { cancelled: false };
 
 		// Model required for summarization
 		if (options.summarize && !this.model) {

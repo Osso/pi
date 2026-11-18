@@ -6422,10 +6422,7 @@ export class InteractiveMode {
 						return;
 					}
 
-					// Ask about summarization
-					done(); // Close selector first
-
-					// Loop until user makes a complete choice or cancels to tree
+					done(); // Close the selector, then loop until the user makes a complete summary choice or cancels
 					let wantsSummary = false;
 					let customInstructions: string | undefined;
 
@@ -6445,7 +6442,6 @@ export class InteractiveMode {
 							}
 
 							wantsSummary = summaryChoice !== "No summary";
-
 							if (summaryChoice === "Summarize with custom prompt") {
 								customInstructions = await this.showExtensionEditor("Custom summarization instructions");
 								if (customInstructions === undefined) {
@@ -6454,9 +6450,13 @@ export class InteractiveMode {
 								}
 							}
 
-							// User made a complete choice
 							break;
 						}
+					}
+					// The user committed to navigating: stop the active response, keeping queued input in the editor.
+					if (this.session.isStreaming) {
+						this.restoreQueuedMessagesToEditor();
+						await this.session.abort();
 					}
 
 					// Set up escape handler and loader if summarizing

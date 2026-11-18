@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- Tree navigation now rejects while a response streams: `/tree`, RPC `navigate_tree`, or `ctx.navigateTree()` moved the leaf under the running turn, so its reply landed on the target branch. Interactive `/tree` stops the response once you confirm the navigation (port of upstream cefa40ed8, [#7022](https://github.com/earendil-works/pi-mono/issues/7022))
 - A Supervisor restart no longer fails goal reviews, approvals, and `ask_supervisor` requests with "the Supervisor session ... is not running". The request stays queued and fails only when the Supervisor does not answer within three minutes. A failed goal review waited 55 minutes before the next review
 - Compaction and branch summaries now keep only the 100 most recently used paths in each of `<read-files>` and `<modified-files>`. The lists were carried forward from summary to summary without limit: one long session carried 6,800 paths, about 155k tokens, so compaction could not bring its context below about 36% of a 1M window
 - A settings file that still sets the removed `compaction.thresholdPercent` now reports a startup warning. The key was ignored without notice, so sessions on such a config had no configured compaction threshold and compacted only near the context limit; set `compaction.thresholdTokens` instead

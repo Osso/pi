@@ -1289,6 +1289,8 @@ Options:
 - `replaceInstructions`: If true, `customInstructions` replaces the default prompt instead of being appended
 - `label`: Label to attach to the branch summary entry (or target entry if not summarizing)
 
+Rejects while a response streams; call `ctx.waitForIdle()` or `ctx.abort()` first.
+
 ### ctx.switchSession(sessionPath, options?)
 
 Switch to a different session file:
