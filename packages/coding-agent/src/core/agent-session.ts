@@ -1664,6 +1664,7 @@ export class AgentSession {
 			}
 
 			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
+			await this._prepareContinuationRun();
 			const continuation = this._runAgentContinuation();
 			releaseTurnStart();
 			await continuation;
@@ -2128,6 +2129,28 @@ export class AgentSession {
 		}
 	}
 
+	/**
+	 * Runs before_agent_start for a new run and installs its system prompt, or the base prompt. Every run start calls
+	 * it, so a run never reuses an earlier run's additions or lacks them. `prompt` is empty for runs that no user
+	 * prompt started (custom messages, continuations). Returns the custom messages the handlers added.
+	 */
+	private async _applyBeforeAgentStart(prompt: string, images?: ImageContent[]): Promise<CustomMessage[]> {
+		const result = await this._extensionRunner.emitBeforeAgentStart(
+			prompt,
+			images,
+			this._baseSystemPrompt,
+			this._baseSystemPromptOptions,
+		);
+		this._systemPromptOverride = result?.systemPrompt;
+		this.agent.state.systemPrompt = result?.systemPrompt ?? this._baseSystemPrompt;
+		return (result?.messages ?? []).map((message) => ({ ...message, role: "custom", timestamp: Date.now() }));
+	}
+
+	/** Prepares a continuation run: applies before_agent_start and queues the handler messages for the run. */
+	private async _prepareContinuationRun(): Promise<void> {
+		for (const message of await this._applyBeforeAgentStart("")) this.agent.steer(message);
+	}
+
 	private _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		return this._runThinkingTimeoutDispatch(() => this.agent.prompt(messages));
 	}
@@ -2300,6 +2323,7 @@ export class AgentSession {
 			if (lastAssistant) {
 				await this._checkCompaction(lastAssistant, false);
 			}
+			await this._prepareContinuationRun();
 
 			if (this.isStreaming) {
 				throw new Error("Agent is already processing. Wait for completion before continuing.");
@@ -2458,35 +2482,7 @@ export class AgentSession {
 			}
 			this._pendingNextTurnMessages = [];
 
-			// Emit before_agent_start extension event
-			const result = await this._extensionRunner.emitBeforeAgentStart(
-				expandedText,
-				currentImages,
-				this._baseSystemPrompt,
-				this._baseSystemPromptOptions,
-			);
-			// Add all custom messages from extensions
-			if (result?.messages) {
-				for (const msg of result.messages) {
-					messages.push({
-						role: "custom",
-						customType: msg.customType,
-						content: msg.content,
-						display: msg.display,
-						details: msg.details,
-						timestamp: Date.now(),
-					});
-				}
-			}
-			// Apply extension-modified system prompt, or reset to base
-			if (result?.systemPrompt !== undefined) {
-				this._systemPromptOverride = result.systemPrompt;
-				this.agent.state.systemPrompt = result.systemPrompt;
-			} else {
-				// Ensure we're using the base prompt (in case previous turn had modifications)
-				this._systemPromptOverride = undefined;
-				this.agent.state.systemPrompt = this._baseSystemPrompt;
-			}
+			messages.push(...(await this._applyBeforeAgentStart(expandedText, currentImages)));
 		} catch (error) {
 			preflightResult?.(false);
 			throw error;
@@ -2640,6 +2636,7 @@ export class AgentSession {
 
 			this.validateModelAuthentication();
 			await this._queueSteer(input.text, input.images, source);
+			await this._prepareContinuationRun();
 			const continuation = this._runAgentContinuation();
 			release();
 			void continuation.catch((error) => {
@@ -3165,7 +3162,10 @@ export class AgentSession {
 					return;
 				}
 
-				const run = this._runAgentPrompt(appMessage);
+				const startMessages = await this._applyBeforeAgentStart("");
+				if (this.isStreaming)
+					throw new Error("Agent is already processing. Wait for completion before continuing.");
+				const run = this._runAgentPrompt([appMessage, ...startMessages]);
 				release();
 				await run;
 			});

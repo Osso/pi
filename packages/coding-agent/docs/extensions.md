@@ -554,11 +554,11 @@ Messages remain durable while Pi is stopped. After restart and extension binding
 
 #### before_agent_start
 
-Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
+Fired before every agent run starts: after the user submits a prompt, and when an idle session starts a run from `pi.sendMessage(..., { triggerTurn: true })`, idle steering, or a continuation (for example after a restart). Can inject a message and/or modify the system prompt. The system prompt applies to that whole run; the next run starts from the base prompt and calls the handlers again.
 
 ```typescript
 pi.on("before_agent_start", async (event, ctx) => {
-  // event.prompt - user's prompt text
+  // event.prompt - user's prompt text; empty for runs that no user prompt started
   // event.images - attached images (if any)
   // event.systemPrompt - current chained system prompt for this handler
   //   (includes changes from earlier before_agent_start handlers)
