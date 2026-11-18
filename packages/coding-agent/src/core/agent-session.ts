@@ -598,6 +598,20 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 // AgentSession Class
 // ============================================================================
 
+interface NavigateTreeOptions {
+	summarize?: boolean;
+	customInstructions?: string;
+	replaceInstructions?: boolean;
+	label?: string;
+}
+
+type NavigateTreeResult = {
+	editorText?: string;
+	cancelled: boolean;
+	aborted?: boolean;
+	summaryEntry?: BranchSummaryEntry;
+};
+
 export class AgentSession {
 	readonly agent: Agent;
 	readonly sessionManager: SessionManager;
@@ -2498,9 +2512,7 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * Try to execute an extension command. Returns true if command was found and executed.
-	 */
+	/** Try to execute an extension command. Returns true if command was found and executed. */
 	private _slashCommandName(text: string): string {
 		const match = text.match(/^\/([^\s]+)/);
 		return `/${match?.[1] ?? ""}`;
@@ -2648,9 +2660,7 @@ export class AgentSession {
 		if (input) await this._queueFollowUp(input.text, input.images, source);
 	}
 
-	/**
-	 * Internal: Queue a steering message (already expanded, no extension command check).
-	 */
+	/** Internal: Queue a steering message (already expanded, no extension command check). */
 	private _steerAgent(message: AgentMessage): void {
 		this.agent.steer(message);
 		if (this._multiAgentActiveTools.size === 0) this._startThinkingPhaseDeadline();
@@ -2672,9 +2682,7 @@ export class AgentSession {
 		this._emit({ type: "steering_message_queued" });
 	}
 
-	/**
-	 * Internal: Queue a follow-up message (already expanded, no extension command check).
-	 */
+	/** Internal: Queue a follow-up message (already expanded, no extension command check). */
 	private async _queueFollowUp(text: string, images?: ImageContent[], inputSource?: InputSource): Promise<void> {
 		this._followUpMessages.push({ text, inputSource });
 		this._emitQueueUpdate();
@@ -3110,9 +3118,7 @@ export class AgentSession {
 		retireRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
 	}
 
-	/**
-	 * Throw an error if the text is an extension command.
-	 */
+	/** Throw an error if the text is an extension command. */
 	private _throwIfExtensionCommand(text: string): void {
 		const commandName = this._slashCommandName(text).slice(1);
 		const command = this._extensionRunner.getCommand(commandName);
@@ -3293,9 +3299,7 @@ export class AgentSession {
 		await interruptSession(this, message, source);
 	}
 
-	/**
-	 * Abort current operation and wait for agent to become idle.
-	 */
+	/** Abort current operation and wait for agent to become idle. */
 	async abort(): Promise<void> {
 		this._codexRestrictionRecovery.cancelPendingValidation();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
@@ -3492,9 +3496,7 @@ export class AgentSession {
 		return getSupportedThinkingLevels(this.model) as ThinkingLevel[];
 	}
 
-	/**
-	 * Check if current model supports thinking/reasoning.
-	 */
+	/** Check if current model supports thinking/reasoning. */
 	supportsThinking(): boolean {
 		return !!this.model?.reasoning;
 	}
@@ -3764,9 +3766,7 @@ export class AgentSession {
 		return saved.result;
 	}
 
-	/**
-	 * Cancel in-progress compaction (manual or auto).
-	 */
+	/** Cancel in-progress compaction (manual or auto). */
 	abortCompaction(): void {
 		this._compactionAbortController?.abort();
 		this._autoCompactionAbortController?.abort();
@@ -3787,9 +3787,7 @@ export class AgentSession {
 		abortCompactionSummaryMaterialization(this._compactionSummaryMaterializationAbortController);
 	}
 
-	/**
-	 * Cancel in-progress branch summarization.
-	 */
+	/** Cancel in-progress branch summarization. */
 	abortBranchSummary(): void {
 		this._branchSummaryAbortController?.abort();
 	}
@@ -3915,9 +3913,7 @@ export class AgentSession {
 		return false;
 	}
 
-	/**
-	 * Internal: Run auto-compaction with events.
-	 */
+	/** Internal: Run auto-compaction with events. */
 	private _recordCompactionFailure(message: string): void {
 		const cooldownMs = compactionRetryCooldownMs(message);
 		if (cooldownMs === undefined) return;
@@ -4183,9 +4179,7 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * Toggle auto-compaction setting.
-	 */
+	/** Toggle auto-compaction setting. */
 	setAutoCompactionEnabled(enabled: boolean): void {
 		this.settingsManager.setCompactionEnabled(enabled);
 	}
@@ -4727,9 +4721,7 @@ export class AgentSession {
 		return true;
 	}
 
-	/**
-	 * Cancel in-progress retry.
-	 */
+	/** Cancel in-progress retry. */
 	abortRetry(): void {
 		this._retryAbortController?.abort();
 		const dispatch = this._thinkingTimeoutDispatch;
@@ -4766,9 +4758,7 @@ export class AgentSession {
 		return this.settingsManager.getRetryEnabled();
 	}
 
-	/**
-	 * Toggle auto-retry setting.
-	 */
+	/** Toggle auto-retry setting. */
 	setAutoRetryEnabled(enabled: boolean): void {
 		this.settingsManager.setRetryEnabled(enabled);
 	}
@@ -4847,9 +4837,7 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * Cancel running bash command.
-	 */
+	/** Cancel running bash command. */
 	abortBash(): void {
 		for (const abortController of [...this._bashAbortControllers]) abortController.abort();
 	}
@@ -4900,9 +4888,7 @@ export class AgentSession {
 	// Session Management
 	// =========================================================================
 
-	/**
-	 * Set a display name for the current session.
-	 */
+	/** Set a display name for the current session. */
 	setSessionName(name: string): void {
 		this.sessionManager.setSessionName(name);
 		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
@@ -4945,16 +4931,22 @@ export class AgentSession {
 	 * `summarize` summarizes the abandoned branch; `customInstructions`/`replaceInstructions` adjust the summarizer
 	 * prompt; `label` labels the branch summary entry. Returns editorText when the target is a user message.
 	 * Rejects while compaction or another navigation runs: compaction prepared on the old branch would land on the new one.
+	 * Holds the turn-start lock until the new leaf is installed, so a prompt sent meanwhile runs on the new branch.
 	 */
-	async navigateTree(
-		targetId: string,
-		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
-	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
+	async navigateTree(targetId: string, options: NavigateTreeOptions = {}): Promise<NavigateTreeResult> {
 		if (this.isCompacting) {
 			throw new Error(
 				"Wait for the current compaction or tree navigation to finish before navigating the session tree.",
 			);
 		}
+		return this._withTurnStartLock((release) => this._navigateTree(targetId, options, release));
+	}
+
+	private async _navigateTree(
+		targetId: string,
+		options: NavigateTreeOptions,
+		releaseTurnStart: () => void,
+	): Promise<NavigateTreeResult> {
 		const oldLeafId = this.sessionManager.getLeafId();
 
 		// No-op if already at target
@@ -4996,7 +4988,8 @@ export class AgentSession {
 		};
 
 		// Set up abort controller for summarization
-		this._branchSummaryAbortController = new AbortController();
+		const branchSummaryAbortController = new AbortController();
+		this._branchSummaryAbortController = branchSummaryAbortController;
 
 		try {
 			let extensionSummary: { summary: string; details?: unknown } | undefined;
@@ -5007,7 +5000,7 @@ export class AgentSession {
 				const result = (await this._extensionRunner.emit({
 					type: "session_before_tree",
 					preparation,
-					signal: this._branchSummaryAbortController.signal,
+					signal: branchSummaryAbortController.signal,
 				})) as SessionBeforeTreeResult | undefined;
 
 				if (result?.cancel) {
@@ -5046,7 +5039,7 @@ export class AgentSession {
 					apiKey,
 					headers,
 					env,
-					signal: this._branchSummaryAbortController.signal,
+					signal: branchSummaryAbortController.signal,
 					customInstructions,
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
@@ -5125,8 +5118,9 @@ export class AgentSession {
 			// Update agent state
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-
-			// Emit session_tree event
+			// The new leaf is installed: session_tree handlers may prompt or navigate again.
+			this._branchSummaryAbortController = undefined;
+			releaseTurnStart();
 			await this._extensionRunner.emit({
 				type: "session_tree",
 				newLeafId: this.sessionManager.getLeafId(),
@@ -5135,17 +5129,15 @@ export class AgentSession {
 				fromExtension: summaryText ? fromExtension : undefined,
 			});
 
-			// Emit to custom tools
-
 			return { editorText, cancelled: false, summaryEntry };
 		} finally {
-			this._branchSummaryAbortController = undefined;
+			if (this._branchSummaryAbortController === branchSummaryAbortController) {
+				this._branchSummaryAbortController = undefined;
+			}
 		}
 	}
 
-	/**
-	 * Get all user messages from session for fork selector.
-	 */
+	/** Get all user messages from session for fork selector. */
 	getUserMessagesForForking(): Array<{ entryId: string; text: string }> {
 		const entries = this.sessionManager.getEntries();
 		const result: Array<{ entryId: string; text: string }> = [];
@@ -5174,9 +5166,7 @@ export class AgentSession {
 		return "";
 	}
 
-	/**
-	 * Get session statistics.
-	 */
+	/** Get session statistics. */
 	getSessionStats(): SessionStats {
 		const state = this.state;
 		const userMessages = state.messages.filter((m) => m.role === "user").length;
