@@ -72,10 +72,6 @@ function getPromptCacheRetention(compat: ResolvedResponsesCompat, cacheRetention
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
 }
 
-function formatOpenAIResponsesError(error: unknown): string {
-	return formatProviderError(normalizeProviderError(error), "OpenAI API error");
-}
-
 // OpenAI Responses-specific options
 export interface OpenAIResponsesOptions extends StreamOptions {
 	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
@@ -155,7 +151,9 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 				delete (block as { partialJson?: string }).partialJson;
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = formatOpenAIResponsesError(error);
+			// Name the model's provider: OpenRouter and other Responses providers are not OpenAI (upstream #9298).
+			const providerName = model.provider === "openai" ? "OpenAI" : model.provider;
+			output.errorMessage = formatProviderError(normalizeProviderError(error), `${providerName} API error`);
 			output.retryAfterMs = getErrorRetryAfterMs(error) ?? getRetryAfterMsFromText(output.errorMessage);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();

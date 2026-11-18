@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses HTTP errors from other providers (for example OpenRouter) being labelled `OpenAI API error`; the label now names the model's provider (port of upstream 0c7bb7c5c, [#9298](https://github.com/earendil-works/pi-mono/issues/9298))
 - Fixed OpenAI Codex requests with thinking Off: they omitted `reasoning`, so the server applied its default effort. They now send the model's Off effort (`none` unless `thinkingLevelMap.off` says otherwise), and omit `reasoning` when the model maps Off to `null` (port of upstream e86102f18, [#9191](https://github.com/earendil-works/pi-mono/issues/9191))
 - Fixed quadratic CPU use when an `EventStream` consumer drains many buffered events: 400,000 buffered events took about 7 s instead of tens of milliseconds (port of upstream b2602be77, [#9055](https://github.com/earendil-works/pi-mono/issues/9055))
 - Codex requests with `cacheRetention: "none"`, such as compaction and branch summaries, no longer send the session's prompt cache key or use the session's cached WebSocket. Before, a summary sent while the session was idle replaced the socket's continuation state, so the next turn resent the full context instead of a delta (port of upstream 241431c69, [#6618](https://github.com/earendil-works/pi-mono/pull/6618)).
