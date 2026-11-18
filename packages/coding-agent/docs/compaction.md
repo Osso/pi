@@ -245,7 +245,7 @@ Both compaction and branch summarization track files cumulatively. When generati
 - Tool calls in the messages being summarized
 - Previous compaction or branch summary `details` (if any)
 
-This means file tracking accumulates across multiple compactions or nested branch summaries, preserving the full history of read and modified files.
+This means file tracking accumulates across multiple compactions or nested branch summaries. Each list keeps the 100 most recently used paths, oldest first; re-reading or editing a file moves it to the end. Without that cap, a long session carried thousands of paths in every summary.
 
 ### BranchSummaryEntry Structure
 

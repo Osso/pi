@@ -44,16 +44,22 @@ export function extractFileOpsFromMessage(message: AgentMessage, fileOps: FileOp
 
 		switch (block.name) {
 			case "read":
-				fileOps.read.add(path);
+				touchPath(fileOps.read, path);
 				break;
 			case "write":
-				fileOps.written.add(path);
+				touchPath(fileOps.written, path);
 				break;
 			case "edit":
-				fileOps.edited.add(path);
+				touchPath(fileOps.edited, path);
 				break;
 		}
 	}
+}
+
+/** Re-adding moves the path to the end, so each set stays in least-to-most-recent use order. */
+function touchPath(files: Set<string>, path: string): void {
+	files.delete(path);
+	files.add(path);
 }
 
 /** Add the file lists stored in the details of a pi-generated compaction or branch summary entry. */
@@ -64,15 +70,21 @@ export function addSummaryFileOps(entry: { fromHook?: boolean; details?: unknown
 	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) fileOps.edited.add(String(file));
 }
 
+/** Most recently used paths kept per file list; each summary carries the previous one's lists forward. */
+export const MAX_SUMMARY_FILE_LIST_ENTRIES = 100;
+
 /**
- * Compute final file lists from file operations.
- * Returns readFiles (files only read, not modified) and modifiedFiles.
+ * Compute final file lists from file operations: readFiles (files only read, not modified) and modifiedFiles.
+ * Each list keeps the most recently used paths, oldest first. Without a cap the lists grow with every
+ * compaction: a long session carried 6,800 paths (about 155k tokens) in each summary.
  */
 export function computeFileLists(fileOps: FileOperations): { readFiles: string[]; modifiedFiles: string[] } {
 	const modified = new Set([...fileOps.edited, ...fileOps.written]);
-	const readOnly = [...fileOps.read].filter((f) => !modified.has(f)).sort();
-	const modifiedFiles = [...modified].sort();
-	return { readFiles: readOnly, modifiedFiles };
+	const readOnly = [...fileOps.read].filter((f) => !modified.has(f));
+	return {
+		readFiles: readOnly.slice(-MAX_SUMMARY_FILE_LIST_ENTRIES),
+		modifiedFiles: [...modified].slice(-MAX_SUMMARY_FILE_LIST_ENTRIES),
+	};
 }
 
 /**

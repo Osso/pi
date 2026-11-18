@@ -15,6 +15,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from "../src/core/compaction/index.ts";
+import { computeFileLists } from "../src/core/compaction/utils.ts";
 import {
 	buildSessionContext,
 	type CompactionEntry,
@@ -671,6 +672,44 @@ describe("prepareCompaction with previous compaction", () => {
 
 		expect(requireValue(preparation).fileOps.read).toEqual(new Set(["source.ts"]));
 		expect(requireValue(preparation).fileOps.edited).toEqual(new Set(["parser.ts"]));
+	});
+
+	it("keeps the most recently used files when carried-forward file lists exceed the cap", () => {
+		const user = createMessageEntry(createUserMessage("start"));
+		const oldAnswer = createMessageEntry(createAssistantMessage("old answer"));
+		const compaction = createCompactionEntry("Earlier work", oldAnswer.id);
+		// A long session carried thousands of paths from summary to summary.
+		compaction.details = {
+			readFiles: Array.from({ length: 5_000 }, (_, i) => `old/read-${i}.ts`),
+			modifiedFiles: Array.from({ length: 1_000 }, (_, i) => `old/edit-${i}.ts`),
+		};
+		const reread: AssistantMessage = {
+			...createAssistantMessage(""),
+			content: [
+				{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "old/read-0.ts" } },
+				{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "new.ts" } },
+				{ type: "toolCall", id: "call-3", name: "edit", arguments: { path: "new-edit.ts" } },
+			],
+		};
+		const entries = [
+			user,
+			oldAnswer,
+			compaction,
+			createMessageEntry(createUserMessage("continue")),
+			createMessageEntry(reread),
+			createMessageEntry(createUserMessage("current")),
+			createMessageEntry(createAssistantMessage("current answer")),
+		];
+
+		const preparation = requireValue(
+			prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 }),
+		);
+		const { readFiles, modifiedFiles } = computeFileLists(preparation.fileOps);
+
+		expect(readFiles).toHaveLength(100);
+		expect(readFiles.slice(-3)).toEqual(["old/read-4999.ts", "old/read-0.ts", "new.ts"]);
+		expect(modifiedFiles).toHaveLength(100);
+		expect(modifiedFiles.at(-1)).toBe("new-edit.ts");
 	});
 
 	it("should prepare repeated compactions when the active suffix moves past previously kept messages", () => {
