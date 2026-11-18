@@ -511,17 +511,16 @@ function buildRequestBody(
 		body.tools = convertResponsesTools(context.tools, { strict: null });
 	}
 
+	// Without an effort Codex applies its default, so Off must ask for the model's Off effort; null means none (#9191).
+	const offEffort = model.thinkingLevelMap?.off === undefined ? "none" : model.thinkingLevelMap.off;
 	if (options?.reasoningEffort !== undefined) {
 		const effort =
 			options.reasoningEffort === "none"
-				? (model.thinkingLevelMap?.off ?? "none")
+				? offEffort
 				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
-		if (effort !== null) {
-			body.reasoning = {
-				effort,
-				summary: options.reasoningSummary ?? "auto",
-			};
-		}
+		if (effort !== null) body.reasoning = { effort, summary: options.reasoningSummary ?? "auto" };
+	} else if (model.reasoning && offEffort !== null) {
+		body.reasoning = { effort: offEffort };
 	}
 
 	return body;

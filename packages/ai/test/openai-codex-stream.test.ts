@@ -1082,6 +1082,28 @@ describe("openai-codex streaming", () => {
 	});
 
 	it.each([
+		["requests effort none when no effort is given", {}, undefined, { effort: "none" }],
+		["requests the model's mapped Off effort", { off: "minimal" }, undefined, { effort: "minimal" }],
+		["omits reasoning when the model has no Off effort", { off: null }, undefined, undefined],
+		["omits an explicit none effort when the model has no Off effort", { off: null }, "none", undefined],
+	] as const)("thinking Off %s", async (_name, thinkingLevelMap, reasoningEffort, expected) => {
+		useTempAgentDir();
+		const stream = sseResponse(buildSSEPayload({ status: "completed" })).body;
+		let requestedReasoning: unknown = "not sent";
+
+		stubCodexFetch((init) => {
+			requestedReasoning = decodeCodexRequestBody(init?.body)?.reasoning;
+			return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+		});
+
+		const model = codexModel({ id: "gpt-6-luna", name: "GPT-6 Luna", thinkingLevelMap });
+		const options = { apiKey: mockToken(), reasoningEffort, transport: "sse" } as const;
+		await streamOpenAICodexResponses(model, sayHelloContext(), options).result();
+
+		expect(requestedReasoning).toEqual(expected);
+	});
+
+	it.each([
 		["max", "max"],
 		["ultra", "max"],
 	] as const)("serializes GPT-5.6 Sol %s as provider effort %s", async (logicalEffort, providerEffort) => {
