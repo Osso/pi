@@ -112,6 +112,7 @@ describe("Pyrun session context", () => {
 
 				const busy = await callPyrun(pi, detached.next, { code: PROBE, session_id: "work" });
 				expect(busy.text).toContain("Pyrun session work is busy with another evaluation");
+				expect(busy.text).toContain("cancel its background job with close_agent");
 				const unnamed = await runProbe(pi, busy.next);
 				expect(unnamed.line).toMatch(/^probe calls=1 /);
 

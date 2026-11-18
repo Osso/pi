@@ -232,7 +232,9 @@ async function evaluateInSession(
 	signal: AbortSignal,
 ): Promise<unknown> {
 	if (session.busy) {
-		const error = `Pyrun session ${params.session_id} is busy with another evaluation; use another session_id or wait for it to finish.`;
+		// Agents that got only the first half of this advice killed the runner process by hand, which
+		// loses the evaluation's result; point them at the supported ways to wait or stop.
+		const error = `Pyrun session ${params.session_id} is busy with another evaluation. Wait for it to finish (wait_agent if it moved to the background), cancel its background job with close_agent, or use another session_id. Do not kill the runner process.`;
 		return { error, type: "proxy_error" };
 	}
 	session.busy = true;
