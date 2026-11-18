@@ -159,10 +159,15 @@ function processStreamEvent(
 	if (event?.type === "content_block_start") {
 		ensureTurnStarted(c);
 		if (event.content_block?.type === "text") {
-			c.turnBlocks.push({ type: "text", text: "", index: event.index });
+			c.turnBlocks.push({ type: "text", text: event.content_block.text ?? "", index: event.index });
 			stream.push({ type: "text_start", contentIndex: c.turnBlocks.length - 1, partial: output });
 		} else if (event.content_block?.type === "thinking") {
-			c.turnBlocks.push({ type: "thinking", thinking: "", thinkingSignature: "", index: event.index });
+			c.turnBlocks.push({
+				type: "thinking",
+				thinking: event.content_block.thinking ?? "",
+				thinkingSignature: event.content_block.signature ?? "",
+				index: event.index,
+			});
 			stream.push({
 				type: "thinking_start",
 				contentIndex: c.turnBlocks.length - 1,

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic Messages streams dropping text, thinking and signature content sent in `content_block_start`; only the deltas were kept (port of upstream 59ad3dead, [#7283](https://github.com/earendil-works/pi-mono/issues/7283))
 - Fixed uncached Codex requests (summaries and compaction) dropping their WebSocket failures from the session's WebSocket debug statistics
 - Fixed OpenAI Responses HTTP errors from other providers (for example OpenRouter) being labelled `OpenAI API error`; the label now names the model's provider (port of upstream 0c7bb7c5c, [#9298](https://github.com/earendil-works/pi-mono/issues/9298))
 - Fixed OpenAI Codex requests with thinking Off: they omitted `reasoning`, so the server applied its default effort. They now send the model's Off effort (`none` unless `thinkingLevelMap.off` says otherwise), and omit `reasoning` when the model maps Off to `null` (port of upstream e86102f18, [#9191](https://github.com/earendil-works/pi-mono/issues/9191))

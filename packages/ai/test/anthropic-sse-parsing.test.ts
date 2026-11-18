@@ -179,6 +179,43 @@ describe("Anthropic raw SSE parsing", () => {
 		]);
 	});
 
+	// Port of upstream 59ad3dead (#7283): text and thinking sent in content_block_start were dropped.
+	it("keeps text and thinking sent in content_block_start", async () => {
+		const blockEvents = [
+			{ type: "content_block_start", index: 0, content_block: { type: "text", text: "Initial text" } },
+			{ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " plus delta" } },
+			{ type: "content_block_stop", index: 0 },
+			{
+				type: "content_block_start",
+				index: 1,
+				content_block: { type: "thinking", thinking: "Initial thinking", signature: "initial signature" },
+			},
+			{ type: "content_block_delta", index: 1, delta: { type: "thinking_delta", thinking: " plus delta" } },
+			{ type: "content_block_delta", index: 1, delta: { type: "signature_delta", signature: " plus delta" } },
+			{ type: "content_block_stop", index: 1 },
+		];
+		const response = createSseResponse([
+			...minimalAnthropicEvents.slice(0, 1),
+			...blockEvents.map((event) => ({ event: event.type, data: JSON.stringify(event) })),
+			...minimalAnthropicEvents.slice(-2),
+		]);
+
+		const result = await streamAnthropic(
+			getModel("anthropic", "claude-haiku-4-5"),
+			{ messages: [{ role: "user", content: "Say hello.", timestamp: 1 }] },
+			{ client: createFakeAnthropicClient(response) },
+		).result();
+
+		expect(result.content).toEqual([
+			{ type: "text", text: "Initial text plus delta" },
+			{
+				type: "thinking",
+				thinking: "Initial thinking plus delta",
+				thinkingSignature: "initial signature plus delta",
+			},
+		]);
+	});
+
 	it("parses CRLF line endings split across network chunks", async () => {
 		const body = minimalAnthropicEvents.map(({ event, data }) => `event: ${event}\r\ndata: ${data}\r\n\r\n`).join("");
 		const encoder = new TextEncoder();
