@@ -735,6 +735,7 @@
 - Fixed nested skill ignore rules matching only immediate children during skill and resource discovery, while preserving anchored patterns, negation, and escaped prefixes.
 - Fixed `grep` context showing the wrong matching line when a file contains a bare carriage return; CRLF line endings still work.
 - Fixed `/tree` branch summaries losing file-operation history from older messages excluded by the summary token budget.
+- Fixed a Claude bridge tool-use turn becoming `aborted` in memory when its query failed or was aborted while the tool ran. The next request then left the turn out and sent its tool result alone, which `anthropic-messages` providers reject with `unexpected tool_use_id`.
 
 ### Changed
 

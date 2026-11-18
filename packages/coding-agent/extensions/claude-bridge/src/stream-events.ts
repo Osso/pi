@@ -1,5 +1,5 @@
 import type { query, SDKMessage, SDKPartialAssistantMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Api, AssistantMessageEventStream, Model, ToolCall } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, AssistantMessageEventStream, Model, ToolCall } from "@earendil-works/pi-ai";
 import { appendFileSync } from "fs";
 import {
 	classifyAccountFailure,
@@ -103,6 +103,14 @@ export function ensureTurnStarted(c: QueryContext): void {
 	}
 }
 
+/** Pi stores the delivered message in its transcript state, while the query keeps writing to
+ *  turnOutput: an error result or an abort at the tool boundary sets its stopReason later. Pi gets
+ *  its own copy, so a toolUse turn it already recorded cannot turn into an aborted one in memory and
+ *  drop out of the next request, leaving its tool result without a call. */
+function deliveredMessage(output: AssistantMessage): AssistantMessage {
+	return { ...output, content: [...output.content] };
+}
+
 export function finalizeCurrentStream(c: QueryContext, stopReason?: string): void {
 	const stream = c.currentPiStream;
 	const output = c.turnOutput;
@@ -115,7 +123,7 @@ export function finalizeCurrentStream(c: QueryContext, stopReason?: string): voi
 		stream.push({ type: "error", reason: "error", error: output });
 	} else {
 		const reason = stopReason === "length" ? "length" : "stop";
-		stream.push({ type: "done", reason, message: output });
+		stream.push({ type: "done", reason, message: deliveredMessage(output) });
 	}
 	markStreamComplete(stream);
 	stream.end();
@@ -263,7 +271,7 @@ function processStreamEvent(
 		// consumeQuery to skip it. The MCP handler blocks the generator until
 		// pi delivers the tool result via the next streamSimple call.
 		output.stopReason = "toolUse";
-		stream.push({ type: "done", reason: "toolUse", message: output });
+		stream.push({ type: "done", reason: "toolUse", message: deliveredMessage(output) });
 		markStreamComplete(stream);
 		stream.end();
 		c.currentPiStream = null;
@@ -426,7 +434,7 @@ function processAssistantMessage(
 	if (c.turnSawToolCall && c.currentPiStream && c.turnOutput) {
 		c.turnOutput.stopReason = "toolUse";
 		const stream = c.currentPiStream;
-		stream.push({ type: "done", reason: "toolUse", message: c.turnOutput });
+		stream.push({ type: "done", reason: "toolUse", message: deliveredMessage(c.turnOutput) });
 		markStreamComplete(stream);
 		stream.end();
 		c.currentPiStream = null;
