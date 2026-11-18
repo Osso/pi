@@ -271,6 +271,7 @@
 
 ### Fixed
 
+- A bash timeout that hits after the shell already exited, while background processes still write to its output, now also reports the shell's exit code and run time. Before, it reported only a timeout, and models retried with a longer timeout (port of upstream 06aa6563e, [#11613](https://github.com/earendil-works/pi-mono/issues/11613)).
 - Compaction, split-turn and branch summaries that stop at the token cap (`length`) now fail instead of being saved as complete summaries with partial text (port of upstream 97fa14e39, [#7048](https://github.com/earendil-works/pi-mono/issues/7048)). The agent-core harness copies get the same check.
 - Prompt templates now substitute `${@:-default}` and `${ARGUMENTS:-default}` (all arguments, or the default when none are given) instead of leaving them as literal text (port of upstream 64f83c85d, [#6695](https://github.com/earendil-works/pi-mono/issues/6695)).
 - The Supervisor session no longer fails a request with "Supervisor turn ended without a supervisor_response call" when its first attempt hits a retryable provider error. It waited for `agent_end`, which fires before the automatic retry. It now waits for the new `agent_settled` extension event, so the retry's response is returned and the next request is not started while the retry is pending.

@@ -120,6 +120,16 @@ export interface BashOperations {
  * This is useful for extensions that intercept user_bash and still want pi's
  * standard local shell behavior while wrapping or rewriting commands.
  */
+/** Local-shell timeout; `shellExit` is set when the shell exited first and background writers held its pipes (#11613). */
+class ShellTimeoutError extends Error {
+	readonly shellExit: { exitCode: number; afterSeconds: number } | undefined;
+
+	constructor(timeout: number | undefined, shellExit: { exitCode: number; afterSeconds: number } | undefined) {
+		super(`timeout:${timeout}`);
+		this.shellExit = shellExit;
+	}
+}
+
 export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
 	return {
 		exec: async (command, cwd, { onData, signal, timeout, env, detach }) => {
@@ -153,7 +163,13 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				child.stdin?.end(command);
 			}
 			if (child.pid) trackDetachedChildPid(child.pid);
+			const startedAt = performance.now();
+			let shellExitedAfterMs: number | undefined;
+			child.once("exit", () => {
+				shellExitedAfterMs = performance.now() - startedAt;
+			});
 			let timedOut = false;
+			let exitedBeforeDeadlineAfterMs: number | undefined;
 			let timeoutHandle: NodeJS.Timeout | undefined;
 			const onAbort = () => {
 				if (child.pid) killProcessTree(child.pid);
@@ -177,6 +193,8 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				if (timeoutMs !== undefined) {
 					timeoutHandle = setTimeout(() => {
 						timedOut = true;
+						exitedBeforeDeadlineAfterMs = shellExitedAfterMs;
+						// The group kill also reaches background processes that outlived the shell.
 						if (child.pid) killProcessTree(child.pid);
 					}, timeoutMs);
 				}
@@ -226,12 +244,15 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				if (signal?.aborted) {
 					throw new Error("aborted");
 				}
-				if (timedOut) {
-					throw new Error(`timeout:${timeout}`);
-				}
 				// A signal-killed shell has no exit code; use the shell convention 128 + signal number.
 				const exitCode =
 					settled.exitCode ?? (child.signalCode ? 128 + (osConstants.signals[child.signalCode] ?? 0) : 1);
+				if (timedOut) {
+					const afterMs = exitedBeforeDeadlineAfterMs;
+					const shellExit =
+						afterMs === undefined ? undefined : { exitCode, afterSeconds: Math.round(afterMs / 100) / 10 };
+					throw new ShellTimeoutError(timeout, shellExit);
+				}
 				return { exitCode };
 			} finally {
 				removeDetachListener?.();
@@ -586,7 +607,11 @@ export function createBashToolDefinition(
 					}
 					if (err instanceof Error && err.message.startsWith("timeout:")) {
 						const timeoutSecs = err.message.split(":")[1];
-						throw new Error(appendStatus(text, `Command timed out after ${timeoutSecs} seconds`));
+						let status = `Command timed out after ${timeoutSecs} seconds`;
+						if (err instanceof ShellTimeoutError && err.shellExit) {
+							status += `. The shell exited with code ${err.shellExit.exitCode} after ${err.shellExit.afterSeconds} seconds, but background processes it started kept writing output until the timeout.`;
+						}
+						throw new Error(appendStatus(text, status));
 					}
 					throw err;
 				}
