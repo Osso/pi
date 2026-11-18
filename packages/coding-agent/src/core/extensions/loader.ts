@@ -27,6 +27,7 @@ import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
 import { time } from "../timings.ts";
+import { captureFactoryRegistrations } from "./factory-registrations.ts";
 import type {
 	EntryRenderer,
 	Extension,
@@ -528,16 +529,12 @@ export async function loadExtensionFromFactory(
 	const extension = createExtension(extensionPath, resolvedPath);
 	const flagNames = registeredFlagNames.get(runtime) ?? new Set<string>();
 	registeredFlagNames.set(runtime, flagNames);
-	const previousNames = new Set(flagNames);
-	const previousValues = new Map(runtime.flagValues);
-	const previousProviders = [...runtime.pendingProviderRegistrations];
-	const api = createExtensionAPI(extension, runtime, resolvePath(cwd), eventBus, flagNames);
+	const registrations = captureFactoryRegistrations(runtime, flagNames, eventBus);
+	const api = createExtensionAPI(extension, runtime, resolvePath(cwd), registrations.eventBus, flagNames);
 	try {
 		await factory(api);
 	} catch (error) {
-		for (const name of flagNames) if (!previousNames.has(name)) flagNames.delete(name);
-		runtime.flagValues = previousValues;
-		runtime.pendingProviderRegistrations = previousProviders;
+		registrations.rollback();
 		throw error;
 	}
 	time(`${extensionPath} factory`, "extensions");

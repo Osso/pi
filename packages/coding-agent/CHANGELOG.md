@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- An extension whose factory throws no longer leaves its `pi.events.on()` listeners on the shared event bus
 - RPC mode now reads `extension_ui_response` replies while `session_start` handlers run, so a dialog opened during startup gets the client's answer instead of timing out; other commands sent during startup run after it completes
 - `bash` no longer reports truncation and writes a full-output file when only the final newline is over the byte limit; it now counts bytes like the shared truncation helper
 - Compaction and branch summaries keep the 100 most recently modified files: an edit no longer drops out in favor of older `write` paths, which were ranked as newer

@@ -12,7 +12,7 @@
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1064,
 	"packages/coding-agent/src/core/export-html/template.js": 1861,
 	"packages/coding-agent/src/core/export-html/vendor/highlight.min.js": 1213,
-	"packages/coding-agent/src/core/extensions/loader.ts": 761,
+	"packages/coding-agent/src/core/extensions/loader.ts": 758,
 	"packages/coding-agent/src/core/extensions/runner.ts": 1559,
 	"packages/coding-agent/src/core/extensions/types.ts": 1950,
 	"packages/coding-agent/src/core/model-registry.ts": 1097,

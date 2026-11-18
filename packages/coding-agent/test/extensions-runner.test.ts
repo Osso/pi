@@ -837,6 +837,31 @@ describe("ExtensionRunner", () => {
 			expect(await runner.emitContext([])).toEqual([{ role: "user", content: "undefined:true", timestamp: 0 }]);
 		});
 
+		it("removes the event bus listeners of a failed factory", async () => {
+			const failedPath = path.join(extensionsDir, "a-failed.ts");
+			fs.writeFileSync(
+				failedPath,
+				`export default function(pi) {
+	pi.events.on("format:result", (data) => { data.text = "changed by failed extension"; });
+	throw new Error("factory failed");
+}`,
+			);
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-loaded.ts"),
+				`export default function(pi) {
+	pi.events.on("format:result", (data) => { data.seenBy = "loaded extension"; });
+}`,
+			);
+			const eventBus = createEventBus();
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir, eventBus);
+			const data: Record<string, string> = { text: "original" };
+			eventBus.emit("format:result", data);
+
+			expect(result.errors).toEqual([{ path: failedPath, error: "Failed to load extension: factory failed" }]);
+			expect(data).toEqual({ text: "original", seenBy: "loaded extension" });
+		});
+
 		it("discards flag defaults and registrations from a failed factory", async () => {
 			const failedPath = path.join(extensionsDir, "a-failed.ts");
 			fs.writeFileSync(
