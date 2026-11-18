@@ -56,7 +56,7 @@ export class DueTaskDelivery {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private tasksUrl: string | undefined;
 	private readonly pending = new Map<string, PendingDelivery>();
-	/** Checks run one at a time: a timer tick and an `agent_end` settle must not acknowledge twice. */
+	/** Checks run one at a time: a timer tick and an `agent_settled` settle must not acknowledge twice. */
 	private checks: Promise<void> = Promise.resolve();
 	private readonly pi: ExtensionAPI;
 	private readonly options: DueTaskOptions;

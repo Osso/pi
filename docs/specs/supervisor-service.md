@@ -49,7 +49,7 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 - [x] With `supervisor.tasksUrl` set, the Supervisor session polls the [llm-tasks](https://github.com/Osso/llm-tasks/blob/master/docs/specs/http-api.md) `GET /tasks/due` route every minute (bearer token: first line of `~/.config/llm-tasks/token`; actor `<hostname>-supervisor`). It does not poll at session start, so a resumed interrupted turn runs first. Other sessions never poll.
 - [x] Each due task not already pending in this process becomes one `reminder` custom message (follow-up, starts a turn) stating the task ID, title, due time, description, and that it is context, not authorization: forward it with `send_agent_message` or report it to the user.
-- [x] After a check and at every `agent_end`, a pending reminder whose message entry is written is acknowledged with `POST /tasks/{id}/delivered` and its due time. 409 (rescheduled, closed, or already acknowledged) drops it; other failures keep it pending and notify an error. A run that ends without the entry releases it; process exit releases all. Checks run one at a time and each request times out after 30 s.
+- [x] After a check and whenever a run settles (`agent_settled`, after any automatic retry), a pending reminder whose message entry is written is acknowledged with `POST /tasks/{id}/delivered` and its due time. 409 (rescheduled, closed, or already acknowledged) drops it; other failures keep it pending and notify an error. A run that ends without the entry releases it; process exit releases all. Checks run one at a time and each request times out after 30 s.
 
 ### Removed resident console
 

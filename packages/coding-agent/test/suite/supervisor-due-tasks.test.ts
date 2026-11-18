@@ -65,9 +65,17 @@ class TasksStub {
 const harnesses: Harness[] = [];
 const stubs: TasksStub[] = [];
 
-async function openSession(options: { supervisor: boolean; tasksUrl?: string; errors?: string[] }): Promise<Harness> {
+async function openSession(options: {
+	supervisor: boolean;
+	tasksUrl?: string;
+	errors?: string[];
+	retry?: boolean;
+}): Promise<Harness> {
 	const factory = (pi: ExtensionAPI) => supervisorSessionExtension(pi, { intervalMs: 20, readToken: () => "secret" });
-	const harness = await createHarness({ extensionFactories: [factory] });
+	const harness = await createHarness({
+		extensionFactories: [factory],
+		settings: options.retry ? { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } } : undefined,
+	});
 	harnesses.push(harness);
 	const sessionId = options.supervisor ? harness.sessionManager.getSessionId() : "another-session";
 	harness.settingsManager.applyOverrides({ supervisor: { sessionId, tasksUrl: options.tasksUrl } });
@@ -162,6 +170,39 @@ describe("Supervisor due-task reminders", () => {
 
 		expect(stub.acknowledgements()).toHaveLength(1);
 		expect(reminderTexts(harness)).toHaveLength(1);
+		expect(errors).toEqual([]);
+	});
+
+	// A failed attempt ends a run before its automatic retry. Settling on that agent_end released the reminder
+	// still queued for the retried run, so the next tick sent it again and the Supervisor got it twice.
+	it("delivers a reminder queued during an attempt that is retried once", async () => {
+		const { stub, url } = await startStub();
+		const errors: string[] = [];
+		const harness = await openSession({ supervisor: true, tasksUrl: url, errors, retry: true });
+		const duePolls = () => stub.requests.filter((request) => request.path === "/tasks/due").length;
+		harness.setResponses([
+			async () => {
+				stub.due = [DUE_TASK];
+				const polls = duePolls();
+				await waitFor(() => duePolls() >= polls + 2, "a tick that queues the reminder");
+				return fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" });
+			},
+			async () => {
+				const polls = duePolls();
+				await waitFor(() => duePolls() >= polls + 3, "ticks during the retried attempt");
+				return fauxAssistantMessage("Work done.");
+			},
+			endTurn("Forwarded."),
+			endTurn("Forwarded again."),
+		]);
+
+		await harness.session.prompt("Work.");
+		await waitFor(() => stub.acknowledgements().length === 1, "the delivery acknowledgement");
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		await harness.session.agent.waitForIdle();
+
+		expect(reminderTexts(harness)).toHaveLength(1);
+		expect(stub.acknowledgements()).toHaveLength(1);
 		expect(errors).toEqual([]);
 	});
 

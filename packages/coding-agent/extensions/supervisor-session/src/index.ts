@@ -312,11 +312,12 @@ export default function supervisorSessionExtension(pi: ExtensionAPI, options: Pa
 		dueTasks.stop();
 		await server.stop();
 	});
-	pi.on("agent_end", async (_event, ctx) => {
+	// A failed attempt ends a run before its automatic retry; the request turn is over, and a reminder queued for
+	// it is written or dropped, only once the run settles.
+	pi.on("agent_settled", async (_event, ctx) => {
+		server.onAgentSettled();
 		await dueTasks.settle(ctx);
 	});
-	// A failed attempt ends a run before its automatic retry; the request turn is over only once it settles.
-	pi.on("agent_settled", () => server.onAgentSettled());
 	pi.on("runtime_mailbox", (event, ctx) => {
 		const controlDbPath = ctx.controlDbPath;
 		const ingested =

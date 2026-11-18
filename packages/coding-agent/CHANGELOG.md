@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- The Supervisor no longer gets an llm-tasks reminder two or more times when the reminder is queued during a model attempt that fails and is retried. It released the queued reminder at the failed attempt's `agent_end`, so the next poll sent it again; it now settles reminders when the run settles
 - A detached Pyrun runner now exits when its evaluation ends while a `pi.*` bridge request is still unanswered. Before, it polled for the answer forever; one runner whose answer was lost in a Pi restart stayed alive for 25 days
 - `/run-plan` no longer submits a plan item twice when the first attempt fails with a retryable provider error. It now waits for the run to settle (after automatic retries) before it submits the next item
 - When the Supervisor model request fails, the Supervisor answer now gives the provider error (for example, no credits remaining). Before, it said only "Supervisor turn ended without a supervisor_response call"
