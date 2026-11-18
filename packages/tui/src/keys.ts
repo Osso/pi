@@ -1162,8 +1162,8 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 			if (data === `\x1b${rawCtrl}`) return true;
 		}
 
-		if (modifier === MODIFIERS.alt && (isDigit || (!_kittyProtocolActive && isLetter))) {
-			// Legacy: alt+letter/digit is ESC followed by the key. Digits stay
+		if (modifier === MODIFIERS.alt && (isDigit || (!_kittyProtocolActive && (isLetter || SYMBOL_KEYS.has(key))))) {
+			// Legacy: alt+letter/digit/symbol is ESC followed by the key. Digits stay
 			// unambiguous after Kitty negotiation and are used for app slot shortcuts.
 			if (data === `\x1b${key}`) return true;
 		}
@@ -1304,9 +1304,8 @@ export function parseKey(data: string): string | undefined {
 		if (code >= 48 && code <= 57) {
 			return `alt+${String.fromCharCode(code)}`;
 		}
-		if (!_kittyProtocolActive && code >= 97 && code <= 122) {
-			return `alt+${String.fromCharCode(code)}`;
-		}
+		const key = String.fromCharCode(code);
+		if (!_kittyProtocolActive && ((code >= 97 && code <= 122) || SYMBOL_KEYS.has(key))) return `alt+${key}`;
 	}
 	if (data === "\x1b[A") return "up";
 	if (data === "\x1b[B") return "down";
