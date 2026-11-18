@@ -1710,59 +1710,67 @@ describe("openai-codex streaming", () => {
 		expect(global.fetch).not.toHaveBeenCalled();
 	});
 
-	it("surfaces websocket connect timeout without falling back to SSE", async () => {
-		vi.useFakeTimers();
-		const token = mockToken();
+	it.each([
+		["cached", undefined, "ws-connect-timeout"],
+		["uncached", "none", "ws-connect-timeout-uncached"],
+	] as const)(
+		"surfaces a %s websocket connect timeout without falling back to SSE",
+		async (_name, cacheRetention, sessionId) => {
+			vi.useFakeTimers();
+			const token = mockToken();
 
-		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
-		vi.stubGlobal("fetch", fetchMock);
+			const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
+			vi.stubGlobal("fetch", fetchMock);
 
-		class MockWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
+			class MockWebSocket {
+				private listeners = new Map<string, Set<(event: unknown) => void>>();
 
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
+				addEventListener(type: string, listener: (event: unknown) => void): void {
+					let listeners = this.listeners.get(type);
+					if (!listeners) {
+						listeners = new Set();
+						this.listeners.set(type, listeners);
+					}
+					listeners.add(listener);
 				}
-				listeners.add(listener);
+
+				removeEventListener(type: string, listener: (event: unknown) => void): void {
+					this.listeners.get(type)?.delete(listener);
+				}
+
+				send(): void {
+					throw new Error("send should not be called before websocket open");
+				}
+
+				close(): void {}
 			}
 
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
-			}
+			vi.stubGlobal("WebSocket", MockWebSocket);
 
-			send(): void {
-				throw new Error("send should not be called before websocket open");
-			}
+			const model = codexModel();
+			const context = sayHelloContext();
 
-			close(): void {}
-		}
+			const resultPromise = streamOpenAICodexResponses(model, context, {
+				apiKey: token,
+				sessionId,
+				cacheRetention,
+				transport: "auto",
+				timeoutMs: 300_000,
+				websocketConnectTimeoutMs: 50,
+			}).result();
 
-		vi.stubGlobal("WebSocket", MockWebSocket);
+			await vi.advanceTimersByTimeAsync(50);
 
-		const model = codexModel();
-		const context = sayHelloContext();
-
-		const resultPromise = streamOpenAICodexResponses(model, context, {
-			apiKey: token,
-			sessionId: "ws-connect-timeout",
-			transport: "auto",
-			timeoutMs: 300_000,
-			websocketConnectTimeoutMs: 50,
-		}).result();
-
-		await vi.advanceTimersByTimeAsync(50);
-
-		const result = await resultPromise;
-		expect(result.errorMessage).toBe("WebSocket connect timeout after 50ms");
-		expect(fetchMock).not.toHaveBeenCalled();
-		expect(getOpenAICodexWebSocketDebugStats("ws-connect-timeout")).toMatchObject({
-			websocketFailures: 1,
-			lastWebSocketError: "WebSocket connect timeout after 50ms",
-		});
-	});
+			const result = await resultPromise;
+			expect(result.errorMessage).toBe("WebSocket connect timeout after 50ms");
+			expect(fetchMock).not.toHaveBeenCalled();
+			// An uncached request stays off the session's socket, but its failure still counts for the session.
+			expect(getOpenAICodexWebSocketDebugStats(sessionId)).toMatchObject({
+				websocketFailures: 1,
+				lastWebSocketError: "WebSocket connect timeout after 50ms",
+			});
+		},
+	);
 
 	it("reconnects once when the websocket connection limit is reached before output starts", async () => {
 		const token = mockToken();

@@ -307,7 +307,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
 							}),
 						);
-						recordWebSocketFailure(options?.sessionId, error);
+						recordWebSocketFailure(opts?.sessionId, error);
 						throw error;
 					}
 				}
