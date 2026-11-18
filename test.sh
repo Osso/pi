@@ -5,11 +5,16 @@ if [ -d "/dev/shm" ] && [ -w "/dev/shm" ] && [ -z "$TMPDIR" ]; then
     export TMPDIR="/dev/shm"
 fi
 
-TEST_AGENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-test-agent.XXXXXX")"
+# Every temp dir a test creates lands in this per-run dir, which is removed on exit. Many tests
+# never remove their own mkdtemp dirs; under /dev/shm they used up gigabytes of RAM.
+TEST_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-test-run.XXXXXX")"
 cleanup() {
-    rm -rf "$TEST_AGENT_DIR"
+    rm -rf "$TEST_TMPDIR"
 }
 trap cleanup EXIT
+export TMPDIR="$TEST_TMPDIR"
+
+TEST_AGENT_DIR="$(mktemp -d "$TMPDIR/pi-test-agent.XXXXXX")"
 export PI_CODING_AGENT_DIR="$TEST_AGENT_DIR"
 export PI_CODING_AGENT_STATE_DIR="$TEST_AGENT_DIR/state"
 
