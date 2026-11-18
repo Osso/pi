@@ -272,6 +272,8 @@
 
 ### Fixed
 
+- `wait_agent` no longer takes a child's pending lifecycle notice (for example `Worker is waiting for input.`) as ordinary mail. The coordination filter read a parsed mailbox message as if it were the stored payload, so the notice's thread was missing and only JSON terminal notices were recognized
+- `wait_agent` now returns and consumes the pending notification of an aborted child (`Worker failed.`). The notice is recorded as failed, and the wait required it to match the agent's `aborted` lifecycle exactly, so it stayed pending
 - `--model <id>:<thinking>` (for example `gpt-5.6-sol:high`) now follows the same provider rules as `--model <id>`: when several authenticated providers serve the ID it asks for `--provider` or `provider/model` instead of silently choosing one
 - The Claude bridge keeps text, thinking and signature content that a stream sends in `content_block_start`; it kept only the deltas
 - The Supervisor no longer gets an llm-tasks reminder two or more times when the reminder is queued during a model attempt that fails and is retried. It released the queued reminder at the failed attempt's `agent_end`, so the next poll sent it again; it now settles reminders when the run settles

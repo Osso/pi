@@ -21,6 +21,7 @@ import {
 	getMultiAgentMailboxMessageStatus,
 	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
+	isRuntimeCoordinationMailboxMessage,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
@@ -30,6 +31,7 @@ import {
 	readSessionHealth,
 	readSharedChannelCursor,
 	registerRuntimeMailboxListener,
+	takeRuntimeMailboxMessagesForDelivery,
 	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -1114,6 +1116,42 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+	});
+
+	// wait_agent takes coordination mail with this filter; a lifecycle notice must stay for its own delivery path.
+	it("does not take a child waiting-for-input notice as coordination mail", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		harnesses.push(harness);
+		const controlDbPath = getControlDbPath(tempDir);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		const child = spawnWorkerRecord(store);
+		legacyMultiAgentStore(store).transitionAgent(child.agent.id, child.agent.revision, "waiting_for_input");
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Need parent review",
+			kind: "message",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: child.agent.id, sessionId: harness.sessionManager.getSessionId() },
+		});
+
+		const taken = takeRuntimeMailboxMessagesForDelivery(
+			controlDbPath,
+			{ agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			isRuntimeCoordinationMailboxMessage,
+			Number.MAX_SAFE_INTEGER,
+		);
+
+		expect(taken.map((message) => message.body)).toEqual(["Need parent review"]);
+		expect(
+			listRuntimeMailboxMessages(controlDbPath).find((message) => message.body === "Worker is waiting for input."),
+		).toMatchObject({ status: "pending" });
 	});
 
 	it("disposes Pyrun multi-agent bridge lifecycle mirroring before its session context becomes stale", async () => {

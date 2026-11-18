@@ -37,6 +37,19 @@ function createPersistedStore(): MultiAgentStore {
 	return createPersistedSession().store;
 }
 
+function finishAgent(store: MultiAgentStore, displayName: string, lifecycle: "completed" | "aborted"): void {
+	const spawned = legacyMultiAgentStore(store).spawnAgent({
+		agentType: "implement",
+		cwd: "/repo",
+		displayName,
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const finished = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, lifecycle, {
+		result: { summary: "done" },
+	});
+	if (!finished.ok) throw new Error(`expected ${lifecycle} agent fixture`);
+}
+
 function completeAgent(store: MultiAgentStore, displayName: string): void {
 	const spawned = legacyMultiAgentStore(store).spawnAgent({
 		agentType: "implement",
@@ -118,6 +131,20 @@ describe("agent notification waiting", () => {
 		const consumed = consumeNotifications(store, wake);
 
 		expect(consumed.content).toEqual([{ text: "Worker completed: done", type: "text" }]);
+		expect(store.listMailboxMessages()).toEqual([]);
+	});
+
+	// An aborted child's notice is recorded as failed; the lifecycle match must accept it.
+	it("waits for and consumes the notification of an aborted agent", async () => {
+		const store = createPersistedStore();
+		finishAgent(store, "Worker", "aborted");
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
+
+		const wake = await waitNotifications(store);
+		const consumed = consumeNotifications(store, wake);
+
+		expect(wake).toMatchObject({ agent: { displayName: "Worker" }, kind: "agent" });
+		expect(consumed.details?.agents?.map((agent) => agent.lifecycle)).toEqual(["aborted"]);
 		expect(store.listMailboxMessages()).toEqual([]);
 	});
 

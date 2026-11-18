@@ -416,7 +416,9 @@ export function listPendingTerminalNotifications(
 	const persistedAgents = readMultiAgentAgents(controlDbPath, sessionPath, [...firstNotificationByAgent.keys()]);
 	return persistedAgents.flatMap((agent) => {
 		const notification = firstNotificationByAgent.get(agent.id);
-		return notification && notification.lifecycle === agent.lifecycle
+		// An aborted agent's notice is recorded as failed (publishTerminalOutboxSnapshot).
+		const noticeLifecycle = agent.lifecycle === "aborted" ? "failed" : agent.lifecycle;
+		return notification && notification.lifecycle === noticeLifecycle
 			? [{ agent, message: notification.message }]
 			: [];
 	});

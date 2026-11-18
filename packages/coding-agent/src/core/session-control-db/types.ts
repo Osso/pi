@@ -36,6 +36,8 @@ export interface RuntimeMailboxMessage {
 	senderHost?: string;
 	kind: RuntimeMailboxMessageKind;
 	body: string;
+	/** Thread of the stored message; lifecycle notices use `agent-completed:`, `agent-failed:` and `agent-waiting-for-input:`. */
+	threadId?: string;
 	fileRefs?: AgentFileReference[];
 	targetCheckpoint?: "next_model_call" | "after_tool_result" | "when_waiting";
 	storeRef: RuntimeMailboxStoreRef;

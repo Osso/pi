@@ -144,6 +144,7 @@ export function runtimeMailboxMessageFromCanonicalRow(
 		senderHost: optionalStringField(message, "senderHost", context),
 		kind: toRuntimeMailboxMessageKind(requireStringField(message, "kind", context)),
 		body: requireStringField(message, "body", context),
+		threadId: optionalStringField(message, "threadId", context),
 		fileRefs: parseFileRefs(message.fileRefs, context),
 		targetCheckpoint: parseSteeringCheckpoint(message.targetCheckpoint, context),
 		storeRef: { messageId: row.message_id, sessionPath: row.session_path },

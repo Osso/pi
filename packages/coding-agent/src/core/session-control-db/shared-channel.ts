@@ -139,7 +139,12 @@ export function hasDeliverableRuntimeMailboxMessage(db: SqliteDatabase, recipien
 }
 
 export function isRuntimeCoordinationMailboxMessage(message: RuntimeMailboxMessage): boolean {
-	return !isLifecycleNotificationPayload(message as unknown as Record<string, unknown>);
+	return !isLifecycleNotificationPayload({
+		body: message.body,
+		id: message.storeRef.messageId,
+		kind: message.kind,
+		threadId: message.threadId,
+	});
 }
 
 export function isLifecycleNotificationPayload(message: Record<string, unknown>): boolean {
