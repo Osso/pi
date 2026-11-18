@@ -170,9 +170,8 @@ function loadNodeZlib(): typeof NodeZlib | null {
 	return (process as ProcessWithBuiltinModule).getBuiltinModule?.("node:zlib") ?? null;
 }
 
-// Returns the zstd-compressed body bytes, or null when compression is
-// unavailable (browser/Vite builds). Callers fall back to sending the
-// uncompressed JSON when this returns null.
+// Returns the zstd-compressed body bytes, or null when compression is unavailable (browser/Vite builds).
+// Callers fall back to sending the uncompressed JSON when this returns null.
 function compressRequestBodyZstd(bodyJson: string): Uint8Array | null {
 	const zlib = loadNodeZlib();
 	if (!zlib || typeof zlib.zstdCompressSync !== "function") {
@@ -195,8 +194,10 @@ function compressRequestBodyZstd(bodyJson: string): Uint8Array | null {
 export const stream: StreamFunction<"openai-codex-responses", OpenAICodexResponsesOptions> = (
 	model: Model<"openai-codex-responses">,
 	context: Context,
-	options?: OpenAICodexResponsesOptions,
+	opts?: OpenAICodexResponsesOptions,
 ): AssistantMessageEventStream => {
+	// Without caching, keep the session id off the prompt cache key and the session's cached WebSocket (upstream #6618).
+	const options = opts?.cacheRetention === "none" ? { ...opts, sessionId: undefined } : opts;
 	const stream = new AssistantMessageEventStream();
 	const diagnostic = options?.onDiagnostic
 		? new CodexDiagnosticObserver(options.onDiagnostic, model, options.signal)
@@ -312,9 +313,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				}
 			}
 
-			// Compress the request body once for the SSE path. The Codex backend
-			// decodes Content-Encoding: zstd; the WebSocket transport above sends the
-			// uncompressed JSON frame, matching the official Codex client.
+			// Compress the request body once for the SSE path. The Codex backend decodes Content-Encoding: zstd;
+			// the WebSocket transport above sends the uncompressed JSON frame, matching the official Codex client.
 			const compressedBody = compressRequestBodyZstd(bodyJson);
 			if (compressedBody) {
 				sseHeaders.set("content-encoding", "zstd");

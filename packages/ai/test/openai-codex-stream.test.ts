@@ -1968,6 +1968,84 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
+	it("keeps uncached summary requests off the session's websocket and prompt cache key", async () => {
+		const token = mockToken();
+		const sentBodies: Array<{ previous_response_id?: string; prompt_cache_key?: string; input: unknown[] }> = [];
+		const socketsByRequest: number[] = [];
+		let socketCount = 0;
+		let responseIndex = 0;
+
+		class MockWebSocket extends ListenerWebSocket {
+			static OPEN = 1;
+			readyState = MockWebSocket.OPEN;
+			readonly socketId = ++socketCount;
+
+			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			send(data: string): void {
+				sentBodies.push(JSON.parse(data));
+				socketsByRequest.push(this.socketId);
+				const id = ++responseIndex;
+				const text = `reply ${id}`;
+				const item = { type: "message", id: `msg_${id}`, role: "assistant" };
+				const events = [
+					{ type: "response.created", response: { id: `resp_${id}` } },
+					{ type: "response.output_item.added", item: { ...item, status: "in_progress", content: [] } },
+					{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
+					{ type: "response.output_text.delta", delta: text },
+					{
+						type: "response.output_item.done",
+						item: { ...item, status: "completed", content: [{ type: "output_text", text }] },
+					},
+					{
+						type: "response.completed",
+						response: {
+							id: `resp_${id}`,
+							status: "completed",
+							usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+						},
+					},
+				];
+				queueMicrotask(() => {
+					for (const event of events) this.dispatch("message", { data: JSON.stringify(event) });
+				});
+			}
+
+			close(): void {
+				this.readyState = 3;
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+		const model = codexModel();
+		const sessionOptions = { apiKey: token, sessionId: "session-uncached", transport: "websocket-cached" as const };
+		const firstContext = sayHelloContext();
+		const first = await streamOpenAICodexResponses(model, firstContext, sessionOptions).result();
+		await streamOpenAICodexResponses(
+			model,
+			{ systemPrompt: "Summarize.", messages: [{ role: "user", content: "conversation text", timestamp: 2 }] },
+			{ ...sessionOptions, cacheRetention: "none" },
+		).result();
+		await streamOpenAICodexResponses(
+			model,
+			{
+				systemPrompt: "You are a helpful assistant.",
+				messages: [...firstContext.messages, first, { role: "user", content: "Now finish", timestamp: 3 }],
+			},
+			sessionOptions,
+		).result();
+
+		expect(sentBodies[0]?.prompt_cache_key).toBe("session-uncached");
+		expect(sentBodies[1]?.prompt_cache_key).toBeUndefined();
+		// The summary used its own socket, so the session socket kept its continuation for the next turn.
+		expect(socketsByRequest).toEqual([1, 2, 1]);
+		expect(sentBodies[2]?.previous_response_id).toBe("resp_1");
+		expect(sentBodies[2]?.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "Now finish" }] }]);
+	});
+
 	it("sends only response input deltas in websocket-cached mode", async () => {
 		const token = mockToken();
 		const sentBodies: unknown[] = [];
