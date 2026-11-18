@@ -682,8 +682,7 @@ export class AgentSessionRuntime {
 
 	async dispose(): Promise<void> {
 		try {
-			// Settle the active turn first so an interrupted tool result is persisted (upstream #9124).
-			await this.runLifecycleTransition(() => this.session.abort().then(() => this.teardownCurrent("quit")));
+			await this.runLifecycleTransition(() => this.teardownCurrent("quit"));
 		} finally {
 			await this.startupArchivePromise;
 		}
