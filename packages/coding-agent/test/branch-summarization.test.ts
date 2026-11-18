@@ -65,34 +65,59 @@ describe("branch summarization file operations", () => {
 });
 
 describe("generateBranchSummary", () => {
-	it("rejects a summary cut off at the token cap instead of persisting partial text", async () => {
-		const model: Model<"anthropic-messages"> = {
-			id: "test-model",
-			name: "Test Model",
-			api: "anthropic-messages",
-			provider: "anthropic",
-			baseUrl: "https://api.anthropic.com",
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 200000,
-			maxTokens: 8192,
+	const model: Model<"anthropic-messages"> = {
+		id: "test-model",
+		name: "Test Model",
+		api: "anthropic-messages",
+		provider: "anthropic",
+		baseUrl: "https://api.anthropic.com",
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 8192,
+	};
+	const entries: SessionEntry[] = [
+		{
+			type: "message",
+			id: "branch-user",
+			parentId: null,
+			timestamp: new Date(1).toISOString(),
+			message: { role: "user", content: "Abandoned request", timestamp: 1 },
+		},
+	];
+
+	// Upstream #8845: a 2048-token cap cut off ordinary branch summaries.
+	it.each([
+		[8192, 4096],
+		[1024, 1024],
+	])("caps summary output at 4096 tokens or the model limit (model limit %i)", async (modelLimit, expected) => {
+		let requestedMaxTokens: number | undefined;
+		const streamFn: StreamFn = (_model, _context, options) => {
+			requestedMaxTokens = options?.maxTokens;
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() => stream.push({ type: "done", reason: "stop", message: fauxAssistantMessage("summary") }));
+			return stream;
 		};
+
+		const result = await generateBranchSummary(entries, {
+			model: { ...model, maxTokens: modelLimit },
+			apiKey: "test-key",
+			signal: new AbortController().signal,
+			streamFn,
+		});
+
+		expect(result.error).toBeUndefined();
+		expect(requestedMaxTokens).toBe(expected);
+	});
+
+	it("rejects a summary cut off at the token cap instead of persisting partial text", async () => {
 		const streamFn: StreamFn = () => {
 			const stream = createAssistantMessageEventStream();
 			const message = { ...fauxAssistantMessage("partial summar"), stopReason: "length" as const };
 			queueMicrotask(() => stream.push({ type: "done", reason: "length", message }));
 			return stream;
 		};
-		const entries: SessionEntry[] = [
-			{
-				type: "message",
-				id: "branch-user",
-				parentId: null,
-				timestamp: new Date(1).toISOString(),
-				message: { role: "user", content: "Abandoned request", timestamp: 1 },
-			},
-		];
 
 		const result = await generateBranchSummary(entries, {
 			model,
