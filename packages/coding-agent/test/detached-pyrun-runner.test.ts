@@ -176,6 +176,43 @@ describe("detached Pyrun runner", () => {
 		}
 	});
 
+	// globalcomix-ops 2026-10-24: a Pi restart lost the answer to a claimed foreground bridge request. The job was
+	// cancelled, but the runner kept polling for that answer and stayed alive for 25 days.
+	it("exits after the evaluation settles while a foreground bridge request is unanswered", async () => {
+		const { controlDbPath, sessionPath, lifecycle, runnerPath } = createRunnerFixture("pyrun-unanswered-bridge", [
+			READ_REQUEST,
+			"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'web_search', params: { query: 'q' } }) + '\\n');",
+			"process.stdout.write(JSON.stringify({ type: 'completed', value: 'settled without an answer' }) + '\\n');",
+		]);
+		const jobId = lifecycle.allocateJobId("pyrun");
+		const artifacts = lifecycle.createArtifacts(jobId);
+		const { manifestPath, runnerPid } = launchRunner(artifacts);
+		const paths = manifestPaths(controlDbPath, sessionPath, artifacts);
+		try {
+			writeDetachedPyrunLaunchManifest(manifestPath, {
+				...paths,
+				params: { code: "pi.web_search('q')" },
+				runnerAddress: { agentId: jobId, sessionId: "main" },
+				runnerOptions: { command: runnerPath, inheritEnv: true },
+				runnerProcessIdentity: readProcessIdentity(runnerPid),
+				startedAt: Date.now(),
+				toolCallId: "test-pyrun-unanswered-bridge",
+			});
+			await waitFor(
+				() =>
+					existsSync(paths.bridgeRequestPath) &&
+					existsSync(artifacts.outputPath) &&
+					readFileSync(artifacts.outputPath, "utf8").includes('"kind":"result"'),
+			);
+			writeFileSync(paths.foregroundCompletionPath, "");
+
+			await waitFor(() => !processIsAlive(runnerPid));
+			expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
+		} finally {
+			terminateProcessGroup(runnerPid);
+		}
+	});
+
 	it.runIf(process.platform === "linux")(
 		"keeps one stable control database connection while evaluation remains active",
 		async () => {

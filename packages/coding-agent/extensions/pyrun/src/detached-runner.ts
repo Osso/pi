@@ -162,16 +162,18 @@ async function waitForDetachedPyrunSettlement(
 	const abort = new AbortController();
 	const control: DetachedPyrunControlState = {};
 	const pendingRequests = new Map<string, PendingBridgeRequest>();
+	const evaluationSettled = new AbortController();
 	const dispatchPiRequest = (request: { method: string; params: unknown }) =>
 		control.identity
 			? dispatchDetachedPyrunBridgeRequest(manifest, control.identity, pendingRequests, request)
-			: dispatchForegroundPyrunBridgeRequest(manifest, pendingRequests, request);
+			: dispatchForegroundPyrunBridgeRequest(manifest, pendingRequests, request, evaluationSettled.signal);
 	const settled = runner
 		.evaluate(manifest.params, (update) => output.appendProgress(update), abort.signal, dispatchPiRequest)
 		.then(
 			(result) => ({ result }),
 			(error: unknown) => ({ error }),
-		);
+		)
+		.finally(() => evaluationSettled.abort());
 	for (;;) {
 		const result = await Promise.race([
 			settled,
@@ -225,11 +227,12 @@ async function dispatchForegroundPyrunBridgeRequest(
 	manifest: DetachedPyrunLaunchManifest,
 	pendingRequests: Map<string, PendingBridgeRequest>,
 	request: { method: string; params: unknown },
+	evaluationSettled: AbortSignal,
 ): Promise<unknown> {
 	const requestId = randomUUID();
 	appendArtifactRecord(manifest.bridgeRequestPath, { ...request, requestId });
 	const cursor = createJsonLineReadCursor();
-	for (;;) {
+	while (!evaluationSettled.aborted) {
 		const records = readNewJsonLines<{ claimed?: boolean; error?: string; requestId: string; result?: unknown }>(
 			manifest.bridgeResponsePath,
 			cursor,
@@ -245,6 +248,10 @@ async function dispatchForegroundPyrunBridgeRequest(
 		}
 		await new Promise((resolve) => setTimeout(resolve, CONTROL_POLL_MS));
 	}
+	// The evaluation settled without this answer, so nobody reads it. Polling on would keep the runner alive
+	// forever when the foreground claimed the request and then lost it to a restart. Leave it unanswered
+	// rather than reject: the rejection would be written to the stdin of a Pyrun process that has exited.
+	return new Promise<never>(() => undefined);
 }
 
 function claimForegroundBridgeRequest(directory: string, requestId: string): boolean {
