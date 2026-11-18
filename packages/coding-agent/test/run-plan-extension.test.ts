@@ -127,7 +127,7 @@ describe("run-plan extension", () => {
 		const harness = createRunPlanHarness(cwd);
 
 		await harness.runCommand("");
-		await harness.runEvent("agent_end");
+		await harness.runEvent("agent_settled");
 
 		expect(harness.sendUserMessage).toHaveBeenCalledTimes(2);
 		expect(harness.sendUserMessage).toHaveBeenLastCalledWith(
@@ -136,27 +136,16 @@ describe("run-plan extension", () => {
 		);
 	});
 
-	it("does not advance the plan for an intermediate cwd relocation boundary", async () => {
-		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Keep working\n");
-		const harness = createRunPlanHarness(cwd);
-
-		await harness.runCommand("");
-		await harness.runEvent("agent_end", { sessionContinuation: "cwd_relocation" });
-
-		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
-	});
-
 	it("restores the active plan after cwd relocation rebuilds the extension", async () => {
 		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Keep working\n");
 		const entries: Array<Record<string, unknown>> = [];
 		const original = createRunPlanHarness(cwd, { entries });
 
 		await original.runCommand("");
-		await original.runEvent("agent_end", { sessionContinuation: "cwd_relocation" });
 
 		const replacement = createRunPlanHarness(cwd, { entries });
 		await replacement.runEvent("session_start");
-		await replacement.runEvent("agent_end");
+		await replacement.runEvent("agent_settled");
 
 		expect(replacement.sendUserMessage).toHaveBeenCalledWith(
 			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
@@ -197,7 +186,7 @@ describe("run-plan extension", () => {
 
 		await harness.runCommand("");
 		writeFileSync(planPath, "- [x] Finish work\n");
-		await harness.runEvent("agent_end");
+		await harness.runEvent("agent_settled");
 
 		expect(entries.at(-1)).toMatchObject({ type: "custom", customType: "run-plan:active", data: null });
 	});
@@ -209,12 +198,12 @@ describe("run-plan extension", () => {
 		await harness.runCommand("");
 		rmSync(planPath);
 
-		await harness.runEvent("agent_end");
+		await harness.runEvent("agent_settled");
 		expect(harness.entries.at(-1)).toEqual({ type: "custom", customType: "run-plan:active", data: null });
 		expect(harness.notify).toHaveBeenCalledWith("Plan file not found: PLAN.md; stopped /run-plan", "warning");
 
 		writeFileSync(planPath, "- [ ] Unrelated new plan\n");
-		await harness.runEvent("agent_end");
+		await harness.runEvent("agent_settled");
 		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 

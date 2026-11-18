@@ -132,8 +132,8 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 		if (activePlan) exportPlanEnvironment(activePlan);
 	});
 
-	pi.on("agent_end", async (event, ctx) => {
-		if (event.sessionContinuation) return;
+	// Not agent_end: a failed attempt ends a run before its automatic retry, and the item is still unchecked then.
+	pi.on("agent_settled", async (_event, ctx) => {
 		if (!activePlan) {
 			return;
 		}

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
+import runPlanExtension from "../../extensions/run-plan/src/index.ts";
 import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
@@ -237,6 +238,47 @@ describe("change_working_directory first-party tool", () => {
 		expect(runtime.session.sessionId).toBe(sessionId);
 		expect(runtime.cwd).toBe(targetCwd);
 		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
+	});
+
+	// The relocation rebuilds the extension; the rebuilt /run-plan advances once the continuation settles.
+	it("advances /run-plan once after a turn that changes the cwd", async () => {
+		const { faux, runtime, tempDir } = await createRuntimeForTest(runPlanExtension);
+		const targetCwd = join(tempDir, "plan-target");
+		mkdirSync(targetCwd);
+		const planPath = join(tempDir, "PLAN.md");
+		writeFileSync(planPath, "- [ ] Move and finish\n- [ ] Second item\n");
+		const checkOff = (item: string) =>
+			writeFileSync(planPath, readFileSync(planPath, "utf8").replace(`[ ] ${item}`, `[x] ${item}`));
+		faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("change_working_directory", { path: targetCwd })),
+			() => {
+				checkOff("Move and finish");
+				return fauxCompletedAssistantMessage("finished in the new cwd");
+			},
+			() => {
+				checkOff("Second item");
+				return fauxCompletedAssistantMessage("second item done");
+			},
+			fauxCompletedAssistantMessage("unexpected extra turn"),
+		]);
+
+		await runtime.session.prompt(`/run-plan ${planPath}`);
+		const deadline = Date.now() + 10_000;
+		while (faux.state.callCount < 3 || runtime.session.isStreaming) {
+			if (Date.now() > deadline) throw new Error("Timed out waiting for the relocated turn");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		await runtime.session.agent.waitForIdle();
+
+		expect(runtime.cwd).toBe(targetCwd);
+		const promptsFor = (item: string) =>
+			runtime.session.messages.filter(
+				(message) => message.role === "user" && JSON.stringify(message.content).includes(item),
+			);
+		expect(promptsFor("Move and finish")).toHaveLength(1);
+		expect(promptsFor("Second item")).toHaveLength(1);
+		expect(faux.state.callCount).toBe(3);
 	});
 
 	it("preserves whitespace in a direct directory path", async () => {

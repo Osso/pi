@@ -20,7 +20,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ### Prompt submission
 - [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)` with an instruction not to read `PLAN.md`; the command already selected the item.
-- [x] After an active plan agent run ends, the current first unchecked item is submitted again as a follow-up if it remains unchecked; if the previous item was checked, the next unchecked item is submitted.
+- [x] After an active plan agent run settles (no automatic retry or session continuation follows), the current first unchecked item is submitted again as a follow-up if it remains unchecked; if the previous item was checked, the next unchecked item is submitted. A failed attempt that is retried submits nothing.
 - [x] The active run stops when the plan file is missing or no unchecked items remain.
 - [x] The composer / input buffer is cleared after dispatch (no residual text shown).
 
