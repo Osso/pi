@@ -94,10 +94,9 @@ export class OutputAccumulator {
 			maxLines: this.maxLines,
 			maxBytes: this.maxBytes,
 		});
-		const truncated = this.totalLines > this.maxLines || this.totalDecodedBytes > this.maxBytes;
-		const truncatedBy = truncated
-			? (tailTruncation.truncatedBy ?? (this.totalDecodedBytes > this.maxBytes ? "bytes" : "lines"))
-			: null;
+		const overBytes = this.totalDecodedBytes - this.finalNewlineBytes() > this.maxBytes;
+		const truncated = this.totalLines > this.maxLines || overBytes;
+		const truncatedBy = truncated ? (tailTruncation.truncatedBy ?? (overBytes ? "bytes" : "lines")) : null;
 		const truncation: TruncationResult = {
 			...tailTruncation,
 			truncated,
@@ -211,9 +210,17 @@ export class OutputAccumulator {
 			: this.tailText.slice(firstNewline + 1);
 	}
 
+	/** A final newline ends the last line and counts toward no limit, as in `truncateTail`. */
+	private finalNewlineBytes(): number {
+		return this.completedLines > 0 && !this.hasOpenLine ? 1 : 0;
+	}
+
 	private shouldUseTempFile(): boolean {
+		const finalNewline = this.finalNewlineBytes();
 		return (
-			this.totalRawBytes > this.maxBytes || this.totalDecodedBytes > this.maxBytes || this.totalLines > this.maxLines
+			this.totalRawBytes - finalNewline > this.maxBytes ||
+			this.totalDecodedBytes - finalNewline > this.maxBytes ||
+			this.totalLines > this.maxLines
 		);
 	}
 
