@@ -10,18 +10,14 @@ import { sliceHead } from "../tools/truncate.ts";
 // File Operation Tracking
 // ============================================================================
 
+/** Paths in least-to-most-recent use order. `modified` holds paths changed by `write` or `edit`. */
 export interface FileOperations {
 	read: Set<string>;
-	written: Set<string>;
-	edited: Set<string>;
+	modified: Set<string>;
 }
 
 export function createFileOps(): FileOperations {
-	return {
-		read: new Set(),
-		written: new Set(),
-		edited: new Set(),
-	};
+	return { read: new Set(), modified: new Set() };
 }
 
 /**
@@ -47,10 +43,8 @@ export function extractFileOpsFromMessage(message: AgentMessage, fileOps: FileOp
 				touchPath(fileOps.read, path);
 				break;
 			case "write":
-				touchPath(fileOps.written, path);
-				break;
 			case "edit":
-				touchPath(fileOps.edited, path);
+				touchPath(fileOps.modified, path);
 				break;
 		}
 	}
@@ -67,7 +61,7 @@ export function addSummaryFileOps(entry: { fromHook?: boolean; details?: unknown
 	if (entry.fromHook || typeof entry.details !== "object" || entry.details === null) return;
 	const { readFiles, modifiedFiles } = entry.details as { readFiles?: unknown; modifiedFiles?: unknown };
 	if (Array.isArray(readFiles)) for (const file of readFiles) fileOps.read.add(String(file));
-	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) fileOps.edited.add(String(file));
+	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) fileOps.modified.add(String(file));
 }
 
 /** Most recently used paths kept per file list; each summary carries the previous one's lists forward. */
@@ -79,11 +73,10 @@ export const MAX_SUMMARY_FILE_LIST_ENTRIES = 100;
  * compaction: a long session carried 6,800 paths (about 155k tokens) in each summary.
  */
 export function computeFileLists(fileOps: FileOperations): { readFiles: string[]; modifiedFiles: string[] } {
-	const modified = new Set([...fileOps.edited, ...fileOps.written]);
-	const readOnly = [...fileOps.read].filter((f) => !modified.has(f));
+	const readOnly = [...fileOps.read].filter((f) => !fileOps.modified.has(f));
 	return {
 		readFiles: readOnly.slice(-MAX_SUMMARY_FILE_LIST_ENTRIES),
-		modifiedFiles: [...modified].slice(-MAX_SUMMARY_FILE_LIST_ENTRIES),
+		modifiedFiles: [...fileOps.modified].slice(-MAX_SUMMARY_FILE_LIST_ENTRIES),
 	};
 }
 

@@ -334,13 +334,13 @@ export function extractAllToolResults(context: Context): McpResult[] {
 
 export function reinjectPriorCompactionFileOps(
 	branchEntries: Array<{ type: string; details?: unknown }>,
-	preparation: { fileOps: { read: Set<string>; edited: Set<string> } },
+	preparation: { fileOps: { read: Set<string>; modified: Set<string> } },
 ): void {
 	const prior = [...branchEntries].reverse().find((entry): entry is CompactionEntry => entry.type === "compaction");
 	const details = prior?.details as { readFiles?: unknown; modifiedFiles?: unknown } | undefined;
 	if (!Array.isArray(details?.readFiles) || !Array.isArray(details?.modifiedFiles)) return;
 	for (const file of details.readFiles) preparation.fileOps.read.add(String(file));
-	for (const file of details.modifiedFiles) preparation.fileOps.edited.add(String(file));
+	for (const file of details.modifiedFiles) preparation.fileOps.modified.add(String(file));
 	debug(
 		`compact takeover: re-injected prior file ops read=${details.readFiles.length} modified=${details.modifiedFiles.length}`,
 	);

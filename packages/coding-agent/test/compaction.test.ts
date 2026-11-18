@@ -671,7 +671,7 @@ describe("prepareCompaction with previous compaction", () => {
 		const preparation = prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 });
 
 		expect(requireValue(preparation).fileOps.read).toEqual(new Set(["source.ts"]));
-		expect(requireValue(preparation).fileOps.edited).toEqual(new Set(["parser.ts"]));
+		expect(requireValue(preparation).fileOps.modified).toEqual(new Set(["parser.ts"]));
 	});
 
 	it("keeps the most recently used files when carried-forward file lists exceed the cap", () => {
@@ -710,6 +710,36 @@ describe("prepareCompaction with previous compaction", () => {
 		expect(readFiles.slice(-3)).toEqual(["old/read-4999.ts", "old/read-0.ts", "new.ts"]);
 		expect(modifiedFiles).toHaveLength(100);
 		expect(modifiedFiles.at(-1)).toBe("new-edit.ts");
+	});
+
+	it("keeps an edit newer than earlier writes when modified files exceed the cap", () => {
+		const writes: AssistantMessage = {
+			...createAssistantMessage(""),
+			content: Array.from({ length: 100 }, (_, i) => ({
+				type: "toolCall" as const,
+				id: `write-${i}`,
+				name: "write",
+				arguments: { path: `file-${i}.ts` },
+			})),
+		};
+		const edit: AssistantMessage = {
+			...createAssistantMessage(""),
+			content: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "file-100.ts" } }],
+		};
+		const entries = [
+			createMessageEntry(createUserMessage("start")),
+			createMessageEntry(writes),
+			createMessageEntry(edit),
+			createMessageEntry(createUserMessage("current")),
+			createMessageEntry(createAssistantMessage("current answer")),
+		];
+
+		const preparation = requireValue(
+			prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 }),
+		);
+		const { modifiedFiles } = computeFileLists(preparation.fileOps);
+
+		expect(modifiedFiles).toEqual(Array.from({ length: 100 }, (_, i) => `file-${i + 1}.ts`));
 	});
 
 	it("should prepare repeated compactions when the active suffix moves past previously kept messages", () => {

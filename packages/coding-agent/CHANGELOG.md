@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- `FileOperations` (compaction and branch-summary `preparation.fileOps`) replaces `written` and `edited` with one `modified` set in least-to-most-recent use order; extensions that read or add modified paths must use `fileOps.modified`.
 - Renamed the sub-agent rules folder from `rules/child/` to `rules/sub-agent/`; move any files from `rules/child/`. The configured Supervisor session now also loads `rules/supervisor/*.md` after `rules/main/*.md`. The unused `rules/architect/` scope is removed; the disabled Architect loads shared rules only.
 - Removed the `reminders` tool, `/reminders` command, control-DB `reminders` table (dropped on startup) and `reminders.deliverySessionId` setting. Reminders are tasks with a due time in the shared llm-tasks tracker (`lt create --due`, `lt due`); the Supervisor session delivers due ones when `supervisor.tasksUrl` is set, polling `GET /tasks/due` and acknowledging each with `POST /tasks/{id}/delivered`.
 
@@ -272,6 +273,7 @@
 
 ### Fixed
 
+- Compaction and branch summaries keep the 100 most recently modified files: an edit no longer drops out in favor of older `write` paths, which were ranked as newer
 - `/tree` on a reopened compacted session no longer drops the earlier conversation when you select an entry that compaction kept: the summarized ancestors are now loaded, as for entries outside the loaded slice
 - `edit` no longer changes the wrong text when one edit in a batch needs fuzzy (whitespace or Unicode) matching: an exact edit was searched again in the normalized file, where it could match another line. Exact edits now apply where they matched; an exact and a fuzzy edit on the same line are rejected with a request to merge them
 - `edit` fuzzy matching no longer fails with "different line count" when the file ends in a whitespace-only line without a newline

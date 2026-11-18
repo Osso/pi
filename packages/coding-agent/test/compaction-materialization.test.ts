@@ -149,7 +149,7 @@ describe("materializeCompactionSummary", () => {
 			turnPrefixMessages: [],
 			isSplitTurn: false,
 			tokensBefore: 100,
-			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			fileOps: { read: new Set(), modified: new Set() },
 			settings: DEFAULT_COMPACTION_SETTINGS,
 		};
 
@@ -221,7 +221,7 @@ describe.each(["default provider", "session streamFn"])("uncached summarization 
 				turnPrefixMessages: isSplitTurn ? messages : [],
 				isSplitTurn,
 				tokensBefore: 100,
-				fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+				fileOps: { read: new Set(), modified: new Set() },
 				settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 			};
 			const result = await compact(

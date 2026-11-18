@@ -44,7 +44,7 @@ function createPreparation(path: CompactionPath): CompactionPreparation {
 		isSplitTurn: split,
 		previousSummary: path === "update" ? previousSummary : undefined,
 		tokensBefore: 1000,
-		fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+		fileOps: { read: new Set(), modified: new Set() },
 		settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 	};
 }

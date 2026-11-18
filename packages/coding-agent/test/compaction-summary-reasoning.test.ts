@@ -134,7 +134,7 @@ describe("generateSummary reasoning options", () => {
 			turnPrefixMessages: messages,
 			isSplitTurn: true,
 			tokensBefore: 100,
-			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			fileOps: { read: new Set(), modified: new Set() },
 			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
@@ -154,7 +154,7 @@ describe("generateSummary reasoning options", () => {
 			turnPrefixMessages: messages,
 			isSplitTurn: true,
 			tokensBefore: 600000,
-			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			fileOps: { read: new Set(), modified: new Set() },
 			settings: { enabled: true, reserveTokens: 500000, keepRecentMessages: 20 },
 		};
 
@@ -214,7 +214,7 @@ describe("generateSummary reasoning options", () => {
 			turnPrefixMessages: messages,
 			isSplitTurn: true,
 			tokensBefore: 100,
-			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			fileOps: { read: new Set(), modified: new Set() },
 			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
@@ -241,7 +241,7 @@ describe("generateSummary reasoning options", () => {
 			turnPrefixMessages: messages,
 			isSplitTurn: true,
 			tokensBefore: 100,
-			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			fileOps: { read: new Set(), modified: new Set() },
 			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
