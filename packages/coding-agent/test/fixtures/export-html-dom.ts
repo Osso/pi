@@ -69,14 +69,14 @@ function createRecordingDom(sessionDataBase64: string): { context: object; html:
 }
 
 /** Runs the export template on session entries and returns every HTML string it wrote. */
-export function renderExportHtml(entries: object[], leafId: string): string {
+export function renderExportHtml(entries: object[], leafId: string, renderedTools: object = {}): string {
 	const sessionData = {
 		header: { type: "session", version: 3, id: "s1", timestamp: "2026-11-14T00:00:00.000Z", cwd: "/tmp" },
 		entries,
 		leafId,
 		systemPrompt: "",
 		tools: [],
-		renderedTools: {},
+		renderedTools,
 	};
 	const dom = createRecordingDom(Buffer.from(JSON.stringify(sessionData)).toString("base64"));
 	runInNewContext(templateJs, dom.context);

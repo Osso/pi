@@ -1017,7 +1017,7 @@
             break;
           }
           default: {
-            // Check for pre-rendered custom tool HTML
+            // Pre-rendered custom tool HTML covers every branch; show result HTML only when `result` is on the displayed path.
             const rendered = renderedTools?.[call.id];
             if (rendered?.callHtml || rendered?.resultHtmlCollapsed || rendered?.resultHtmlExpanded) {
               // Custom tool with pre-rendered HTML from TUI renderer
@@ -1027,13 +1027,13 @@
                 html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
               }
 
-              if (rendered.resultHtmlCollapsed && rendered.resultHtmlExpanded && rendered.resultHtmlCollapsed !== rendered.resultHtmlExpanded) {
+              if (result && rendered.resultHtmlCollapsed && rendered.resultHtmlExpanded && rendered.resultHtmlCollapsed !== rendered.resultHtmlExpanded) {
                 // Both collapsed and expanded differ - render expandable section
                 html += `<div class="tool-output expandable ansi-rendered" onclick="if(window.getSelection().toString()||event.target.closest('a'))return;this.classList.toggle('expanded')">
                   <div class="output-preview">${rendered.resultHtmlCollapsed}</div>
                   <div class="output-full">${rendered.resultHtmlExpanded}</div>
                 </div>`;
-              } else if (rendered.resultHtmlExpanded) {
+              } else if (result && rendered.resultHtmlExpanded) {
                 // Only expanded exists (or collapsed is identical) - show directly
                 html += `<div class="tool-output ansi-rendered">${rendered.resultHtmlExpanded}</div>`;
               } else if (result) {

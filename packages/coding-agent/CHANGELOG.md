@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- HTML export no longer shows a custom tool's result from another branch under a tool call whose result is not on the displayed path
 - `wait_agent` no longer takes a child's pending lifecycle notice (for example `Worker is waiting for input.`) as ordinary mail. The coordination filter read a parsed mailbox message as if it were the stored payload, so the notice's thread was missing and only JSON terminal notices were recognized
 - `wait_agent` now returns and consumes the pending notification of an aborted child (`Worker failed.`). The notice is recorded as failed, and the wait required it to match the agent's `aborted` lifecycle exactly, so it stayed pending
 - `--model <id>:<thinking>` (for example `gpt-5.6-sol:high`) now follows the same provider rules as `--model <id>`: when several authenticated providers serve the ID it asks for `--provider` or `provider/model` instead of silently choosing one

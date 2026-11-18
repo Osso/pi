@@ -40,6 +40,38 @@ describe("export HTML conversation path", () => {
 		expect(html).not.toContain("ABANDONED-RESULT");
 	});
 
+	it("shows a custom tool's pre-rendered result only on the branch that has it", () => {
+		const entries = [
+			message("u1", null, { role: "user", content: "show the note" }),
+			message("a1", "u1", {
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-2", name: "show_note", arguments: {} }],
+				api: "faux",
+				provider: "faux",
+				model: "faux",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } },
+				stopReason: "toolUse",
+			}),
+			message("t1", "a1", {
+				role: "toolResult",
+				toolCallId: "call-2",
+				toolName: "show_note",
+				content: [{ type: "text", text: "note" }],
+				isError: false,
+			}),
+			message("u2", "a1", { role: "user", content: "ALTERNATE-CONVERSATION" }),
+		];
+		// preRenderCustomTools renders every entry's result, including those on other branches.
+		const renderedTools = { "call-2": { callHtml: "show_note", resultHtmlExpanded: "Rendered ORIGINAL-NOTE" } };
+
+		const alternate = renderExportHtml(entries, "u2", renderedTools);
+		const original = renderExportHtml(entries, "t1", renderedTools);
+
+		expect(alternate).toContain("ALTERNATE-CONVERSATION");
+		expect(alternate).not.toContain("Rendered ORIGINAL-NOTE");
+		expect(original).toContain("Rendered ORIGINAL-NOTE");
+	});
+
 	it("shows the text of a custom message with content blocks", () => {
 		const html = renderExportHtml(
 			[
