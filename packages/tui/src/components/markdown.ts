@@ -52,13 +52,13 @@ function trimPartialClosingFences(tokens: readonly Token[]): void {
 
 	// Trim streamed partial closing fences so code blocks do not shrink/flicker
 	// when the final fence character arrives. See https://github.com/earendil-works/pi/issues/5825.
-	const marker = /^(`{3,}|~{3,})/.exec(token.raw)?.[1];
-	const lastLine = token.raw.split("\n").pop();
+	const marker = /^ {0,3}(`{3,}|~{3,})/.exec(token.raw)?.[1];
+	const lastLine = /(?:^|\n) {0,3}([^\n]*)$/.exec(token.raw)?.[1];
 	if (!marker || !lastLine || lastLine.length >= marker.length || lastLine !== marker[0]?.repeat(lastLine.length)) {
 		return;
 	}
 
-	token.text = token.text.slice(0, -lastLine.length).replace(/\n$/, "");
+	token.text = token.text.replace(/\n?[^\n]*$/, "");
 }
 
 const markdownParser = new Marked();
@@ -591,7 +591,7 @@ export class Markdown implements Component {
 	}
 
 	private getOrderedListMarker(item: Tokens.ListItem): string | undefined {
-		const match = /^(?: {0,3})(\d{1,9}[.)])[ \t]+/.exec(item.raw);
+		const match = /^(?: {0,3})(\d{1,9}[.)])(?:[ \t]+|(?=\r?\n|$))/.exec(item.raw);
 		return match ? `${match[1]} ` : undefined;
 	}
 
@@ -629,6 +629,7 @@ export class Markdown implements Component {
 
 			for (const itemToken of item.tokens) {
 				if (itemToken.type === "list") {
+					if (!renderedAnyLine) lines.push(firstPrefix);
 					lines.push(...this.renderList(itemToken as Tokens.List, depth + 1, width, styleContext));
 					renderedAnyLine = true;
 					continue;
@@ -778,16 +779,15 @@ export class Markdown implements Component {
 		}
 
 		// Calculate column widths that fit within available width
-		const totalNaturalWidth = naturalWidths.reduce((a, b) => a + b, 0) + borderOverhead;
+		// An empty column has natural width 0 but minimum 1, so the fit check uses the raised widths.
+		const fittedNaturalWidths = naturalWidths.map((width, index) => {
+			const minWidth = minColumnWidths[index];
+			if (minWidth === undefined) throw new Error(`Missing minimum table width at index ${index}`);
+			return Math.max(width, minWidth);
+		});
 		let columnWidths: number[];
-
-		if (totalNaturalWidth <= availableWidth) {
-			// Everything fits naturally
-			columnWidths = naturalWidths.map((width, index) => {
-				const minWidth = minColumnWidths[index];
-				if (minWidth === undefined) throw new Error(`Missing minimum table width at index ${index}`);
-				return Math.max(width, minWidth);
-			});
+		if (fittedNaturalWidths.reduce((a, b) => a + b, 0) + borderOverhead <= availableWidth) {
+			columnWidths = fittedNaturalWidths;
 		} else {
 			// Need to shrink columns to fit
 			const totalGrowPotential = naturalWidths.reduce((total, width, index) => {

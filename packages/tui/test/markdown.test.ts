@@ -145,6 +145,26 @@ describe("Markdown component", () => {
 			assert.deepStrictEqual(lines, ["1. alpha", "2. beta", "3. gamma"]);
 		});
 
+		it("should preserve the source marker of an empty ordered item", () => {
+			const markdown = new Markdown("3) three\n8)", 0, 0, defaultMarkdownTheme, undefined, {
+				preserveOrderedListMarkers: true,
+			});
+
+			assert.deepStrictEqual(
+				markdown.render(80).map((line) => stripAnsi(line).trimEnd()),
+				["3) three", "8)"],
+			);
+		});
+
+		it("should keep the parent bullet of an item that starts with a nested list", () => {
+			const markdown = new Markdown("- - child\n- sibling", 0, 0, defaultMarkdownTheme);
+
+			assert.deepStrictEqual(
+				markdown.render(80).map((line) => stripAnsi(line).trimEnd()),
+				["-", "    - child", "- sibling"],
+			);
+		});
+
 		it("should preserve source list markers when configured", () => {
 			const markdown = new Markdown(
 				"  4. forth\n  3. third\n\n10) ten\n7) seven\n\n+ plus\n* star\n- minus\n+",
@@ -675,6 +695,20 @@ describe("Markdown component", () => {
 			const extracted = plainLines.join("").replace(/[│├┤─\s]/g, "");
 			assert.ok(extracted.includes("prefix"), "Should preserve 'prefix'");
 			assert.ok(extracted.includes(url), "Should preserve URL");
+		});
+
+		it("should keep a table with an empty column within the width", () => {
+			const width = 9;
+			const markdown = new Markdown("| | A |\n| --- | --- |\n| | BC |", 0, 0, defaultMarkdownTheme);
+			const lines = markdown.render(width).map((line) => stripAnsi(line).trimEnd());
+
+			for (const line of lines) {
+				assert.ok(line.length <= width, `Line exceeds width ${width}: "${line}"`);
+			}
+			assert.ok(
+				lines.filter((line) => line.length > 0).every((line) => /^[│├┌└].*[│┤┐┘]$/.test(line)),
+				`Borders split across lines: ${JSON.stringify(lines)}`,
+			);
 		});
 
 		it("should wrap styled inline code inside table cells without breaking borders", () => {
@@ -1621,6 +1655,10 @@ bar`,
 
 				assert.deepStrictEqual(lines, expected);
 			}
+
+			const indentedPartial = new Markdown("intro\n\n  ```ts\n  x\n  ``", 0, 0, defaultMarkdownTheme);
+			const indentedComplete = new Markdown("intro\n\n  ```ts\n  x\n  ```", 0, 0, defaultMarkdownTheme);
+			assert.deepStrictEqual(indentedPartial.render(80), indentedComplete.render(80));
 
 			const partial = new Markdown("```ts\nconst x = 1;\n``", 0, 0, defaultMarkdownTheme);
 			const complete = new Markdown("```ts\nconst x = 1;\n```", 0, 0, defaultMarkdownTheme);
