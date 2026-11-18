@@ -42,6 +42,8 @@ Set `"compaction": { "thresholdTokens": 500000 }` in `~/.pi/agent/settings.json`
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
+A summary request that fails with a transient provider error (overload, 5xx, dropped connection such as `ECONNRESET`) is sent again up to three times, after about 2, 4 and 8 seconds. This applies to manual, idle, threshold, overflow and background compaction. Rate limits and deterministic errors are not repeated; cancelling the compaction stops the repeats.
+
 Overflow recovery treats Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` as oversized-request overflow. Pi compacts the context and retries the interrupted request once through the bounded overflow path instead of ordinary transient-error retry; a repeated 507 is reported without retrying the unchanged request again.
 
 ### Idle compaction

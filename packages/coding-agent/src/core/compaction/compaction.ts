@@ -25,6 +25,7 @@ import {
 	createCustomMessage,
 } from "../messages.ts";
 import { buildSessionContext, type CompactionEntry, type SessionEntry } from "../session-manager.ts";
+import { retryTransientSummarization } from "./summarization-retry.ts";
 import {
 	addSummaryFileOps,
 	computeFileLists,
@@ -634,11 +635,10 @@ async function completeSummarization(
 	streamFn?: StreamFn,
 ): Promise<AssistantMessage> {
 	const requestOptions: SimpleStreamOptions = { ...options, cacheRetention: "none" };
-	if (!streamFn) {
-		return completeSimple(model, context, requestOptions);
-	}
-	const stream = await streamFn(model, context, requestOptions);
-	return stream.result();
+	return retryTransientSummarization(async () => {
+		if (!streamFn) return completeSimple(model, context, requestOptions);
+		return (await streamFn(model, context, requestOptions)).result();
+	}, options.signal);
 }
 
 function readSummarizationText(

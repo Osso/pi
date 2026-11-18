@@ -1492,7 +1492,8 @@ describe("AgentSession compaction characterization", () => {
 	);
 
 	it("reports a failed background compaction without starting foreground compaction", async () => {
-		const overloadError = "Codex error: Our servers are currently overloaded. Please try again later.";
+		// A rate limit is not repeated inside the summary request, so the background attempt fails at once.
+		const overloadError = "429 Too Many Requests: rate limit reached for requests";
 		const backgroundFailureObserved = createDeferred<void>();
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => backgroundFailureObserved.resolve());
 		let compactionCalls = 0;
@@ -1774,8 +1775,9 @@ describe("AgentSession compaction characterization", () => {
 
 	it.each([
 		{
-			name: "a transient",
-			error: "Codex error: Our servers are currently overloaded. Please try again later.",
+			// Retryable, but not repeated inside the summary request (an overload would be; see compaction-summary-retry).
+			name: "a rate-limited",
+			error: "429 Too Many Requests: rate limit reached for requests",
 			retries: true,
 		},
 		{ name: "a deterministic", error: "Invalid API key provided", retries: false },
