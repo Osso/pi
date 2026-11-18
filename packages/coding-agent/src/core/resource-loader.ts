@@ -126,13 +126,10 @@ function loadContextFilesFromDir(dir: string, candidates: string[]): LoadedConte
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
 			try {
-				// A directory with a context-file name is not a context file (port of upstream 58c0bc2fb, #7106).
+				// A directory with a context-file name is not a context file.
 				if (!statSync(filePath).isFile()) continue;
-				contextFiles.push({
-					path: filePath,
-					content: readFileSync(filePath, "utf-8"),
-					realPath: realpathSync(filePath),
-				});
+				const content = readFileSync(filePath, "utf-8");
+				contextFiles.push({ path: filePath, content, realPath: realpathSync(filePath) });
 			} catch (error) {
 				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
 			}
