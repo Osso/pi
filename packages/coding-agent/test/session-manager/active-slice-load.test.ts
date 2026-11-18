@@ -93,6 +93,29 @@ describe("active slice session loading", () => {
 		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
 	});
 
+	it("loads the summarized ancestors when branching to an entry kept by compaction", () => {
+		const file = join(tempDir, "branch-to-kept.jsonl");
+		const entries = [
+			{ type: "session", version: 3, id: "session-1", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp" },
+			messageEntry("old-1", null, "Original request"),
+			messageEntry("old-2", "old-1", "Original reply"),
+			messageEntry("kept-1", "old-2", "Retained request"),
+			messageEntry("kept-2", "kept-1", "Retained reply"),
+			{ ...keptOneCompaction("2025-01-01T00:00:00Z"), parentId: "kept-2" },
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+		const session = SessionManager.open(file, tempDir);
+		expect(session.getEntries().map((entry) => entry.id)).not.toContain("old-1");
+
+		session.branch("kept-2");
+
+		const contents = session
+			.buildSessionContext()
+			.messages.map((message) => ("content" in message ? message.content : ""));
+		expect(contents).toEqual(["Original request", "Original reply", "Retained request", "Retained reply"]);
+	});
+
 	it("does not treat summarized JSONL session info as authoritative", () => {
 		const file = join(tempDir, "named-compacted.jsonl");
 		const lines = [

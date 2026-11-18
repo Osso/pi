@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- `/tree` on a reopened compacted session no longer drops the earlier conversation when you select an entry that compaction kept: the summarized ancestors are now loaded, as for entries outside the loaded slice
 - `edit` no longer changes the wrong text when one edit in a batch needs fuzzy (whitespace or Unicode) matching: an exact edit was searched again in the normalized file, where it could match another line. Exact edits now apply where they matched; an exact and a fuzzy edit on the same line are rejected with a request to merge them
 - `edit` fuzzy matching no longer fails with "different line count" when the file ends in a whitespace-only line without a newline
 - HTML export no longer shows a custom tool's result from another branch under a tool call whose result is not on the displayed path

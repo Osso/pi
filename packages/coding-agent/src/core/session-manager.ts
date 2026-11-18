@@ -31,6 +31,7 @@ import {
 import type { SandboxProfileName } from "./permissions/presets.ts";
 import { isResidentSession } from "./resident-session.ts";
 import { isArchivedSessionFile } from "./session-archive-storage.ts";
+import { hasContextAncestry } from "./session-context-ancestry.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	getControlDbPath,
@@ -1110,10 +1111,9 @@ export class SessionManager {
 		}
 	}
 
-	/** Navigation outside a retained slice needs the original ancestors and branch labels. */
-	private _loadFullHistoryForEntry(entryId: string | null): void {
-		if (entryId === null || this.byId.has(entryId)) return;
-		if (!this.hasActiveSlice || !this.sessionFile) return;
+	/** Navigation outside a retained slice, or to a kept entry, needs the original ancestors and branch labels. */
+	private _loadFullHistoryForEntry(entryId: string): void {
+		if (!this.hasActiveSlice || !this.sessionFile || hasContextAncestry(this.byId, entryId)) return;
 		const leafId = this.leafId;
 		this.fileEntries = loadEntriesFromFile(this.sessionFile);
 		this._buildIndex();
@@ -1796,7 +1796,7 @@ export class SessionManager {
 	 * context from the abandoned conversation path.
 	 */
 	branchWithSummary(branchFromId: string | null, summary: string, details?: unknown, fromHook?: boolean): string {
-		this._loadFullHistoryForEntry(branchFromId);
+		if (branchFromId !== null) this._loadFullHistoryForEntry(branchFromId);
 		if (branchFromId !== null && !this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
