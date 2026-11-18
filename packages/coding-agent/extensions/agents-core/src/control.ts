@@ -90,6 +90,8 @@ export async function cancelOneOwnedAgentRuntime(
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
+	// A finished agent has nothing left to cancel; models often close an agent right after its report.
+	if (!isActiveLifecycle(current.lifecycle)) return { ok: true, agent: current };
 	const reservedRuntime = runtimeHandles.ownerships.get(agentId);
 	if (!reservedRuntime && current.lifecycle === "waiting_for_input") {
 		return closeIdleAgentWithoutRuntime(store, current, ownerSessionId);
@@ -184,12 +186,13 @@ export async function cancelAgent(
 			reason: params.reason,
 		});
 	}
-	return result(
-		cancelled.agent.lifecycle === "aborted"
-			? `Cancelled ${cancelled.agent.displayName}.`
-			: `Cancellation requested for ${cancelled.agent.displayName}.`,
-		{ agent: cancelled.agent, reason: params.reason },
-	);
+	return result(describeCancellation(cancelled.agent), { agent: cancelled.agent, reason: params.reason });
+}
+
+function describeCancellation(agent: AgentSnapshot): string {
+	if (agent.lifecycle === "aborted") return `Cancelled ${agent.displayName}.`;
+	if (isActiveLifecycle(agent.lifecycle)) return `Cancellation requested for ${agent.displayName}.`;
+	return `${agent.displayName} already ${agent.lifecycle}; nothing to cancel.`;
 }
 
 export interface AgentSteeringRuntimeBinding {

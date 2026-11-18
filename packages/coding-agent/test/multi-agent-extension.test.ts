@@ -3553,6 +3553,25 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.reason).toBe("user stopped it");
 	});
 
+	// Session 40fcbe4f closed agents right after their completion report and got
+	// "runtime ownership unavailable" back, as if the close had failed.
+	it("reports a finished agent as already finished instead of failing to cancel it", async () => {
+		const harness = createMultiAgentHarness();
+		const spawned = spawnStoreFixture(harness.store, { displayName: "Worker", prompt: "Implement tests" });
+		const completed = completeAgent(harness.store, spawned.details.agent);
+
+		const closed = await harness.call<CancelAgentDetails>("close_agent", {
+			agentId: completed.id,
+			reason: "merged",
+		});
+
+		expect(closed.content).toEqual([{ text: "Worker already completed; nothing to cancel.", type: "text" }]);
+		expect(harness.store.getAgent(completed.id)).toMatchObject({
+			lifecycle: "completed",
+			revision: completed.revision,
+		});
+	});
+
 	it("waitNotifications polls the tracked persisted agent without validating unrelated mailbox rows", async () => {
 		vi.useFakeTimers();
 		try {
