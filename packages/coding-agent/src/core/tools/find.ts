@@ -226,6 +226,8 @@ export function createFindToolDefinition(
 						const args: string[] = ["--glob", "--color=never", "--hidden", "--exclude", ".git"];
 
 						if (!(await isInsideGitRepo(searchPath))) args.push("--no-require-git");
+						// An abort during the .git lookup already rejected the call; do not start fd after it.
+						if (signal?.aborted) return;
 						// One extra result tells "exactly limit" matches apart from more.
 						args.push("--max-results", String(effectiveLimit + 1));
 

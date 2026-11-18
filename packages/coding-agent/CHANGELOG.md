@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- The find tool no longer starts `fd` when the call was aborted during its `.git` lookup. Before, `fd` ran to completion and nothing read its output (port of upstream a07f25129, [#11974](https://github.com/earendil-works/pi-mono/issues/11974)).
 - Branch summaries can now use up to 4096 output tokens, limited by the model's maximum. Before, the cap was 2048 tokens, which cut off ordinary summaries, and such a cut-off summary is now rejected (port of upstream e44d75c20, [#8845](https://github.com/earendil-works/pi-mono/issues/8845)).
 - Extension custom messages sent with `triggerTurn: false` while the agent runs are now appended after the turn's tool results. Before, they could land between an assistant tool call and its result, and providers that validate message order rejected the replayed history (port of upstream 240eb29c4, [#8537](https://github.com/earendil-works/pi-mono/issues/8537)).
 - A prompt sent while tree navigation summarizes the old branch now waits for the navigation and runs on the new branch. Before, it ran on the old branch, and the navigation then dropped the exchange from the new context and from the branch summary. `session_tree` handlers can still prompt (port of upstream 8a3e163b0, [#9154](https://github.com/earendil-works/pi-mono/issues/9154)).
