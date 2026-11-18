@@ -126,6 +126,8 @@ function loadContextFilesFromDir(dir: string, candidates: string[]): LoadedConte
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
 			try {
+				// A directory with a context-file name is not a context file (port of upstream 58c0bc2fb, #7106).
+				if (!statSync(filePath).isFile()) continue;
 				contextFiles.push({
 					path: filePath,
 					content: readFileSync(filePath, "utf-8"),

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import type { ExtensionFactory } from "../src/core/extensions/types.ts";
@@ -566,6 +566,21 @@ Content`,
 				{ path: join(cwd, "CLAUDE.md"), content: "Claude context." },
 				{ path: join(cwd, "CLAUDE.local.md"), content: "Claude local context." },
 			]);
+		});
+
+		it("should ignore context file candidates that are directories", async () => {
+			mkdirSync(join(cwd, "AGENTS.md"));
+			writeFileSync(join(cwd, "CLAUDE.md"), "Fallback instructions");
+			const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "CLAUDE.md"), content: "Fallback instructions" },
+			]);
+			expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining(join(cwd, "AGENTS.md")));
+			consoleError.mockRestore();
 		});
 
 		it("should ignore ancestor CLAUDE-family files when a nested AGENTS-family file exists", async () => {
