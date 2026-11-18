@@ -26,6 +26,7 @@ The Supervisor is a normal, full-UI interactive Pi session on agent-server. It r
 - [x] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
 - [x] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
 - [x] A relay outage produces the same failure results as an unavailable Supervisor: a stopped local relay fails the request immediately, and a broken SSH link fails it at its deadline.
+- [x] A request to a Supervisor session that is not running (locally, or as reported by the relay) stays queued and fails with the not-running reason only when no reply arrives within a three-minute restart grace, so a Supervisor restart does not fail requests.
 
 ### Question answering
 
@@ -193,7 +194,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 - `packages/coding-agent/extensions/supervisor-session/src/index.ts` — interactive Supervisor session: queue serving between user turns, visible request turns ending in `supervisor_response`, approval preemption of user turns with resumption, tool allow-list with KB-only file access.
 - `packages/coding-agent/src/supervisor/question-reply.ts` — question reply mailbox messages from the Supervisor session to the asker.
-- `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — fails fast when the configured Supervisor session is not running; fails explicitly when `supervisor.sessionId` is unset.
+- `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — reports a configured Supervisor session that is not running as `SupervisorNotRunningError`; fails explicitly when `supervisor.sessionId` is unset.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
 - `packages/coding-agent/src/supervisor/client.ts` — checks session availability, performs durable synchronous caller transport, and propagates caller cancellation.
 - `packages/coding-agent/src/supervisor/ensure-running.ts` — checks the configured session address and availability.
@@ -214,7 +215,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/test/suite/supervisor-session.test.ts` — typed response recording, missing-response error, approval interrupting and resuming a user turn, tool allow-list and KB-only writes, other sessions unaffected.
 - `packages/coding-agent/test/suite/supervisor-questions.test.ts` — Supervisor answer closes the asker's panel with reasons, local answer cancels the row, escalation opens a Supervisor panel whose answer returns as a user answer, nonblocking answers arrive through the inbox.
 - `packages/coding-agent/test/suite/headless-supervisor-session.test.ts` — real Pi process serves queued requests and reruns a claimed request after restart.
-- `packages/coding-agent/test/supervisor-ensure-running.test.ts` — fail-fast for a down configured session without resident startup.
+- `packages/coding-agent/test/supervisor-ensure-running.test.ts` — reports a down configured session without resident startup.
 - `packages/coding-agent/test/provider-restriction-recovery.test.ts` — bounded advisory evidence and strict, fail-closed main-validation response parsing.
 - `packages/coding-agent/test/suite/agent-session-codex-restriction-recovery.test.ts` — main validation, denied/tool-call no-operation behavior, restored tools, and harmless-status handling.
 - `packages/coding-agent/test/suite/headless-codex-restriction-recovery.test.ts` — controlled real-process recovery, goal/evidence/settings preservation, live-child cancellation, stale advice, restart, rewind/fork budgets, and main denial of a prohibited proposal.

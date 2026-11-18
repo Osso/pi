@@ -14,6 +14,7 @@ import {
 	takeRuntimeMailboxMessagesForDelivery,
 } from "../src/core/session-control-db.ts";
 import { requestSupervisorDecision } from "../src/supervisor/client.ts";
+import { SupervisorNotRunningError } from "../src/supervisor/ensure-running.ts";
 import { ingestSupervisorRequestMail, type SupervisorAddress, sendSupervisorReply } from "../src/supervisor/mail.ts";
 
 const ASKER = { sessionId: "asker-session", agentId: null };
@@ -101,15 +102,39 @@ describe("Supervisor client", () => {
 		expect(ensureRunning).toHaveBeenCalledWith({ controlDbPath: askerDb });
 	});
 
-	it("returns a typed error without posting when Supervisor startup fails", async () => {
+	it("returns a typed error without posting when no Supervisor is configured", async () => {
 		const ensureRunning = async (): Promise<SupervisorAddress> => {
-			throw new Error("the Supervisor session supervisor-session is not running");
+			throw new Error("no Supervisor session is configured; set supervisor.sessionId");
 		};
 		await expect(requestSupervisorDecision(request(askerDb), { ensureRunning })).resolves.toEqual({
 			kind: "error",
-			reason: "Supervisor startup failed: the Supervisor session supervisor-session is not running",
+			reason: "Supervisor startup failed: no Supervisor session is configured; set supervisor.sessionId",
 		});
 		expect(readSupervisorRequest(askerDb, 1)).toBeUndefined();
+	});
+
+	it("returns the answer of a local Supervisor that restarts after the request", async () => {
+		const ensureRunning = async (): Promise<SupervisorAddress> => {
+			throw new SupervisorNotRunningError(SUPERVISOR);
+		};
+		const decision = requestSupervisorDecision(request(askerDb), { ensureRunning, restartGraceMs: 2_000 });
+
+		answer(askerDb, await claim(askerDb), { kind: "approve", reason: "after restart" });
+
+		await expect(decision).resolves.toEqual({ kind: "approve", reason: "after restart" });
+	});
+
+	it("fails when a local Supervisor that is not running does not answer within the restart grace", async () => {
+		const ensureRunning = async (): Promise<SupervisorAddress> => {
+			throw new SupervisorNotRunningError(SUPERVISOR);
+		};
+		await expect(requestSupervisorDecision(request(askerDb), { ensureRunning, restartGraceMs: 50 })).resolves.toEqual(
+			{
+				kind: "error",
+				reason: "Supervisor startup failed: the Supervisor session supervisor-session is not running",
+			},
+		);
+		expect(readSupervisorRequest(askerDb, 1)).toMatchObject({ status: "pending" });
 	});
 
 	it("cancels the queued request when its signal aborts", async () => {
@@ -161,10 +186,33 @@ describe("Supervisor client", () => {
 		await expect(decision).resolves.toEqual({ kind: "advisory", answer: "Use the spec." });
 	});
 
+	it("returns the answer of a remote Supervisor that restarts after the relay reports it not running", async () => {
+		connectHosts();
+		const decision = requestSupervisorDecision(request(askerDb, { kind: "supervisor_advisory" }), {
+			ensureRunning: async () => REMOTE_SUPERVISOR,
+			restartGraceMs: 5_000,
+		});
+		const recipient = { sessionId: REMOTE_SUPERVISOR.sessionId, agentId: null };
+		// The relays (20 ms polls) deliver the not-running notice while the Supervisor has no listener.
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		registerRuntimeMailboxListener(supervisorDb, recipient, process.pid);
+		await vi.waitFor(() => {
+			const mail = takeRuntimeMailboxMessagesForDelivery(supervisorDb, recipient, () => true);
+			expect(mail.map((message) => ingestSupervisorRequestMail(supervisorDb, message))).toEqual([true]);
+		});
+		answer(supervisorDb, await claim(supervisorDb), { kind: "advisory", answer: "Back." });
+
+		await expect(decision).resolves.toEqual({ kind: "advisory", answer: "Back." });
+	});
+
 	it("fails when the relay reports that the remote Supervisor session is not running", async () => {
 		connectHosts();
 		await expect(
-			requestSupervisorDecision(request(askerDb), { ensureRunning: async () => REMOTE_SUPERVISOR }),
+			requestSupervisorDecision(request(askerDb), {
+				ensureRunning: async () => REMOTE_SUPERVISOR,
+				restartGraceMs: 50,
+			}),
 		).resolves.toMatchObject({
 			kind: "error",
 			reason: expect.stringContaining("The Supervisor session is not running: Not delivered yet"),

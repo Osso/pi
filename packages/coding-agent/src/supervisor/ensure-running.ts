@@ -4,6 +4,16 @@ import { readSessionHealth } from "../core/session-control-db/session-health.ts"
 import { SettingsManager } from "../core/settings-manager.ts";
 import { isRemoteHost, type SupervisorAddress } from "./mail.ts";
 
+/** The local Supervisor session has no live process; while it restarts, its queued requests still get answers. */
+export class SupervisorNotRunningError extends Error {
+	readonly address: SupervisorAddress;
+
+	constructor(address: SupervisorAddress) {
+		super(`the Supervisor session ${address.sessionId} is not running`);
+		this.address = address;
+	}
+}
+
 export interface EnsureSupervisorAvailableInput {
 	controlDbPath: string;
 }
@@ -24,7 +34,7 @@ export async function ensureSupervisorAvailable(input: EnsureSupervisorAvailable
 	}
 	const pid = readSessionHealth(input.controlDbPath, sessionId)?.pid;
 	if (!pid || !isVerifiedPiRuntimeProcess(pid)) {
-		throw new Error(`the Supervisor session ${sessionId} is not running`);
+		throw new SupervisorNotRunningError({ sessionId });
 	}
 	return { sessionId };
 }

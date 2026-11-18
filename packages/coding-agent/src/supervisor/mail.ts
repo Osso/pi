@@ -40,6 +40,8 @@ export interface SupervisorReply {
 	response: SupervisorResponse | SessionInspection;
 	/** Set when the user answered an escalated question in the Supervisor session. */
 	answeredBy?: "user";
+	/** Set on the relay's notice that the Supervisor session is not running; the request stays queued for it. */
+	notRunning?: true;
 }
 
 export interface SupervisorRequestEnvelope {
@@ -290,6 +292,7 @@ function readReply(message: RuntimeMailboxMessage, waiter: ReplyWaiter): Supervi
 		requestId: waiter.route.requestId,
 		requestKind: "supervisor_advisory",
 		response: { kind: "error", reason: `The Supervisor session is not running: ${message.body}` },
+		notRunning: true,
 	};
 }
 

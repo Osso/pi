@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- A Supervisor restart no longer fails goal reviews, approvals, and `ask_supervisor` requests with "the Supervisor session ... is not running". The request stays queued and fails only when the Supervisor does not answer within three minutes. A failed goal review waited 55 minutes before the next review
 - Compaction and branch summaries now keep only the 100 most recently used paths in each of `<read-files>` and `<modified-files>`. The lists were carried forward from summary to summary without limit: one long session carried 6,800 paths, about 155k tokens, so compaction could not bring its context below about 36% of a 1M window
 - A settings file that still sets the removed `compaction.thresholdPercent` now reports a startup warning. The key was ignored without notice, so sessions on such a config had no configured compaction threshold and compacted only near the context limit; set `compaction.thresholdTokens` instead
 - Fixed compaction cancellation: `abortCompaction()` from a `compaction_start` listener now stops auto-compaction before any summarization request, an abort during auto-compaction summarization reports `aborted` instead of "Auto-compaction failed", and cancellation is decided by the abort signal instead of the error text (port of upstream de2de549b, [#9777](https://github.com/earendil-works/pi-mono/issues/9777))
