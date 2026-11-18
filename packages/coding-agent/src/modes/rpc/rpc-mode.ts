@@ -439,13 +439,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 			case "steer": {
 				if (typeof command.message !== "string") return error(id, "steer", "message must be a string");
-				await session.steer(command.message, command.images);
+				await session.steer(command.message, command.images, { source: "rpc" });
 				return success(id, "steer");
 			}
 
 			case "follow_up": {
 				if (typeof command.message !== "string") return error(id, "follow_up", "message must be a string");
-				await session.followUp(command.message, command.images);
+				await session.followUp(command.message, command.images, { source: "rpc" });
 				return success(id, "follow_up");
 			}
 

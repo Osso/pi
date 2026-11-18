@@ -2364,25 +2364,18 @@ export class AgentSession {
 
 		try {
 			// Emit input event for extension interception (before skill/template expansion)
-			let currentText = text;
-			let currentImages = options?.images;
-			if (this._extensionRunner.hasHandlers("input")) {
-				const inputResult = await this._extensionRunner.emitInput(
-					currentText,
-					currentImages,
-					options?.source ?? "interactive",
-					this.isStreaming ? options?.streamingBehavior : undefined,
-				);
-				if (inputResult.action === "handled") {
-					options?.acceptRuntimeMailbox?.();
-					preflightResult?.(true);
-					return;
-				}
-				if (inputResult.action === "transform") {
-					currentText = inputResult.text;
-					currentImages = inputResult.images ?? currentImages;
-				}
+			const input = await this._runInputHandlers(
+				text,
+				options?.images,
+				options?.source ?? "interactive",
+				this.isStreaming ? options?.streamingBehavior : undefined,
+			);
+			if (!input) {
+				options?.acceptRuntimeMailbox?.();
+				preflightResult?.(true);
+				return;
 			}
+			const { text: currentText, images: currentImages } = input;
 
 			this._codexRestrictionRecovery.recordUserRequest(text, options?.source);
 
@@ -2595,32 +2588,51 @@ export class AgentSession {
 		}
 	}
 
+	/** Runs extension input handlers; returns undefined when a handler consumed the input. */
+	private async _runInputHandlers(
+		text: string,
+		images: ImageContent[] | undefined,
+		source: InputSource,
+		streamingBehavior: "steer" | "followUp" | undefined,
+	): Promise<{ text: string; images: ImageContent[] | undefined } | undefined> {
+		if (!this._extensionRunner.hasHandlers("input")) return { text, images };
+		const result = await this._extensionRunner.emitInput(text, images, source, streamingBehavior);
+		if (result.action === "handled") return undefined;
+		if (result.action === "transform") return { text: result.text, images: result.images ?? images };
+		return { text, images };
+	}
+
+	/** Rejects extension commands, runs input handlers, and expands skills and templates for a queued message. */
+	private async _prepareQueuedInput(
+		text: string,
+		images: ImageContent[] | undefined,
+		behavior: "steer" | "followUp",
+		source: InputSource,
+	): Promise<{ text: string; images: ImageContent[] | undefined } | undefined> {
+		if (text.startsWith("/")) this._throwIfExtensionCommand(text);
+		const input = await this._runInputHandlers(text, images, source, this.isStreaming ? behavior : undefined);
+		if (!input) return undefined;
+		const expanded = expandPromptTemplate(this._expandSkillCommand(input.text), [...this.promptTemplates]);
+		return { text: expanded, images: input.images };
+	}
+
 	/**
-	 * Queue a steering message while the agent is running.
-	 * Interrupts active model thinking and restarts with the message. Active tool
-	 * execution finishes before the message is delivered to the next LLM call.
-	 * Expands skill commands and prompt templates. Errors on extension commands.
-	 * @param images Optional image attachments to include with the message
-	 * @throws Error if text is an extension command
+	 * Queue a steering message while the agent is running. Interrupts active model thinking; active tool execution
+	 * finishes before the message reaches the next LLM call. Runs input handlers, expands skill commands and prompt
+	 * templates, and throws on extension commands.
 	 */
-	async steer(text: string, images?: ImageContent[]): Promise<void> {
-		// Check for extension commands (cannot be queued)
-		if (text.startsWith("/")) {
-			this._throwIfExtensionCommand(text);
-		}
-
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
-
+	async steer(text: string, images?: ImageContent[], options?: { source?: InputSource }): Promise<void> {
+		const source = options?.source ?? "interactive";
+		const input = await this._prepareQueuedInput(text, images, "steer", source);
+		if (!input) return;
 		await this._withTurnStartLock(async (release) => {
 			if (this.isStreaming) {
-				await this._queueSteer(expandedText, images);
+				await this._queueSteer(input.text, input.images, source);
 				return;
 			}
 
 			this.validateModelAuthentication();
-			await this._queueSteer(expandedText, images);
+			await this._queueSteer(input.text, input.images, source);
 			const continuation = this._runAgentContinuation();
 			release();
 			void continuation.catch((error) => {
@@ -2629,24 +2641,11 @@ export class AgentSession {
 		});
 	}
 
-	/**
-	 * Queue a follow-up message to be processed after the agent finishes.
-	 * Delivered only when agent has no more tool calls or steering messages.
-	 * Expands skill commands and prompt templates. Errors on extension commands.
-	 * @param images Optional image attachments to include with the message
-	 * @throws Error if text is an extension command
-	 */
-	async followUp(text: string, images?: ImageContent[]): Promise<void> {
-		// Check for extension commands (cannot be queued)
-		if (text.startsWith("/")) {
-			this._throwIfExtensionCommand(text);
-		}
-
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
-
-		await this._queueFollowUp(expandedText, images);
+	/** Queue a follow-up message, delivered once the agent has no tool calls or steering left. Same input handling as steer(). */
+	async followUp(text: string, images?: ImageContent[], options?: { source?: InputSource }): Promise<void> {
+		const source = options?.source ?? "interactive";
+		const input = await this._prepareQueuedInput(text, images, "followUp", source);
+		if (input) await this._queueFollowUp(input.text, input.images, source);
 	}
 
 	/**

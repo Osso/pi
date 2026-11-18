@@ -271,6 +271,7 @@
 
 ### Fixed
 
+- `AgentSession.steer()` and `followUp()` now run extension `input` handlers, as `prompt()` does. RPC `steer`/`follow_up` and messages queued during compaction skipped them before. Because of this, the goal extension did not record those messages as user evidence and did not clear pending goal schedules. RPC messages now report source `rpc` (port of upstream faa9863cb, [#8718](https://github.com/earendil-works/pi-mono/issues/8718)).
 - A bash timeout that hits after the shell already exited, while background processes still write to its output, now also reports the shell's exit code and run time. Before, it reported only a timeout, and models retried with a longer timeout (port of upstream 06aa6563e, [#11613](https://github.com/earendil-works/pi-mono/issues/11613)).
 - Compaction, split-turn and branch summaries that stop at the token cap (`length`) now fail instead of being saved as complete summaries with partial text (port of upstream 97fa14e39, [#7048](https://github.com/earendil-works/pi-mono/issues/7048)). The agent-core harness copies get the same check.
 - Prompt templates now substitute `${@:-default}` and `${ARGUMENTS:-default}` (all arguments, or the default when none are given) instead of leaving them as literal text (port of upstream 64f83c85d, [#6695](https://github.com/earendil-works/pi-mono/issues/6695)).
