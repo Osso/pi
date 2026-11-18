@@ -4941,20 +4941,20 @@ export class AgentSession {
 	// =========================================================================
 
 	/**
-	 * Navigate to a different node in the session tree.
-	 * Unlike fork() which creates a new session file, this stays in the same file.
-	 *
-	 * @param targetId The entry ID to navigate to
-	 * @param options.summarize Whether user wants to summarize abandoned branch
-	 * @param options.customInstructions Custom instructions for summarizer
-	 * @param options.replaceInstructions If true, customInstructions replaces the default prompt
-	 * @param options.label Label to attach to the branch summary entry
-	 * @returns Result with editorText (if user message) and cancelled status
+	 * Navigate to a different node in the session tree, in the same session file (unlike fork()).
+	 * `summarize` summarizes the abandoned branch; `customInstructions`/`replaceInstructions` adjust the summarizer
+	 * prompt; `label` labels the branch summary entry. Returns editorText when the target is a user message.
+	 * Rejects while compaction or another navigation runs: compaction prepared on the old branch would land on the new one.
 	 */
 	async navigateTree(
 		targetId: string,
 		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
+		if (this.isCompacting) {
+			throw new Error(
+				"Wait for the current compaction or tree navigation to finish before navigating the session tree.",
+			);
+		}
 		const oldLeafId = this.sessionManager.getLeafId();
 
 		// No-op if already at target
