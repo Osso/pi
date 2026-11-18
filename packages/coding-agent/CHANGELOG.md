@@ -272,6 +272,7 @@
 
 ### Fixed
 
+- Fixed compaction cancellation: `abortCompaction()` from a `compaction_start` listener now stops auto-compaction before any summarization request, an abort during auto-compaction summarization reports `aborted` instead of "Auto-compaction failed", and cancellation is decided by the abort signal instead of the error text (port of upstream de2de549b, [#9777](https://github.com/earendil-works/pi-mono/issues/9777))
 - `before_agent_start` now runs for every run start, not only for user prompts. Runs started by `pi.sendMessage(..., { triggerTurn: true })`, idle steering and continuations (for example after a restart) used to skip it. The first such run in a process then used the base system prompt without extension additions, such as the goal block, the Supervisor request policy, the effort policy and the bwrap sandbox line. Later ones reused the additions of the previous user prompt. `event.prompt` is empty for runs that no user prompt started.
 - The find tool no longer starts `fd` when the call was aborted during its `.git` lookup. Before, `fd` ran to completion and nothing read its output (port of upstream a07f25129, [#11974](https://github.com/earendil-works/pi-mono/issues/11974)).
 - Branch summaries can now use up to 4096 output tokens, limited by the model's maximum. Before, the cap was 2048 tokens, which cut off ordinary summaries, and such a cut-off summary is now rejected (port of upstream e44d75c20, [#8845](https://github.com/earendil-works/pi-mono/issues/8845)).

@@ -3525,19 +3525,13 @@ export class AgentSession {
 		this.agent.followUpMode = this.settingsManager.getFollowUpMode();
 	}
 
-	/**
-	 * Set steering message mode.
-	 * Saves to settings.
-	 */
+	/** Set steering message mode. Saves to settings. */
 	setSteeringMode(mode: "all" | "one-at-a-time"): void {
 		this.agent.steeringMode = mode;
 		this.settingsManager.setSteeringMode(mode);
 	}
 
-	/**
-	 * Set follow-up message mode.
-	 * Saves to settings.
-	 */
+	/** Set follow-up message mode. Saves to settings. */
 	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
 		this.agent.followUpMode = mode;
 		this.settingsManager.setFollowUpMode(mode);
@@ -3602,6 +3596,7 @@ export class AgentSession {
 					signal: compactionAbortController.signal,
 				});
 				if (preflight?.cancel) {
+					compactionAbortController.abort();
 					throw new Error("Compaction cancelled");
 				}
 			}
@@ -3621,6 +3616,7 @@ export class AgentSession {
 				});
 
 				if (result?.cancel) {
+					compactionAbortController.abort();
 					throw new Error("Compaction cancelled");
 				}
 
@@ -3741,7 +3737,8 @@ export class AgentSession {
 			saved = { result: compactionResult, willRetry };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
+			// The signal, not the error text, tells a cancellation from a failure (upstream #9777).
+			const aborted = compactionAbortController.signal.aborted;
 			if (!aborted) {
 				this._recordCompactionFailure(message);
 			}
@@ -3973,10 +3970,12 @@ export class AgentSession {
 			}
 
 			const sourceHint = await this.getCompactionSourceHint(reason, willRetry);
-			this._emit({ type: "compaction_start", reason, sourceHint });
+			// Install the controller first, so a compaction_start listener can abort (upstream #9777).
 			autoCompactionAbortController = new AbortController();
 			this._autoCompactionAbortController = autoCompactionAbortController;
+			this._emit({ type: "compaction_start", reason, sourceHint });
 			started = true;
+			autoCompactionAbortController.signal.throwIfAborted();
 			const startedAt = Date.now();
 
 			if (this._extensionRunner.hasHandlers("session_before_compact")) {
@@ -4158,18 +4157,18 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
-			this._recordCompactionFailure(errorMessage);
+			// A cancelled compaction is not a failure, whatever error the cancelled request ended with.
+			const aborted = autoCompactionAbortController?.signal.aborted === true;
+			if (!aborted) this._recordCompactionFailure(errorMessage);
 			if (started) {
+				const failurePrefix = reason === "overflow" ? "Context overflow recovery failed" : "Auto-compaction failed";
 				this._emit({
 					type: "compaction_end",
 					reason,
 					result: undefined,
-					aborted: false,
+					aborted,
 					willRetry: false,
-					errorMessage:
-						reason === "overflow"
-							? `Context overflow recovery failed: ${errorMessage}`
-							: `Auto-compaction failed: ${errorMessage}`,
+					errorMessage: aborted ? undefined : `${failurePrefix}: ${errorMessage}`,
 				});
 			}
 			return false;
