@@ -10,7 +10,11 @@ list with `Ctrl+P` and `Shift+Ctrl+P`.
 - [x] Preserve scoped model order and per-model thinking-level preferences.
 - [x] Never fall back to cycling all available models when no narrow model scope
   is configured.
-- [x] Treat a scope that covers every available model as no narrow scope.
+- [x] When no session scope is set, treat a `settings.enabledModels` scope that
+  covers every available model as no narrow scope.
+- [x] Cycle a session scope (`--models`, `/models`, or the startup scope resolved
+  from `settings.enabledModels`) as given, even when it covers every available
+  model. `/models` clears the session scope when every model is selected.
 
 ## Implementation inventory
 
