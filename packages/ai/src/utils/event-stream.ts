@@ -1,8 +1,30 @@
 import type { AssistantMessage, AssistantMessageEvent } from "../types.ts";
 
+/** Two-stack FIFO: amortized O(1) dequeue, where Array.shift() made draining a buffered stream quadratic. */
+class FifoQueue<T> {
+	private incoming: T[] = [];
+	private outgoing: T[] = [];
+
+	get length(): number {
+		return this.incoming.length + this.outgoing.length;
+	}
+
+	enqueue(value: T): void {
+		this.incoming.push(value);
+	}
+
+	dequeue(): T | undefined {
+		if (this.outgoing.length === 0) {
+			this.outgoing = this.incoming.reverse();
+			this.incoming = [];
+		}
+		return this.outgoing.pop();
+	}
+}
+
 // Generic event stream class for async iteration
 export class EventStream<T, R = T> implements AsyncIterable<T> {
-	private queue: T[] = [];
+	private queue = new FifoQueue<T>();
 	private waiting: Array<{
 		resolve: (value: IteratorResult<T>) => void;
 		reject: (error: unknown) => void;
@@ -39,7 +61,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 		if (waiter) {
 			waiter.resolve({ value: event, done: false });
 		} else {
-			this.queue.push(event);
+			this.queue.enqueue(event);
 		}
 	}
 
@@ -71,9 +93,8 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 
 	async *[Symbol.asyncIterator](): AsyncIterator<T> {
 		while (true) {
-			const queued = this.queue.shift();
-			if (queued !== undefined) {
-				yield queued;
+			if (this.queue.length > 0) {
+				yield this.queue.dequeue() as T;
 			} else if (this.done) {
 				if (this.failed) throw this.failure;
 				return;
