@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fuzzy matching folds Greek final sigma, so an uppercase query such as `ΟΣ` matches `ΟΣΛΟ`
 - Completing a slash command with the cursor inside its name replaces the whole name instead of keeping the text after the cursor (`/mod|el sonnet` no longer becomes `/model el sonnet`)
 - `@` file completion matches mixed-case queries case-insensitively (`@Read` finds `README.md`), an explicit `@.git/` query no longer lists `.git` contents, and Tab after a slash command and a space (`/model `) opens argument completion again.
 - Fixed `Input` paste keeping tmux CSI-u control keys (`\x1b[106;5u`) and DEL/C1 control bytes in the value, where a pasted `\x9b` sequence reached the terminal when the line was rendered

@@ -20,6 +20,11 @@ describe("fuzzyMatch", () => {
 		assert.ok(result.score < 0); // Should be negative due to consecutive bonuses
 	});
 
+	it("matches an uppercase Greek query ending in sigma inside a word", () => {
+		assert.strictEqual(fuzzyMatch("ΟΣ", "Ταξίδι στο ΟΣΛΟ").matches, true);
+		assert.strictEqual(fuzzyMatch("οσλο", "ΟΣΛΟΣ").matches, true);
+	});
+
 	it("characters must appear in order", () => {
 		const matchInOrder = fuzzyMatch("abc", "aXbXc");
 		assert.strictEqual(matchInOrder.matches, true);

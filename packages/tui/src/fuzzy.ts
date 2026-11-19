@@ -9,9 +9,14 @@ export interface FuzzyMatch {
 	score: number;
 }
 
+/** Lowercases for comparison; Greek final sigma folds to σ, since lowercasing picks ς only at the end of a word. */
+function foldCase(value: string): string {
+	return value.toLowerCase().replace(/ς/g, "σ");
+}
+
 export function fuzzyMatch(query: string, text: string): FuzzyMatch {
-	const queryLower = query.toLowerCase();
-	const textLower = text.toLowerCase();
+	const queryLower = foldCase(query);
+	const textLower = foldCase(text);
 
 	const matchQuery = (normalizedQuery: string): FuzzyMatch => {
 		if (normalizedQuery.length === 0) {
