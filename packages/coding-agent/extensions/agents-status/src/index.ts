@@ -142,11 +142,18 @@ function renderAgentRow(row: AgentRow, columns: ColumnWidths, width: number, now
 	const indent = row.depth > 0 ? `${"  ".repeat(row.depth - 1)}└ ` : "";
 	const name = padColumn(row.agent.displayName, columns.name);
 	const kind = theme.fg("dim", padColumn(describeAgentKind(row.agent), columns.kind));
-	const left = ` ${indent}${lifecycleIcon(row.agent.lifecycle, theme)} ${name}  ${kind}  `;
 	const elapsed = theme.fg("dim", formatElapsedDuration(elapsedMs(row.agent, nowMs)));
-	const activityWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(elapsed) - 2);
+	const elapsedWidth = visibleWidth(elapsed);
+	// The right-aligned elapsed time always fits; a narrow terminal shortens the name and kind columns instead.
+	const leftWidth = Math.max(0, width - elapsedWidth - 1);
+	const left = truncateToWidth(
+		` ${indent}${lifecycleIcon(row.agent.lifecycle, theme)} ${name}  ${kind}  `,
+		leftWidth,
+		"…",
+	);
+	const activityWidth = Math.max(0, width - visibleWidth(left) - elapsedWidth - 2);
 	const activity = truncateToWidth(singleLine(describeActivity(row.agent)), activityWidth, "…");
-	const padding = " ".repeat(Math.max(2, width - visibleWidth(left) - visibleWidth(activity) - visibleWidth(elapsed)));
+	const padding = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(activity) - elapsedWidth));
 	return truncateToWidth(`${left}${theme.fg("muted", activity)}${padding}${elapsed}`, width, "…");
 }
 

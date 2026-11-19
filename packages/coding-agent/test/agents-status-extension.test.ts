@@ -93,6 +93,23 @@ describe("agents status widget", () => {
 		expect(lines[0]).toMatch(/1s$/);
 	});
 
+	it("keeps the elapsed time when name and kind fill a narrow terminal", () => {
+		const lines = render(
+			[
+				agent({
+					id: "audit-footer-width-edge",
+					agentType: "reviewer",
+					model: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+					currentActivity: { phase: "thinking", startedAt: "2026-10-08T11:59:48.000Z" },
+				}),
+			],
+			50,
+		);
+		expect(lines).toHaveLength(1);
+		expect(visibleWidth(lines[0])).toBeLessThanOrEqual(50);
+		expect(lines[0]).toMatch(/^ ● audit-footer-width-edge .*… 12s$/);
+	});
+
 	it("orders waiting agents first and nests children under their parent", () => {
 		const rows = collectAgentRows(
 			[
