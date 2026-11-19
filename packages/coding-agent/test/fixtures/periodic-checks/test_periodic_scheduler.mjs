@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
@@ -650,4 +650,19 @@ test("Git subdirectory still uses the repository root checklist, not one in the 
 	await f.tick();
 	assert.equal(f.calls.length, 1);
 	assert.ok(f.calls[0].params.prompt.includes(JSON.stringify(f.checklist)));
+});
+
+test("a failed Git root check reports the error and skips that audit only", async (t) => {
+	const f = await fixture(t);
+	f.emit("session_start");
+	const gitConfig = join(f.project, ".git", "config");
+	const healthyConfig = readFileSync(gitConfig, "utf8");
+	writeFileSync(gitConfig, "[core\n");
+	await f.tick();
+	assert.equal(f.calls.length, 0);
+	assert.equal(f.notifications.at(-1)?.type, "error");
+	assert.match(f.notifications.at(-1)?.text ?? "", /Periodic audit refused.*Cannot discover Git project root.*bad config/);
+	writeFileSync(gitConfig, healthyConfig);
+	await f.tick();
+	assert.equal(f.calls.length, 1);
 });

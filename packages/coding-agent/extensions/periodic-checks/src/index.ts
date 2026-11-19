@@ -55,6 +55,7 @@ function queryProjectRoot(cwd: string): string {
 	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 		cwd,
 		encoding: "utf8",
+		env: { ...process.env, LC_ALL: "C" },
 		timeout: gitTimeoutMs,
 		maxBuffer: gitMaxBuffer,
 	});
@@ -63,8 +64,10 @@ function queryProjectRoot(cwd: string): string {
 			cause: git.error,
 		});
 	}
-	const gitRoot = git.status === 0 ? git.stdout.trim() : "";
-	return gitRoot || cwd;
+	if (git.status === 0) return git.stdout.trim() || cwd;
+	if (git.stderr.includes("not a git repository")) return cwd;
+	const reason = git.stderr.trim() || `git exited with status ${git.status}`;
+	throw new Error(`Cannot discover Git project root at ${cwd}: ${reason}`);
 }
 
 function auditDisabledReason(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
