@@ -236,9 +236,10 @@ export function createFindToolDefinition(
 						// like 'src/**/*.spec.ts' at the search root, as grep's glob is: it must not match through
 						// an ancestor of the root, nor a nested directory such as 'lib/src/'.
 						// A leading './' already means the search root; the anchor below would turn it into '/./'.
+						// It still anchors the pattern: './*.ts' lists only top-level files.
 						const rootPattern = pattern.replace(/^(\.\/)+/, "");
 						let effectivePattern = rootPattern;
-						if (rootPattern.includes("/")) {
+						if (pattern.includes("/")) {
 							args.push("--full-path");
 							if (!rootPattern.startsWith("/")) {
 								const root = toPosixPath(searchPath)

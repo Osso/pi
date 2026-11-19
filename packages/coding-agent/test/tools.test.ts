@@ -1399,6 +1399,16 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result)).toBe("src/x.ts");
 		});
 
+		it("treats ./*.ts as top-level files of the search root", async () => {
+			writeFileSync(join(testDir, "top.ts"), "x");
+			mkdirSync(join(testDir, "nested"));
+			writeFileSync(join(testDir, "nested", "child.ts"), "x");
+
+			const result = await findTool.execute("find-dot-slash-top", { pattern: "./*.ts", path: testDir });
+
+			expect(getTextOutput(result)).toBe("top.ts");
+		});
+
 		it("should respect .gitignore", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
