@@ -80,6 +80,14 @@ export function computeFileLists(fileOps: FileOperations): { readFiles: string[]
 	};
 }
 
+/** Remove the file lists appended by formatFileOperations, so a carried-forward summary ends up with one current block. */
+export function stripFileOperations(summary: string): string {
+	return summary.replace(
+		/(\n\n<read-files>\n[\s\S]*?\n<\/read-files>)?(\n\n<modified-files>\n[\s\S]*?\n<\/modified-files>)?$/,
+		"",
+	);
+}
+
 /**
  * Format file operations as XML tags for summary.
  */

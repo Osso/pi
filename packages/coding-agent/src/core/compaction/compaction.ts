@@ -35,6 +35,7 @@ import {
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
 	serializeConversation,
+	stripFileOperations,
 	summarizationFailureReason,
 } from "./utils.ts";
 
@@ -846,8 +847,7 @@ export function prepareCompaction(
 		return undefined;
 	}
 
-	// File operations in use order: the previous compaction's lists, then every summarized entry
-	// (history and split-turn prefix). Built-in branch summaries carry the lists of the branch they replaced.
+	// File operations in use order; built-in branch summaries carry the lists of the branch they replaced.
 	const fileOps = createFileOps();
 	const prevCompaction = pathEntries[prevCompactionIndex];
 	if (prevCompaction?.type === "compaction") addSummaryFileOps(prevCompaction, fileOps);
@@ -940,7 +940,7 @@ export async function compact(
 						sessionId,
 					)
 				: // The kept turn began before the previous compaction: carry its summary forward unchanged.
-					(previousSummary ?? "No prior history.");
+					stripFileOperations(previousSummary ?? "No prior history.");
 		const turnPrefixResult = await generateTurnPrefixSummary(
 			turnPrefixMessages,
 			model,

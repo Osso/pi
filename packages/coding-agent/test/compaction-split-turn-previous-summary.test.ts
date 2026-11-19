@@ -84,3 +84,20 @@ it("keeps the previous summary when a repeated compaction splits the turn the pr
 	expect(result.summary).not.toContain("No prior history.");
 	expect(requests).toHaveLength(1);
 });
+
+it("carries the previous summary forward with one current file list", async () => {
+	const entries = buildLongTurnAfterCompaction();
+	const previous = entries.find((entry) => entry.type === "compaction");
+	if (previous?.type !== "compaction") throw new Error("Expected the first compaction");
+	previous.summary += "\n\n<read-files>\nold/read-0.ts\nstep-1.txt\n</read-files>";
+	previous.details = { readFiles: ["old/read-0.ts", "step-1.txt"], modifiedFiles: [] };
+	const preparation = prepareCompaction(entries, { enabled: true, reserveTokens: 2000, keepRecentMessages: 4 });
+	if (!preparation) throw new Error("Expected a compaction preparation");
+	expect(preparation.isSplitTurn).toBe(true);
+
+	const result = await compact(preparation, faux.getModel(), "test-key");
+
+	expect(result.summary.match(/<read-files>/g)).toHaveLength(1);
+	expect(result.summary).toContain("FIRST SUMMARY: user wants the parser refactored; deadline Friday.");
+	expect(result.summary.match(/step-1\.txt/g)).toHaveLength(1);
+});
