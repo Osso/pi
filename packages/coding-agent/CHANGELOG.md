@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `Thought for <duration>` now also appears before a tool row when the assistant streamed text before its first tool call
 - Fixed `--architect`, `--export-terminal`/`--export-columns` and `--offline` being honored after the `--` end-of-options delimiter, where they are prompt text
 - `pi tools` and `/tools` keep a multi-line tool description on its table row instead of printing the extra lines unlabelled
 - `--export-terminal codex/local.jsonl` exports an existing saved transcript at that relative path instead of rejecting it as an external session alias.
