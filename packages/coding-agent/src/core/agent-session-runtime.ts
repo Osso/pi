@@ -221,9 +221,11 @@ export class AgentSessionRuntime {
 
 	private async teardownCurrent(reason: SessionShutdownEvent["reason"], targetSessionFile?: string): Promise<void> {
 		const session = this.session;
-		// On quit, settle a running turn first so its aborted tool results are persisted (#9124).
-		if (reason === "quit") await session.abort();
-		await emitSessionShutdownEvent(session.extensionRunner, { type: "session_shutdown", reason, targetSessionFile });
+		await emitSessionShutdownEvent(session.extensionRunner, {
+			type: "session_shutdown",
+			reason,
+			targetSessionFile,
+		});
 		this.beforeSessionInvalidate?.();
 		removeAbandonedEmptySession(session.sessionManager, targetSessionFile);
 		session.dispose();
