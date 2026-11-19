@@ -1280,7 +1280,10 @@ describe("openai-codex streaming", () => {
 		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" });
 		await streamResult.result();
 	});
-	it("forwards auto transport from streamSimple options and uses cached websocket context", async () => {
+	it.each([
+		{ name: "auto transport", options: { transport: "auto" as const } },
+		{ name: "an omitted transport", options: {} },
+	])("uses cached websocket context for $name from streamSimple options", async ({ options }) => {
 		const token = mockToken();
 		const sentBodies: unknown[] = [];
 		let capturedWebSocketHeaders: Record<string, string> | undefined;
@@ -1347,7 +1350,7 @@ describe("openai-codex streaming", () => {
 		await streamSimpleOpenAICodexResponses(model, context, {
 			apiKey: token,
 			sessionId: "session-auto",
-			transport: "auto",
+			...options,
 		}).result();
 
 		expect(sentBodies).toHaveLength(1);

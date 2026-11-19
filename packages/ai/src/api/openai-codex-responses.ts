@@ -1526,7 +1526,7 @@ async function processWebSocketStream(
 		options?.env,
 	);
 	let keepConnection = true;
-	const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
+	const useCachedContext = ["websocket-cached", "auto"].includes(options?.transport || "auto"); // omitted = auto
 	diagnostic?.setTransport(useCachedContext && entry ? "websocket-cached" : "websocket");
 	// ChatGPT Codex Responses rejects `store: true` ("Store must be set to false").
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
