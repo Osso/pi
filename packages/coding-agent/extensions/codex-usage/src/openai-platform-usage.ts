@@ -43,17 +43,18 @@ export async function readOpenAiPlatformRows(ctx: ExtensionCommandContext): Prom
 }
 
 async function readOpenAiPlatformRow(ctx: ExtensionCommandContext, providerId: string): Promise<OpenAiPlatformRow> {
+	// The row keeps the account email once known, so a later costs failure still names the account.
 	const row: OpenAiPlatformRow = { provider: providerId, account: providerId, today: null, month: null };
 	try {
 		const apiKey = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
 		if (!apiKey) return { ...row, status: "not logged in" };
-		const account = sanitizeUsageText((await readOpenAiAccountEmail(apiKey)) ?? providerId);
+		row.account = sanitizeUsageText((await readOpenAiAccountEmail(apiKey)) ?? providerId);
 		const adminKeyPath = openAiAdminKeyPath(providerId);
 		const adminKey = await readOptionalText(adminKeyPath);
-		if (!adminKey) return { ...row, account, status: `no admin key: ${adminKeyPath}` };
+		if (!adminKey) return { ...row, status: `no admin key: ${adminKeyPath}` };
 		const buckets = await readOpenAiCostBuckets(adminKey);
 		const spend = sumOpenAiSpend(buckets, startOfUtcToday());
-		return { ...row, account, today: formatUsd(spend.today), month: formatUsd(spend.month) };
+		return { ...row, today: formatUsd(spend.today), month: formatUsd(spend.month) };
 	} catch (error) {
 		return { ...row, status: `error: ${formatUsageError(error)}` };
 	}

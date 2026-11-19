@@ -501,6 +501,28 @@ describe("registered /usage openai platform spend", () => {
 		});
 	});
 
+	it("keeps the account email on the error row when the costs request fails", async () => {
+		await useTemporaryAgentDir(async (agentDir) => {
+			const h = registerUsage("openai-codex");
+			h.has.mockImplementation((providerId) => providerId === "openai");
+			writeFileSync(join(agentDir, "openai-admin.key"), "sk-admin-test");
+			h.fetch.mockImplementation(async (input) => {
+				const url = String(input);
+				if (url === "https://api.openai.com/v1/me") return Response.json({ email: "api-owner@example.com" });
+				if (url.startsWith("https://api.openai.com/v1/organization/costs?")) {
+					return new Response("unauthorized", { status: 401 });
+				}
+				return allUsageResponse();
+			});
+
+			await h.command.handler("openai", h.ctx);
+
+			const content: string = h.sendMessage.mock.calls[0][0].content;
+			const errorRow = content.split("\n").find((line) => line.includes("error:"));
+			expect(errorRow).toContain("api-owner@example.com");
+		});
+	});
+
 	it("places platform spend between the account table and the DeepSeek table in /usage all", async () => {
 		await useTemporaryAgentDir(async (agentDir) => {
 			const h = registerUsage("openai-codex");
