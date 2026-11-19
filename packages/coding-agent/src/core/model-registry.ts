@@ -802,15 +802,15 @@ export class ModelRegistry {
 				includeFallback: providerConfig?.authHeader === true && !providerConfig.apiKey, // authHeader needs the env key
 				throwOnRefreshFailure: true,
 			});
+			// An auth.json entry owns the provider: one that resolves to no key fails instead of sending no key.
+			if (apiKeyFromAuthStorage === undefined && this.authStorage.has(model.provider)) {
+				return { ok: false, error: `Credential for "${model.provider}" in auth.json resolved to no API key` };
+			}
+			const configuredKey = providerConfig?.apiKey;
+			const keyName = `API key for provider "${model.provider}"`;
 			const apiKey =
 				apiKeyFromAuthStorage ??
-				(providerConfig?.apiKey && !this.authStorage.has(model.provider) // an auth.json entry owns the provider
-					? resolveConfigValueOrThrow(
-							providerConfig.apiKey,
-							`API key for provider "${model.provider}"`,
-							providerEnv,
-						)
-					: undefined);
+				(configuredKey ? resolveConfigValueOrThrow(configuredKey, keyName, providerEnv) : undefined);
 
 			const providerHeaders = resolveHeadersOrThrow(
 				providerConfig?.headers,

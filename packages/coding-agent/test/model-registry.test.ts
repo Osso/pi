@@ -1936,7 +1936,7 @@ describe("ModelRegistry", () => {
 				}
 			});
 
-			test("getApiKeyAndHeaders keeps an unresolved auth.json key instead of the models.json key", async () => {
+			test("getApiKeyAndHeaders fails on an unresolved auth.json key instead of using the models.json key", async () => {
 				authStorage.set("custom-provider", { type: "api_key", key: "$PI_TEST_UNSET_PROVIDER_KEY" });
 				writeRawModelsJson({ "custom-provider": providerWithApiKey("models-key") });
 
@@ -1944,7 +1944,10 @@ describe("ModelRegistry", () => {
 				const auth = await registry.getApiKeyAndHeaders(
 					requireValue(registry.find("custom-provider", "test-model")),
 				);
-				expect(auth).toEqual({ ok: true, apiKey: undefined, headers: undefined });
+				expect(auth).toEqual({
+					ok: false,
+					error: 'Credential for "custom-provider" in auth.json resolved to no API key',
+				});
 			});
 		});
 	});

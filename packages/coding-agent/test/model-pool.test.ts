@@ -221,6 +221,20 @@ describe("model pools", () => {
 		expect(reg.getAvailable()).toContain(pool(reg));
 	});
 
+	test("skips a member whose auth.json key resolves to no value and fails over to the next", async () => {
+		const reg = registry();
+		auth.set(FIRST, { type: "api_key", key: "$PI_POOL_TEST_UNSET_KEY" });
+		auth.set(SECOND, { type: "api_key", key: "second-key" });
+		const request = register((model) => fromEvents(events(model)));
+
+		const result = await streamSimple(pool(reg), context).result();
+
+		expect(result.stopReason).toBe("stop");
+		expect(request.mock.calls.map(([model, , options]) => [model.provider, options?.apiKey])).toEqual([
+			[SECOND, "second-key"],
+		]);
+	});
+
 	test("uses each member's own key with caller headers and env layered over member auth", async () => {
 		const reg = registry({
 			[FIRST]: { ...provider(FIRST_ID), headers: { "X-Member": "$MEMBER_HEADER" } },

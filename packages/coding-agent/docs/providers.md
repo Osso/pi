@@ -316,4 +316,4 @@ When resolving credentials for a provider:
 3. Environment variable
 4. Custom provider keys from `models.json`
 
-Once an `auth.json` entry exists, it owns that provider, even if its API-key value is empty or unresolved. Ambient environment and credential-file fallback is used only when no entry exists.
+Once an `auth.json` entry exists, it owns that provider, even if its API-key value is empty or unresolved. Ambient environment and credential-file fallback is used only when no entry exists. A request for a provider whose entry resolves to no key fails with an auth error instead of being sent without a key; a model pool skips that member.

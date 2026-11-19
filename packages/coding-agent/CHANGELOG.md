@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- An `auth.json` credential that resolves to no API key (for example `$VAR` with `VAR` unset) is now an auth error; before, the request was sent without a key, and a model pool tried that member instead of failing over to the next
 - `/export <file>.jsonl` writes the whole current branch of a reopened compacted session; before, it wrote only the active slice loaded in memory and dropped the history before the compaction's first kept entry
 - `/usage openai` reads the clock once for platform spend, so a costs request that crosses midnight UTC no longer reports $0.00 for today beside the previous month's total
 - `/usage` shows `-` instead of `1969-12-31 18:00` for an ISO reset timestamp at epoch zero (OpenRouter `effective_budget.resets_at`, OpenCode Go, Open Grove)
