@@ -5098,9 +5098,7 @@ export class AgentSession {
 				summaryEntry = this.sessionManager.getEntry(summaryId) as BranchSummaryEntry;
 
 				// Attach label to the summary entry
-				if (label) {
-					this.sessionManager.appendLabelChange(summaryId, label);
-				}
+				if (label) this.sessionManager.appendLabelChange(summaryId, label);
 			} else if (newLeafId === null) {
 				// No summary, navigating to root - reset leaf
 				this.sessionManager.resetLeaf();
@@ -5117,6 +5115,7 @@ export class AgentSession {
 			// Update agent state
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			this._scheduleIdleCompaction(); // The selected branch has its own latest request and deadline.
 			// The new leaf is installed: session_tree handlers may prompt or navigate again.
 			this._branchSummaryAbortController = undefined;
 			releaseTurnStart();

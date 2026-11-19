@@ -170,6 +170,29 @@ describe("idle prompt-cache compaction", () => {
 		await expectIdleCompaction(harness);
 	});
 
+	it("rearms the idle timer for the branch selected with /tree", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const harness = await createIdleHarness({ api: "openai-codex-responses", provider: "openai-codex" });
+		harnesses.push(harness);
+		harness.setResponses([
+			endTurn("answer"),
+			endTurn("follow-up answer"),
+			endTurn("late answer"),
+			fauxAssistantMessage("idle summary"),
+		]);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		const branchDueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
+		const branchLeafId = harness.sessionManager.getLeafId();
+		if (!branchLeafId) throw new Error("Expected a leaf after the second turn");
+		await advanceTo(lastRequestStartedAt(harness) + 20 * MINUTE_MS);
+		await harness.session.prompt("late prompt on another branch");
+		await harness.session.navigateTree(branchLeafId, { summarize: false });
+
+		await advanceTo(branchDueAt + SECOND_MS);
+		await expectIdleCompaction(harness);
+	});
+
 	it("waits for a tool running past the deadline, then compacts from the run's latest request", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
 		const toolStarted = createDeferred();
