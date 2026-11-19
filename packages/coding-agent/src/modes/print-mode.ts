@@ -38,7 +38,9 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 		// Extension notes appended after the turn (e.g. from turn_end) do not end it.
 		if (message.role === "custom") continue;
 		if (message.role !== "assistant") return undefined;
-		if (message.stopReason === "error" || message.stopReason === "aborted") return message;
+		// A truncated response is reported even when the limit hit before any visible text.
+		if (message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length")
+			return message;
 		if (message.content.some((content) => getAssistantContentText(content))) return message;
 		if (message.content.some((content) => content.type === "toolCall" && content.name === "end_turn")) continue;
 		return undefined;

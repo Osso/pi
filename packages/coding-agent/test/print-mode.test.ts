@@ -562,6 +562,20 @@ describe("runPrintMode", () => {
 		expect(errorSpy).toHaveBeenCalledWith("Response was truncated: the model reached its output token limit.");
 	});
 
+	it("warns and returns non-zero when the output limit hits before any visible text", async () => {
+		const output = captureStdout();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const message = createAssistantMessage({ stopReason: "length" });
+		message.content.push({ type: "thinking", thinking: "private reasoning" });
+		const runtimeHost = createRuntimeHost(message);
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+		expect(exitCode).toBe(1);
+		expect(output.join("")).toBe("");
+		expect(errorSpy).toHaveBeenCalledWith("Response was truncated: the model reached its output token limit.");
+	});
+
 	it("prints signed public narration before end_turn without exposing ordinary thinking or changing wire blocks", async () => {
 		const output = captureStdout();
 		const message = createAssistantMessage({ stopReason: "toolUse", endTurn: true });
