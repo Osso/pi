@@ -1,9 +1,46 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { prepareResidentSessionFile } from "../src/core/resident-session.ts";
-import { listSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
+import {
+	listSessionMetadata,
+	registerRuntimeMailboxListener,
+	writeSessionMetadata,
+} from "../src/core/session-control-db.ts";
+
+describe("resident live transcript through a symlinked agent dir", () => {
+	it("keeps the live transcript registered through the real path", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-resident-alias-"));
+		try {
+			const controlDbPath = join(root, "control.sqlite");
+			const realDir = join(root, "agent-real");
+			const aliasDir = join(root, "agent-alias");
+			mkdirSync(join(realDir, "architect-sessions"), { recursive: true });
+			symlinkSync(realDir, aliasDir);
+			const livePath = join(realDir, "architect-sessions", "2026-09-01T00-00-00-000Z_architect.jsonl");
+			const newerPath = join(realDir, "architect-sessions", "2026-09-02T00-00-00-000Z_architect.jsonl");
+			writeFileSync(livePath, "live\n");
+			writeFileSync(newerPath, "inactive\n");
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId: null, sessionId: "architect" },
+				process.pid,
+				livePath,
+			);
+
+			const prepared = prepareResidentSessionFile(aliasDir, "architect", controlDbPath);
+
+			expect(prepared.sessionPath).toBe(
+				join(aliasDir, "architect-sessions", "2026-09-01T00-00-00-000Z_architect.jsonl"),
+			);
+			expect(readFileSync(livePath, "utf8")).toBe("live\n");
+			expect(existsSync(newerPath)).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
 
 for (const role of ["architect", "supervisor"] as const) {
 	describe(`${role} resident metadata cleanup`, () => {

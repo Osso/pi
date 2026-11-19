@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import { listSessionMetadata, readRuntimeMailboxListener, removeSessionMetadata } from "./session-control-db.ts";
@@ -53,7 +53,10 @@ function findLiveResidentSessionPath(
 	const listener = readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: role });
 	if (!listener?.sessionPath || !isPiRuntimeProcessAlive(listener.pid)) return undefined;
 	const sessionPath = resolve(listener.sessionPath);
-	return dirname(sessionPath) === resolve(sessionDir) && sessionPath.endsWith(".jsonl") ? sessionPath : undefined;
+	const listenerDir = dirname(sessionPath);
+	// Compare filesystem identity: the live runtime may have opened the same directory through a symlink.
+	if (!sessionPath.endsWith(".jsonl") || !existsSync(listenerDir)) return undefined;
+	return realpathSync(listenerDir) === realpathSync(sessionDir) ? join(sessionDir, basename(sessionPath)) : undefined;
 }
 
 function isResidentSessionForRole(session: { id: string; sessionPath: string }, role: ResidentRole): boolean {
