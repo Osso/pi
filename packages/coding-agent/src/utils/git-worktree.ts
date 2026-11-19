@@ -64,7 +64,7 @@ function parseWorktreePaths(output: string): string[] {
 	return output
 		.split(/\r?\n/)
 		.filter((line) => line.startsWith("worktree "))
-		.map((line) => line.slice("worktree ".length).trim())
+		.map((line) => line.slice("worktree ".length)) // Paths may end in whitespace; never trim them.
 		.filter((line) => line.length > 0);
 }
 

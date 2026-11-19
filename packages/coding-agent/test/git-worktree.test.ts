@@ -39,6 +39,18 @@ describe("resolveWorktree", () => {
 		]);
 	});
 
+	it("reuses an existing worktree whose name ends in a space", async () => {
+		const git = createGitExec([
+			{ stdout: "/repo/project\n" },
+			{ stdout: "worktree /repo/project\nHEAD abc\n\nworktree /repo/project-feature \nHEAD def\n" },
+		]);
+
+		await expect(resolveWorktree("feature ", { cwd: "/repo/project", exec: git.exec })).resolves.toBe(
+			"/repo/project-feature ",
+		);
+		expect(git.calls).toHaveLength(2);
+	});
+
 	it("creates a new sibling worktree from origin/main", async () => {
 		const git = createGitExec([
 			{ stdout: "/repo/project\n" },

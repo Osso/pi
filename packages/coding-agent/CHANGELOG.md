@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `pi -w <name>` reuses an existing worktree whose path ends in whitespace instead of failing to create it again
 - A shared-channel post delivered to an idle session advances the read cursor when its turn starts, so `wait_agent({})` in that turn no longer returns the same post again
 - Date-bounded session history search no longer repeats a page when a new match (such as the message asking for the next page) is appended between pages
 - Restoring disabled multi-agent mode on session start or `/tree` now shows effort `max` instead of `ultra`, which implies proactive delegation
