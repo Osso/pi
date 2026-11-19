@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/fast` now works on custom Responses API providers such as a CLIProxyAPI `proxy` relay, which forwards `service_tier` to Codex; previously it rejected them as non-Codex providers.
 - The session picker clears its rows while a newly selected scope loads, so a quick delete or Enter cannot act on a session from the previous scope
 - A goal completion re-review that says continue no longer starts work on a paused goal, and counts the continuation turn it sends
 - `pi --mode json` keeps writing events while the session shuts down, so entries appended by `session_shutdown` handlers reach stdout

@@ -4,11 +4,11 @@ Contract: [Codex fast mode](../../specs/codex-fast-mode.md).
 
 ## Authority and requests
 
-[`codex-fast/src/index.ts`](../../../packages/coding-agent/extensions/codex-fast/src/index.ts) registers `/fast`. Bare invocation toggles priority/off; `on`, `ultra`, and `off` select priority, ultrafast, and disabled respectively. Enabling requires `openai-codex`, `openai-codex-gc`, or `openai-codex-team`; this check is implemented despite its unchecked spec item. Invalid arguments or child-runtime commands warn without changing authority.
+[`codex-fast/src/index.ts`](../../../packages/coding-agent/extensions/codex-fast/src/index.ts) registers `/fast`. Bare invocation toggles priority/off; `on`, `ultra`, and `off` select priority, ultrafast, and disabled respectively. Enabling requires `openai-codex`, `openai-codex-gc`, `openai-codex-team`, or a custom provider (not in `getProviders()`) whose current model uses `openai-responses`, such as the CLIProxyAPI `proxy` relay. The built-in `openai` provider stays unsupported. Invalid arguments or child-runtime commands warn without changing authority.
 
 [`main.ts`](../../../packages/coding-agent/src/main.ts) constructs a mutable `FastModeAuthority` shared through first-party extension factories. Explicit child identity (`multiAgentAgentId` or `multiAgentRequiresAgentId`) prevents command mutation; historical subagent transcript provenance does not.
 
-Every `before_provider_request` reads current authority. Supported Codex object payloads are shallow-copied with `service_tier: "priority"` or `"ultrafast"`. Unsupported providers and disabled mode leave payloads unchanged. Non-object payloads warn for that request without clearing the tier. Footer behavior is independent of command targeting and request mutation; selecting a child does not change either.
+Every `before_provider_request` reads current authority. Supported object payloads are shallow-copied with `service_tier: "priority"` or `"ultrafast"`. Unsupported providers and disabled mode leave payloads unchanged. Non-object payloads warn for that request without clearing the tier. Footer behavior is independent of command targeting and request mutation; selecting a child does not change either.
 
 ## Displayed-session footer
 

@@ -10,7 +10,7 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 - [x] Register `/fast` as a first-party extension command rather than a core built-in command.
 - [x] Let bare `/fast` enable `priority` when disabled and disable fast mode when enabled; `/fast on` selects `priority`, `/fast ultra` selects `ultrafast`, and `/fast off` disables it.
-- [ ] Reject enabling fast mode unless the current provider is `openai-codex`, `openai-codex-gc`, or `openai-codex-team`.
+- [x] Reject enabling fast mode unless the current provider is `openai-codex`, `openai-codex-gc`, or `openai-codex-team`, or a custom (non-built-in) provider whose current model uses the `openai-responses` API, such as a CLIProxyAPI relay that forwards `service_tier` to Codex.
 - [x] Allow only the current main/orchestrator runtime to mutate the shared authority; spawned and attached
   child `/fast` commands warn and leave it unchanged. Explicit runtime child identity is authoritative;
   historical `is_subagent` transcript provenance alone does not classify a runtime opened as main.

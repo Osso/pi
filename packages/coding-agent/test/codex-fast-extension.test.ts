@@ -192,6 +192,34 @@ describe("Codex fast mode extension", () => {
 		expect(notify).toHaveBeenCalledWith("Fast mode requires a Codex provider", "warning");
 	});
 
+	it("supports a custom Responses API relay provider but not its other APIs", async () => {
+		const { beforeProviderRequest, command, ctx, notify } = createHarness({ provider: "proxy" });
+		const mutableContext = ctx as unknown as { model: ExtensionContext["model"] };
+		const event = {
+			payload: { model: "gpt-6.2-sol" },
+			type: "before_provider_request",
+		} as BeforeProviderRequestEvent;
+		mutableContext.model = { ...assertDefined(ctx.model), api: "openai-completions" };
+		await command.handler("on", ctx);
+		expect(notify).toHaveBeenLastCalledWith("Fast mode requires a Codex provider", "warning");
+
+		mutableContext.model = { ...assertDefined(ctx.model), api: "openai-responses" };
+		await command.handler("on", ctx);
+
+		expect(notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
+		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "gpt-6.2-sol", service_tier: "priority" });
+	});
+
+	it("keeps rejecting the built-in OpenAI provider on the Responses API", async () => {
+		const { command, ctx, notify } = createHarness({ provider: "openai" });
+		const mutableContext = ctx as unknown as { model: ExtensionContext["model"] };
+		mutableContext.model = { ...assertDefined(ctx.model), api: "openai-responses" };
+
+		await command.handler("on", ctx);
+
+		expect(notify).toHaveBeenCalledWith("Fast mode requires a Codex provider", "warning");
+	});
+
 	it("adds priority service tier only while enabled on Codex requests", async () => {
 		const { beforeProviderRequest, command, ctx } = createHarness();
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;

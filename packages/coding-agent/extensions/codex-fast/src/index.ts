@@ -1,4 +1,5 @@
 import type { Model } from "@earendil-works/pi-ai";
+import { getProviders } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 
@@ -7,6 +8,7 @@ const FAST_STATUS_KEY = "codex-fast";
 const PRIORITY_SERVICE_TIER = "priority";
 const ULTRAFAST_SERVICE_TIER = "ultrafast";
 const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc", "openai-codex-team"]);
+const BUILT_IN_PROVIDERS = new Set<string>(getProviders());
 
 type FastServiceTier = typeof PRIORITY_SERVICE_TIER | typeof ULTRAFAST_SERVICE_TIER;
 
@@ -14,8 +16,14 @@ type FastModeEntry = {
 	serviceTier: FastServiceTier | null;
 };
 
+/**
+ * Codex providers, plus custom (models.json) providers on the Responses API: a relay such as CLIProxyAPI
+ * forwards `service_tier` to Codex. Built-in providers such as `openai` stay unsupported.
+ */
 function supportsFastMode(model: Model<string> | null | undefined): boolean {
-	return model != null && SUPPORTED_PROVIDERS.has(model.provider);
+	if (model == null) return false;
+	if (SUPPORTED_PROVIDERS.has(model.provider)) return true;
+	return model.api === "openai-responses" && !BUILT_IN_PROVIDERS.has(model.provider);
 }
 
 function requestedFastMode(
