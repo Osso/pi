@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../../../src/core/keybindings.ts";
 import { ModelSelectorComponent } from "../../../src/modes/interactive/components/model-selector.ts";
 import { ScopedModelsSelectorComponent } from "../../../src/modes/interactive/components/scoped-models-selector.ts";
+import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../../src/utils/ansi.ts";
 import { createHarness, type Harness } from "../harness.ts";
@@ -94,6 +95,52 @@ describe("issue #3217 scoped model ordering", () => {
 		selector.handleInput("\x1b[1;3B");
 
 		expect(changes).toEqual([[orderedIds[1], orderedIds[0], orderedIds[2]]]);
+	});
+
+	it("keeps per-model thinking levels when /scoped-models reorders and saves", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+				{ id: "faux-3", name: "Three", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+		const [one, two] = harness.models;
+		harness.session.setScopedModels([
+			{ model: one, thinkingLevel: "high" },
+			{ model: two, thinkingLevel: "low" },
+		]);
+		let selector: ScopedModelsSelectorComponent | undefined;
+		const prototype = InteractiveMode.prototype as unknown as Record<string, unknown>;
+		const fakeThis = {
+			session: harness.session,
+			settingsManager: harness.settingsManager,
+			ui: { requestRender: () => {} },
+			showStatus: () => {},
+			updateAvailableProviderCount: async () => {},
+			showSelector: (factory: (done: () => void) => { component: ScopedModelsSelectorComponent }) => {
+				selector = factory(() => {}).component;
+			},
+			getCurrentScopedModels: prototype.getCurrentScopedModels,
+			updateSessionModelsForSelector: prototype.updateSessionModelsForSelector,
+			persistEnabledModelsForSelector: prototype.persistEnabledModelsForSelector,
+		};
+		await (prototype.showModelsSelector as (this: typeof fakeThis) => Promise<void>).call(fakeThis);
+		if (!selector) throw new Error("Expected the scoped-models selector");
+
+		selector.handleInput("\x1b[1;3B"); // Alt+Down swaps the first two scoped models
+		await waitForAsyncRender();
+		selector.handleInput("\x1b[27;5;13~"); // save
+
+		expect(harness.session.scopedModels.map((scoped) => [scoped.model.id, scoped.thinkingLevel])).toEqual([
+			["faux-2", "low"],
+			["faux-1", "high"],
+		]);
+		expect(harness.settingsManager.getEnabledModels()).toEqual([
+			`${two.provider}/faux-2:low`,
+			`${one.provider}/faux-1:high`,
+		]);
 	});
 
 	it("reorders the selected model while a search filter is active", async () => {

@@ -102,7 +102,12 @@ import {
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
-import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
+import {
+	defaultModelPerProvider,
+	findExactModelReferenceMatch,
+	resolveModelScope,
+	type ScopedModel,
+} from "../../core/model-resolver.ts";
 import {
 	type ActiveAgentTargetSelectionResult,
 	type AgentLifecycleState,
@@ -228,6 +233,7 @@ import { compactCoordinationText, isCoordinationMessage, isCoordinationPreview }
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
+import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -6164,7 +6170,9 @@ export class InteractiveMode {
 			return;
 		}
 
-		let currentEnabledIds = await this.getCurrentEnabledModelIds();
+		const currentScope = await this.getCurrentScopedModels();
+		const toPatterns = createScopedModelPatternMapper(currentScope);
+		let currentEnabledIds = currentScope?.map(scopedModelId) ?? null;
 
 		this.showSelector((done) => {
 			const selector = new ScopedModelsSelectorComponent(
@@ -6175,10 +6183,10 @@ export class InteractiveMode {
 				{
 					onChange: async (enabledIds) => {
 						currentEnabledIds = enabledIds === null ? null : [...enabledIds];
-						await this.updateSessionModelsForSelector(enabledIds, allModels.length);
+						await this.updateSessionModelsForSelector(toPatterns(enabledIds), allModels.length);
 					},
 					onPersist: (enabledIds) => {
-						this.persistEnabledModelsForSelector(enabledIds, allModels.length);
+						this.persistEnabledModelsForSelector(toPatterns(enabledIds), allModels.length);
 					},
 					onCancel: () => {
 						done();
@@ -6190,19 +6198,11 @@ export class InteractiveMode {
 		});
 	}
 
-	private async getCurrentEnabledModelIds(): Promise<string[] | null> {
-		const sessionScopedModels = this.session.scopedModels;
-		if (sessionScopedModels.length > 0) {
-			return sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-		}
-
+	private async getCurrentScopedModels(): Promise<ScopedModel[] | null> {
+		if (this.session.scopedModels.length > 0) return [...this.session.scopedModels];
 		const patterns = this.settingsManager.getEnabledModels();
-		if (patterns === undefined || patterns.length === 0) {
-			return null;
-		}
-
-		const scopedModels = await resolveModelScope(patterns, this.session.modelRegistry);
-		return scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
+		if (patterns === undefined || patterns.length === 0) return null;
+		return resolveModelScope(patterns, this.session.modelRegistry);
 	}
 
 	private async updateSessionModelsForSelector(
