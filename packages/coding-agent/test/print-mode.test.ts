@@ -576,6 +576,35 @@ describe("runPrintMode", () => {
 		expect(errorSpy).toHaveBeenCalledWith("Response was truncated: the model reached its output token limit.");
 	});
 
+	it("writes events emitted by session_shutdown handlers in json mode", async () => {
+		const output = captureStdout();
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "done" }));
+		let listener: ((event: AgentSessionEvent) => void) | undefined;
+		runtimeHost.session.subscribe.mockImplementation((callback: (event: AgentSessionEvent) => void) => {
+			listener = callback;
+			return () => {
+				listener = undefined;
+			};
+		});
+		const shutdownEvent = { type: "queue_update", steering: ["shutdown"], followUp: [] } as AgentSessionEvent;
+		runtimeHost.dispose.mockImplementation(async () => {
+			listener?.(shutdownEvent);
+		});
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "json",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(
+			output
+				.join("")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line)),
+		).toEqual([{ type: "queue_update", steering: ["shutdown"], followUp: [] }]);
+	});
+
 	it("prints signed public narration before end_turn without exposing ordinary thinking or changing wire blocks", async () => {
 		const output = captureStdout();
 		const message = createAssistantMessage({ stopReason: "toolUse", endTurn: true });

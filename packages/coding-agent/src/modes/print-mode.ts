@@ -63,9 +63,10 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 
 	// Every caller waits for the one in-flight disposal, so a signal during the final disposal does not cut it off.
 	const disposeRuntime = (): Promise<void> => {
+		// Stay subscribed while disposing so JSON mode still writes events from session_shutdown handlers.
 		disposal ??= (async () => {
-			unsubscribe?.();
 			await runtimeHost.dispose();
+			unsubscribe?.();
 		})();
 		return disposal;
 	};

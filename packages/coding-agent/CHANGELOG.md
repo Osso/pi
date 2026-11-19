@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `pi --mode json` keeps writing events while the session shuts down, so entries appended by `session_shutdown` handlers reach stdout
 - `pi -p` warns and exits 1 when the model reaches its output limit before writing any visible text, instead of exiting 0 with empty output
 - `wait_agent` reports a child or detached job whose completion was committed before the wait started, instead of returning an empty result
 - The main-session thinking timer now starts when a model request begins while a child agent view is selected
