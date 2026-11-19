@@ -154,6 +154,29 @@ describe("openai-completions reasoning_details streaming", () => {
 			thoughtSignature: JSON.stringify(aliasDetail),
 		});
 	});
+	it("replays reasoning_details with the shortened tool call id", async () => {
+		const longId = `call_${"a".repeat(64)}`;
+		const longDetail = { ...reasoningDetail, id: longId };
+		mockState.chunkSets = [
+			[
+				chunk({ reasoning_details: [longDetail] }),
+				chunk({
+					tool_calls: [{ index: 0, id: longId, function: { name: "read", arguments: '{"path":"README.md"}' } }],
+				}),
+				chunk({}, "tool_calls"),
+			],
+		];
+
+		await runOpenAICompletionsStream([await runOpenAICompletionsStream()]);
+
+		const replayed = getAssistantPayload(mockState.payloads[1]) as {
+			tool_calls?: Array<{ id: string }>;
+			reasoning_details?: Array<{ id: string }>;
+		};
+		const replayedId = replayed.tool_calls?.[0]?.id;
+		expect(replayedId?.length).toBeLessThanOrEqual(40);
+		expect(replayed.reasoning_details).toEqual([{ ...longDetail, id: replayedId }]);
+	});
 });
 
 describe("openai-completions reasoning and content in one delta", () => {

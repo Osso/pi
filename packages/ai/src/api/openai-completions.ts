@@ -990,7 +990,9 @@ export function convertMessages(
 					if (!tc.thoughtSignature) return [];
 					try {
 						const parsed = JSON.parse(tc.thoughtSignature);
-						return parsed ? [parsed] : [];
+						if (!parsed) return [];
+						// The detail belongs to this call; keep its id equal to the replayed (possibly shortened) call id.
+						return [typeof parsed.id === "string" ? { ...parsed, id: tc.id } : parsed];
 					} catch {
 						return [];
 					}
