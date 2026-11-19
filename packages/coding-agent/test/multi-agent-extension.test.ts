@@ -541,6 +541,7 @@ function createMultiAgentHarness(
 	const extensionOptions = {
 		createAttachedSession: options.createAttachedSession,
 		createChildSession: ensureTranscriptBackedFactory(options.createChildSession),
+		desktopNotifier: vi.fn(),
 		runtimeHandles,
 		store,
 		...(options.legacyDispatcher ? { dispatcher: options.legacyDispatcher } : {}),

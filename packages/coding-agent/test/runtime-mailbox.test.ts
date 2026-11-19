@@ -384,7 +384,7 @@ function collectMultiAgentTools(
 	} as unknown as ExtensionAPI;
 	multiAgentExtension(pi, {
 		createChildSession: options.createChildSession,
-		desktopNotifier: options.desktopNotifier,
+		desktopNotifier: options.desktopNotifier ?? (() => undefined),
 		onSessionMessageSent: options.onSessionMessageSent,
 		store,
 	});
