@@ -42,7 +42,8 @@ function isGenerated(text) {
 function readCurrentSizes() {
 	const sizes = new Map();
 	// Measure the working tree: include untracked files, skip tracked files deleted from disk.
-	const paths = git("ls-files", "--cached", "--others", "--exclude-standard", "packages").split("\n");
+	// -z keeps non-ASCII paths literal; without it Git quotes and escapes them.
+	const paths = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "packages").split("\0");
 	for (const path of paths.filter((path) => isCheckedSourceFile(path) && existsSync(path))) {
 		const text = readFileSync(path, "utf8");
 		if (!isGenerated(text)) sizes.set(path, countLines(text));
@@ -51,7 +52,7 @@ function readCurrentSizes() {
 }
 
 function readUpstreamPaths() {
-	return new Set(git("ls-tree", "-r", "--name-only", UPSTREAM_REF).split("\n"));
+	return new Set(git("ls-tree", "-r", "-z", "--name-only", UPSTREAM_REF).split("\0"));
 }
 
 const baseline = new Map(Object.entries(JSON.parse(readFileSync(BASELINE_PATH, "utf8"))));
