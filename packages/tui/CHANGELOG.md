@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed kitty F1, F2 and F4 release and repeat events (`CSI 1;<mod>:<event> P/Q/S`) not being recognized, so a shortcut bound to one of these keys fired again on key release (completes the port of upstream deb12d78e, [#11468](https://github.com/earendil-works/pi-mono/issues/11468))
 - Fixed `Input` and `Editor` leaving the cursor inside a flag emoji when a delete joined two regional indicators (for example deleting `x` from `🇺x🇸`), so the next typed character split the flag
 - Fixed `@` file suggestions returning nothing for a query that starts with `-` (for example `@-draft`); fd read the query as an option
 - Fixed legacy alt+symbol input (`ESC` followed by a symbol such as `.` or `,`) not matching `alt+.`-style keybindings (port of upstream 8479bd847, [#6523](https://github.com/earendil-works/pi-mono/issues/6523))

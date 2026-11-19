@@ -545,7 +545,11 @@ export function isKeyRelease(data: string): boolean {
 		data.includes(":3C") ||
 		data.includes(":3D") ||
 		data.includes(":3H") ||
-		data.includes(":3F")
+		data.includes(":3F") ||
+		// F1, F2, F4: \x1b[1;<mod>:<event>P/Q/S
+		data.includes(":3P") ||
+		data.includes(":3Q") ||
+		data.includes(":3S")
 	) {
 		return true;
 	}
@@ -571,7 +575,11 @@ export function isKeyRepeat(data: string): boolean {
 		data.includes(":2C") ||
 		data.includes(":2D") ||
 		data.includes(":2H") ||
-		data.includes(":2F")
+		data.includes(":2F") ||
+		// F1, F2, F4: \x1b[1;<mod>:<event>P/Q/S
+		data.includes(":2P") ||
+		data.includes(":2Q") ||
+		data.includes(":2S")
 	) {
 		return true;
 	}

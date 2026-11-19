@@ -7,6 +7,8 @@ import { describe, it } from "node:test";
 import {
 	decodeKittyPrintable,
 	decodePrintableKey,
+	isKeyRelease,
+	isKeyRepeat,
 	Key,
 	matchesKey,
 	parseKey,
@@ -749,5 +751,15 @@ describe("parseKey", () => {
 		it("should parse double bracket pageUp", () => {
 			assert.strictEqual(parseKey("\x1b[[5~"), "pageUp");
 		});
+	});
+});
+
+describe("kitty F1, F2 and F4 event types", () => {
+	it("recognizes release and repeat events in the CSI 1;<mod>:<event> P/Q/S form", () => {
+		assert.strictEqual(isKeyRelease("\x1b[1;1:3P"), true);
+		assert.strictEqual(isKeyRelease("\x1b[1;5:3Q"), true);
+		assert.strictEqual(isKeyRepeat("\x1b[1;1:2S"), true);
+		assert.strictEqual(isKeyRelease("\x1b[1;1:1P"), false);
+		assert.strictEqual(isKeyRepeat("\x1b[1;1:1P"), false);
 	});
 });
