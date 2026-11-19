@@ -537,23 +537,8 @@ export function isKeyRelease(data: string): boolean {
 
 	// Quick check: release events with flag 2 contain ":3"
 	// Format: \x1b[<codepoint>;<modifier>:3u
-	if (
-		data.includes(":3u") ||
-		data.includes(":3~") ||
-		data.includes(":3A") ||
-		data.includes(":3B") ||
-		data.includes(":3C") ||
-		data.includes(":3D") ||
-		data.includes(":3H") ||
-		data.includes(":3F") ||
-		// F1, F2, F4: \x1b[1;<mod>:<event>P/Q/S
-		data.includes(":3P") ||
-		data.includes(":3Q") ||
-		data.includes(":3S")
-	) {
-		return true;
-	}
-	return false;
+	// The final byte is u, ~, an arrow/Home/End letter, or P/Q/S for F1, F2 and F4.
+	return /:3[u~ABCDHFPQS]/.test(data);
 }
 
 /**
@@ -567,23 +552,8 @@ export function isKeyRepeat(data: string): boolean {
 		return false;
 	}
 
-	if (
-		data.includes(":2u") ||
-		data.includes(":2~") ||
-		data.includes(":2A") ||
-		data.includes(":2B") ||
-		data.includes(":2C") ||
-		data.includes(":2D") ||
-		data.includes(":2H") ||
-		data.includes(":2F") ||
-		// F1, F2, F4: \x1b[1;<mod>:<event>P/Q/S
-		data.includes(":2P") ||
-		data.includes(":2Q") ||
-		data.includes(":2S")
-	) {
-		return true;
-	}
-	return false;
+	// The final byte is u, ~, an arrow/Home/End letter, or P/Q/S for F1, F2 and F4.
+	return /:2[u~ABCDHFPQS]/.test(data);
 }
 
 function parseEventType(eventTypeStr: string | undefined): KeyEventType {
