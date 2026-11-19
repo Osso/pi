@@ -21,6 +21,7 @@
 ### Fixed
 
 - Fixed `Input` paste keeping tmux CSI-u control keys (`\x1b[106;5u`) and DEL/C1 control bytes in the value, where a pasted `\x9b` sequence reached the terminal when the line was rendered
+- Fixed `Input` word movement at the line edge (Alt+F at the end, Alt+B at the start) not breaking kill accumulation, so the next Ctrl+W joined an earlier kill
 - Fixed kitty F1, F2 and F4 release and repeat events (`CSI 1;<mod>:<event> P/Q/S`) not being recognized, so a shortcut bound to one of these keys fired again on key release (completes the port of upstream deb12d78e, [#11468](https://github.com/earendil-works/pi-mono/issues/11468))
 - Fixed `Input` and `Editor` leaving the cursor inside a flag emoji when a delete joined two regional indicators (for example deleting `x` from `🇺x🇸`), so the next typed character split the flag
 - Fixed `@` file suggestions returning nothing for a query that starts with `-` (for example `@-draft`); fd read the query as an option

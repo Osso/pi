@@ -315,6 +315,20 @@ describe("Input component", () => {
 			assert.strictEqual(input.getValue(), "one two three");
 		});
 
+		it("word movement at the line edge breaks kill accumulation", () => {
+			const input = new Input();
+
+			input.setValue("one two");
+			input.handleInput("\x05"); // Ctrl+E
+			input.handleInput("\x17"); // Ctrl+W - deletes "two"
+			input.handleInput("\x1bf"); // Alt+F at end of line
+			input.handleInput("\x17"); // Ctrl+W - deletes "one " (separate entry)
+			assert.strictEqual(input.getValue(), "");
+
+			input.handleInput("\x19"); // Ctrl+Y - most recent is "one "
+			assert.strictEqual(input.getValue(), "one ");
+		});
+
 		it("non-delete actions break kill accumulation", () => {
 			const input = new Input();
 

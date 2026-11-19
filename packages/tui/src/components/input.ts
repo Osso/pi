@@ -344,14 +344,14 @@ export class Input implements Component, Focusable {
 	}
 
 	private moveWordBackwards(): void {
-		if (this.cursor === 0) return;
 		this.lastAction = null;
+		if (this.cursor === 0) return;
 		this.cursor = findWordBackward(this.value, this.cursor);
 	}
 
 	private moveWordForwards(): void {
-		if (this.cursor >= this.value.length) return;
 		this.lastAction = null;
+		if (this.cursor >= this.value.length) return;
 		this.cursor = findWordForward(this.value, this.cursor);
 	}
 
