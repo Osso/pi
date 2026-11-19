@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import type { Extension } from "../core/extensions/types.ts";
 
 interface ExtensionInventoryRow {
@@ -22,7 +22,9 @@ function extensionLabel(extension: Extension): string {
 	if (isFirstPartyPath(extension.path)) {
 		return extension.path.slice("<first-party:".length, -1);
 	}
-	return basename(extension.path);
+	const file = basename(extension.path);
+	// Directory extensions all load `index.*`; their directory is what tells them apart.
+	return /^index\.[cm]?[jt]s$/.test(file) ? `${basename(dirname(extension.path))}/${file}` : file;
 }
 
 function scopeLabel(extension: Extension): string {

@@ -132,6 +132,35 @@ describe("tool inventory", () => {
 		);
 	});
 
+	it("names directory extensions by their directory so their rows differ", () => {
+		const directoryExtension = (name: string) =>
+			({
+				path: `/repo/.pi/extensions/${name}/index.ts`,
+				resolvedPath: `/repo/.pi/extensions/${name}/index.ts`,
+				sourceInfo: {
+					path: `/repo/.pi/extensions/${name}/index.ts`,
+					source: "auto",
+					scope: "project",
+					origin: "top-level",
+				},
+				handlers: new Map([["session_start", [async () => undefined]]]),
+				tools: new Map(),
+				messageRenderers: new Map(),
+				commands: new Map(),
+				flags: new Map(),
+				shortcuts: new Map(),
+			}) as Extension;
+
+		const rows = formatExtensionInventory([directoryExtension("journal"), directoryExtension("review")])
+			.split("\n")
+			.slice(4);
+
+		expect(rows).toEqual([
+			"project  auto    journal/index.ts  0         0      1",
+			"project  auto    review/index.ts   0         0      1",
+		]);
+	});
+
 	it("shows an explicit empty state when no extensions are loaded", () => {
 		expect(formatExtensionInventory([])).toBe("Loaded extensions: none");
 	});
