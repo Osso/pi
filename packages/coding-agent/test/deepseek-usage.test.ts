@@ -185,6 +185,13 @@ describe("DeepSeek usage payload mapping", () => {
 		).toEqual({ week: { percent: 50, resetsAt: null }, balance: "$6.00" });
 	});
 
+	it("leaves an epoch-zero OpenRouter reset unreported", () => {
+		const key = {
+			data: { limit: 100, limit_remaining: 50, effective_budget: { resets_at: "1970-01-01T00:00:00.000Z" } },
+		};
+		expect(mapOpenRouterUsage(key, openRouterCreditsPayload(10, 4)).week).toEqual({ percent: 50, resetsAt: null });
+	});
+
 	it("leaves a Command Code window reset unreported when resetAt is zero", () => {
 		const usage = mapCommandCodeUsage(
 			{

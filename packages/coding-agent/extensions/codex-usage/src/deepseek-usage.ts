@@ -53,7 +53,8 @@ export function readFiniteNumber(value: unknown): number | null {
 function readIsoEpochSeconds(value: unknown): number | null {
 	if (typeof value !== "string") return null;
 	const parsed = Date.parse(value);
-	return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null;
+	// A zero (epoch) reset means not reported, as for numeric resets.
+	return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed / 1000) : null;
 }
 
 function deepseekWindow(percent: unknown, resetsAt: number | null): DeepseekWindow | null {
