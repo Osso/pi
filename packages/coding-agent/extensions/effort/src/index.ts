@@ -170,6 +170,8 @@ async function handleDelegationCommand(
 function restoreAndUpdateDelegationMode(pi: ExtensionAPI, state: DelegationState, ctx: ExtensionContext): void {
 	if (isChildRuntime(ctx)) return;
 	restoreDelegationMode(state, ctx);
+	// `ultra` implies proactive delegation; restored disabled mode keeps maximum reasoning as `max`.
+	if (state.mode === "disabled" && pi.getThinkingLevel() === "ultra") pi.setThinkingLevel("max");
 	updateDelegationTools(pi, state);
 	updateDelegationStatus(ctx, state);
 }

@@ -281,6 +281,22 @@ describe("effort extension", () => {
 		expect(harness.extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}disabled`);
 	});
 
+	it.each(["session_start", "session_tree"])(
+		"shows max instead of ultra when %s restores disabled mode",
+		async (eventName) => {
+			const harness = createCommandHarness({
+				thinkingLevel: "ultra",
+				branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "disabled" } }],
+			});
+			const handler = harness.handlers.get(eventName)?.[0];
+			if (!handler) throw new Error(`expected ${eventName} handler`);
+
+			await handler({ type: eventName, reason: "resume" }, harness.ctx);
+
+			expect(harness.setThinkingLevel).toHaveBeenCalledWith("max");
+		},
+	);
+
 	it("displays active and disabled choices", async () => {
 		const harness = createCommandHarness({ selectedEffort: "disabled" });
 		await harness.multiAgentCommand.handler("", harness.ctx);

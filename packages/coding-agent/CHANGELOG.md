@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Restoring disabled multi-agent mode on session start or `/tree` now shows effort `max` instead of `ultra`, which implies proactive delegation
 - `find` with a `./`-prefixed pattern such as `./*.ts` matches only at the search root instead of in every subdirectory
 - `ls` no longer reports "entries limit reached" when the only entries past the limit cannot be listed, such as dangling symlinks
 - A goal completion review that the Supervisor answers with `wait` keeps its scheduled re-review and completion report when the turn ends; the turn end no longer starts an idle review that replaced it
