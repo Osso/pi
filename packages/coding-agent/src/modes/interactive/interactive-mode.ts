@@ -814,7 +814,6 @@ export class InteractiveMode {
 	}
 
 	private createBaseAutocompleteProvider(): AutocompleteProvider {
-		// Define commands for autocomplete
 		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
 			name: command.name,
 			description: command.description,
@@ -838,7 +837,6 @@ export class InteractiveMode {
 
 				if (models.length === 0) return null;
 
-				// Create items with provider/id format
 				const items = models.map((m) => ({
 					id: m.id,
 					provider: m.provider,
@@ -859,22 +857,24 @@ export class InteractiveMode {
 			};
 		}
 
-		// Convert prompt templates to SlashCommand format for autocomplete
-		const templateCommands: SlashCommand[] = this.session.promptTemplates.map((cmd) => ({
-			name: cmd.name,
-			description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
-			...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
-		}));
-
-		// Convert extension commands to SlashCommand format
+		// Extension commands, minus invocation names a built-in shadows (`name:1` stays callable beside `/name`)
 		const builtinCommandNames = new Set(slashCommands.map((c) => c.name));
 		const extensionCommands: SlashCommand[] = this.session.extensionRunner
 			.getRegisteredCommands()
-			.filter((cmd) => !builtinCommandNames.has(cmd.name))
+			.filter((cmd) => !builtinCommandNames.has(cmd.invocationName))
 			.map((cmd) => ({
 				name: cmd.invocationName,
 				description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
 				getArgumentCompletions: cmd.getArgumentCompletions,
+			}));
+		// Prompt templates, minus names an extension command takes: dispatch runs the extension instead
+		const extensionCommandNames = new Set(extensionCommands.map((c) => c.name));
+		const templateCommands: SlashCommand[] = this.session.promptTemplates
+			.filter((cmd) => !extensionCommandNames.has(cmd.name))
+			.map((cmd) => ({
+				name: cmd.name,
+				description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
+				...(cmd.argumentHint && { argumentHint: cmd.argumentHint }),
 			}));
 
 		// Build skill commands from session.skills (if enabled)
