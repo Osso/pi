@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Image resizes now wait for the previous resize worker to stop before starting the next one; the overlap aborted pi on macOS with Node 24 (port of upstream 1f7c685b8, [#10695](https://github.com/earendil-works/pi/issues/10695))
 - `ctx.relocate` and `ctx.relocateAfterToolResult` are now absent in direct `createAgentSession()` sessions, as documented, instead of present and throwing when called; `change_working_directory` now fails at once there instead of after its result
 - An extension whose factory throws no longer leaves its `pi.events.on()` listeners on the shared event bus
 - RPC mode now reads `extension_ui_response` replies while `session_start` handlers run, so a dialog opened during startup gets the client's answer instead of timing out; other commands sent during startup run after it completes
