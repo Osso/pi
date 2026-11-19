@@ -98,7 +98,6 @@ function createView(harness: Harness): {
 		ui: { requestRender: () => {} },
 		footer: { invalidate: () => {} },
 		getMarkdownThemeWithSettings: getMarkdownTheme,
-		getAppKeyDisplay: () => "alt+up",
 		themeController: { getTerminalTheme: () => "dark" },
 		handleHiddenMainSessionDisplayEvent: () => false,
 		isInitialized: true,

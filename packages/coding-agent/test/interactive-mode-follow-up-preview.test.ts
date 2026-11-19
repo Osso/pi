@@ -7,7 +7,6 @@ type PendingMessagesDisplayThis = {
 	compactionQueuedMessages: [];
 	pendingBashComponents: [];
 	getAllQueuedMessages(): { steering: string[]; followUp: string[] };
-	getAppKeyDisplay(): string;
 	pendingMessagesContainer: Container;
 };
 
@@ -35,7 +34,6 @@ describe("InteractiveMode follow-up preview", () => {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
-			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
 		};
 
@@ -53,7 +51,6 @@ describe("InteractiveMode follow-up preview", () => {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
-			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
 		};
 
@@ -69,7 +66,6 @@ describe("InteractiveMode follow-up preview", () => {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: ["Plain queued follow-up"] }),
-			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
 		};
 
@@ -84,7 +80,6 @@ describe("InteractiveMode follow-up preview", () => {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: ["Continue working toward the active goal."] }),
-			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
 		};
 
@@ -107,7 +102,6 @@ describe("InteractiveMode follow-up preview", () => {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
 			getAllQueuedMessages: () => ({ steering: [], followUp: [message] }),
-			getAppKeyDisplay: () => "ctrl+d",
 			pendingMessagesContainer: new Container(),
 		};
 

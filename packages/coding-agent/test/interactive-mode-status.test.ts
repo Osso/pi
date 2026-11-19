@@ -239,7 +239,6 @@ describe("InteractiveMode.setToolsExpanded", () => {
 			compactionQueuedMessages: [],
 			settingsManager: { getHideCoordinationMessages: () => false },
 			session: { isStreaming: true, getSteeringMessages: () => ["steer"], getFollowUpMessages: () => [] },
-			getAppKeyDisplay: () => "alt+up",
 			ui: { requestRender: vi.fn() },
 		};
 		for (const name of ["getAllQueuedMessages", "updatePendingMessagesDisplay"]) {
