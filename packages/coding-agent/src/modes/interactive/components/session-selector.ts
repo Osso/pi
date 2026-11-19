@@ -423,8 +423,6 @@ class SessionList implements Component, Focusable {
 	private startDeleteConfirmationForSelectedSession(): void {
 		const selected = this.filteredSessions[this.selectedIndex];
 		if (!selected) return;
-
-		// Prevent deleting current session
 		if (this.isCurrentSessionPath(selected.session.path)) {
 			this.onError?.("Cannot delete the currently active session");
 			return;
@@ -604,7 +602,9 @@ class SessionList implements Component, Focusable {
 
 		if (kb.matches(keyData, "app.session.archive")) {
 			const selected = this.filteredSessions[this.selectedIndex];
-			if (selected) void this.onArchiveSession?.(selected.session.path);
+			if (selected && this.isCurrentSessionPath(selected.session.path))
+				this.onError?.("Cannot archive the active session");
+			else if (selected) void this.onArchiveSession?.(selected.session.path);
 			return;
 		}
 

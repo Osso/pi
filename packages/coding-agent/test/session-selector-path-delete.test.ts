@@ -656,4 +656,34 @@ describe("session selector path/delete interactions", () => {
 		expect(confirmationChanges).toEqual([]);
 		expect(errorMessage).toBe("Cannot delete the currently active session");
 	});
+
+	it("refuses to archive the current session", async () => {
+		const sessionPath = "/tmp/pi-current-session.jsonl";
+		const selector = new SessionSelectorComponent(
+			async () => [makeSession({ id: "current", path: sessionPath, name: "Current" })],
+			async () => [],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+			sessionPath,
+		);
+		await flushPromises();
+
+		const list = selector.getSessionList();
+		const archived: string[] = [];
+		let errorMessage: string | undefined;
+		list.onArchiveSession = async (path) => {
+			archived.push(path);
+		};
+		list.onError = (message) => {
+			errorMessage = message;
+		};
+
+		list.handleInput(CTRL_A);
+
+		expect(archived).toEqual([]);
+		expect(errorMessage).toBe("Cannot archive the active session");
+	});
 });

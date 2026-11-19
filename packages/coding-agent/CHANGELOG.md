@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The session picker refuses to archive the active session; archiving it split the live transcript and a later restore discarded its earlier history
 - Interrupting a turn now closes its blocking `ask_questions` panel as cancelled; the panel kept keyboard focus after the abort
 - `/usage deepseek` shows an OpenRouter key limit in the day, week or month column named by its `limit_reset`, instead of always as weekly
 - Periodic checks report a failed Git project-root check (for example a broken `.git/config`) and skip that audit, instead of treating the repository as a non-Git directory and dispatching
