@@ -78,8 +78,8 @@ describe("tool inventory", () => {
 		];
 
 		const lines = formatToolInventory(tools, ["report_title"]).split("\n");
-		expect(lines).toHaveLength(3);
-		expect(lines[2]).toMatch(/^yes\s+report_title\s+extension:report\s+Read the report\. Return its title\.$/);
+		expect(lines).toEqual(["Available tools (1)", "", expect.any(String), expect.any(String), expect.any(String)]);
+		expect(lines[4]).toMatch(/^yes\s+report_title\s+extension:report\s+Read the report\. Return its title\.$/);
 	});
 
 	it("keeps Hostrun out of serialized public package and tool inventory metadata", () => {
