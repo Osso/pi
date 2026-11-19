@@ -132,6 +132,28 @@ describe("openai-completions reasoning_details streaming", () => {
 			thoughtSignature: JSON.stringify(reasoningDetail),
 		});
 	});
+	it("preserves reasoning_details queued under a tool call id that a later delta aliases", async () => {
+		const aliasDetail = { ...reasoningDetail, id: "call_new" };
+		mockState.chunkSets = [
+			[
+				chunk({
+					tool_calls: [{ index: 0, id: "call_original", function: { name: "read", arguments: '{"path":' } }],
+				}),
+				chunk({ reasoning_details: [aliasDetail] }),
+				chunk(
+					{ tool_calls: [{ index: 0, id: "call_new", function: { arguments: '"README.md"}' } }] },
+					"tool_calls",
+				),
+			],
+		];
+
+		const assistantMessage = await runOpenAICompletionsStream();
+		expect(assistantMessage.content.find((block) => block.type === "toolCall")).toMatchObject({
+			id: "call_original",
+			arguments: { path: "README.md" },
+			thoughtSignature: JSON.stringify(aliasDetail),
+		});
+	});
 });
 
 describe("openai-completions reasoning and content in one delta", () => {

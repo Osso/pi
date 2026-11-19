@@ -266,14 +266,12 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				}
 				return thinkingBlock;
 			};
-			const applyPendingReasoningDetail = (block: StreamingToolCallBlock) => {
-				if (!block.id) {
-					return;
-				}
-				const pendingReasoningDetail = pendingReasoningDetailsByToolCallId.get(block.id);
+			// A detail queued before its call arrives is keyed by the delta's id, which can be a later alias of the block.
+			const applyPendingReasoningDetail = (block: StreamingToolCallBlock, toolCallId: string) => {
+				const pendingReasoningDetail = pendingReasoningDetailsByToolCallId.get(toolCallId);
 				if (pendingReasoningDetail) {
 					block.thoughtSignature = pendingReasoningDetail;
-					pendingReasoningDetailsByToolCallId.delete(block.id);
+					pendingReasoningDetailsByToolCallId.delete(toolCallId);
 				}
 			};
 			const ensureToolCallBlock = (toolCall: StreamingToolCallDelta) => {
@@ -311,8 +309,8 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				if (toolCall.id) {
 					block.id ||= toolCall.id;
 					toolCallBlocksById.set(toolCall.id, block);
+					applyPendingReasoningDetail(block, toolCall.id);
 				}
-				applyPendingReasoningDetail(block);
 				return block;
 			};
 
