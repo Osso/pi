@@ -308,6 +308,40 @@ describe("agent_viewer historical lifecycle trace", () => {
 		);
 	});
 
+	it("omits end_turn results an attached transcript recorded before the agent existed", async () => {
+		const fixture = createTraceFixture({ completed: false });
+		const transcript = fixture.agent.transcript;
+		if (!transcript?.path) throw new Error("expected child transcript");
+		const header = {
+			cwd: "/repo",
+			id: transcript.sessionId,
+			timestamp: "2026-08-15T22:00:00.000Z",
+			type: "session",
+			version: 3,
+		};
+		const earlierEndTurn = {
+			id: "earlier-end-turn",
+			message: {
+				content: [{ text: "Turn ended: Earlier work was finished", type: "text" }],
+				details: { reason: "Earlier work was finished" },
+				isError: false,
+				role: "toolResult",
+				timestamp: Date.parse("2026-08-15T23:00:00.000Z"),
+				toolCallId: "earlier-end-turn-call",
+				toolName: "end_turn",
+			},
+			parentId: null,
+			timestamp: "2026-08-15T23:00:00.000Z",
+			type: "message",
+		};
+		writeFileSync(transcript.path, `${JSON.stringify(header)}\n${JSON.stringify(earlierEndTurn)}\n`);
+
+		const viewed = await viewTrace(fixture);
+
+		expect(viewed.details.trace.events.map((event) => event.kind)).not.toContain("child_end_turn");
+		expect(traceText(viewed)).not.toContain("Earlier work was finished");
+	});
+
 	it("shows descendant and parent terminal evidence in deterministic order", async () => {
 		const fixture = createTraceFixture({ completed: true });
 

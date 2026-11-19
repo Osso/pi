@@ -315,7 +315,9 @@ function readChildEndTurnEvents(agent: AgentSnapshot): AgentLifecycleTraceEvent[
 	const entries = loadEntriesFromFile(transcript.path);
 	const header = entries.find((entry) => entry.type === "session");
 	if (!header || header.id !== transcript.sessionId) return [];
-	return entries.filter((entry) => entry.timestamp >= header.timestamp).flatMap(childEndTurnEvent);
+	// Inherited (forked) or attached history predates this agent; only its own turns are lifecycle evidence.
+	const since = header.timestamp > agent.createdAt ? header.timestamp : agent.createdAt;
+	return entries.filter((entry) => entry.timestamp >= since).flatMap(childEndTurnEvent);
 }
 
 function childEndTurnEvent(entry: FileEntry): AgentLifecycleTraceEvent[] {
