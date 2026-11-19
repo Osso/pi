@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
@@ -439,7 +439,10 @@ describe("resume_session first-party tool", () => {
 		if (!tool) throw new Error("Missing resume_session tool");
 		const context = runtime.session.extensionRunner.createContext();
 
-		for (const target of [{ path: sessionPath }, { id: sessionId }, { name: "current session" }]) {
+		const symlinkPath = join(dirname(sessionPath), "alias.jsonl");
+		symlinkSync(sessionPath, symlinkPath);
+		const targets = [{ path: sessionPath }, { path: symlinkPath }, { id: sessionId }, { name: "current session" }];
+		for (const target of targets) {
 			await expect(tool.execute("self-resume", target, undefined, undefined, context)).rejects.toThrow(
 				"resume_session cannot resume the current session",
 			);

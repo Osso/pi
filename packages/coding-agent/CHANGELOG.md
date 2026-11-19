@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `resume_session` rejects a path that is a symlink to the current session's transcript instead of reopening the current session
 - `pi -w <name>` reuses an existing worktree whose path ends in whitespace instead of failing to create it again
 - A shared-channel post delivered to an idle session advances the read cursor when its turn starts, so `wait_agent({})` in that turn no longer returns the same post again
 - Date-bounded session history search no longer repeats a page when a new match (such as the message asking for the next page) is appended between pages

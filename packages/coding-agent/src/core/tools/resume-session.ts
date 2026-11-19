@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
-import { resolvePath } from "../../utils/paths.ts";
+import { canonicalizePath, resolvePath } from "../../utils/paths.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { isArchivedSessionFile } from "../session-archive-storage.ts";
 import {
@@ -210,7 +210,8 @@ export async function findSessionFileById(id: string, ctx: ExtensionContext): Pr
 
 function assertResumeTargetIsDifferent(sessionPath: string, ctx: ExtensionContext): void {
 	const currentSessionPath = ctx.sessionManager.getSessionFile();
-	if (currentSessionPath && resolvePath(sessionPath) === resolvePath(currentSessionPath)) {
+	// Compare real paths: a symlink to the current transcript is still the current session.
+	if (currentSessionPath && canonicalizePath(resolvePath(sessionPath)) === canonicalizePath(currentSessionPath)) {
 		throw new Error("resume_session cannot resume the current session");
 	}
 }
