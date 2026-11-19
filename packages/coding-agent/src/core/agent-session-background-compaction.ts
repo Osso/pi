@@ -91,6 +91,12 @@ export class BackgroundCompactionState {
 		this.cache?.abortController.abort();
 	}
 
+	/** Drop the cache because the context it was prepared from changed. */
+	discard(): void {
+		this.cache?.abortController.abort();
+		this.cache = undefined;
+	}
+
 	clearIdleTimer(): void {
 		clearTimeout(this.idleTimer);
 		this.idleTimer = undefined;

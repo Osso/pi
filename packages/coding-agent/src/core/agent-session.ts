@@ -4904,7 +4904,7 @@ export class AgentSession {
 	}
 
 	updateCompactionSummary(entryId: string, summary: string): void {
-		updateCompactionSummary(this.sessionManager, this.agent, entryId, summary);
+		updateCompactionSummary(this.sessionManager, this.agent, entryId, summary, this._backgroundCompaction);
 	}
 
 	async materializeCompactionSummary(entryId: string): Promise<MaterializeCompactionSummaryResult> {

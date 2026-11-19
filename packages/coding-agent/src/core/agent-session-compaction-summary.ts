@@ -1,5 +1,6 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
+import type { BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
 	type MaterializeCompactionSummaryResult,
 	materializeCompactionSummary as materializeProviderNativeCompactionSummary,
@@ -12,8 +13,11 @@ export function updateCompactionSummary(
 	agent: Agent,
 	entryId: string,
 	summary: string,
+	backgroundCompaction: BackgroundCompactionState,
 ): void {
 	sessionManager.updateCompactionSummary(entryId, summary);
+	// A cached background compaction merged the old summary; installing it would undo the edit.
+	backgroundCompaction.discard();
 	agent.state.messages = sessionManager.buildSessionContext().messages;
 }
 
