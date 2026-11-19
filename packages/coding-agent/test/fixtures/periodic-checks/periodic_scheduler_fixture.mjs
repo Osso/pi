@@ -13,8 +13,16 @@ function configuredChecklist(seconds) {
 	return `---\ntype: Periodic Checks\ninterval_seconds: ${seconds}\n---\n${checklistBody}`;
 }
 
+// Fixture repositories ignore the user's and system's git configuration, including a global ignore of periodic-checks.md.
+const isolatedGitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+
 function git(cwd, ...args) {
-	return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 5000 });
+	return execFileSync("git", ["-c", "core.excludesFile=/dev/null", ...args], {
+		cwd,
+		encoding: "utf8",
+		timeout: 5000,
+		env: isolatedGitEnv,
+	});
 }
 
 function createProject(home, name) {
