@@ -18,6 +18,13 @@ interface SetSessionNameDetails {
 
 export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 	let nameSetByTool: string | undefined;
+	let ownNameEvents = 0;
+	// Any name change the tool did not make (/name, /unname, picker rename) takes the name out of its control,
+	// even when the new name repeats the tool's title.
+	pi.on("session_info_changed", () => {
+		if (ownNameEvents > 0) ownNameEvents--;
+		else nameSetByTool = undefined;
+	});
 
 	pi.registerTool<typeof SET_SESSION_NAME_PARAMETERS, SetSessionNameDetails>({
 		name: "set_session_name",
@@ -34,6 +41,7 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 			const name = normalizeName(params.name);
 			const refusal = describeRefusal(ctx, name, nameSetByTool);
 			if (refusal) return errorResult(refusal);
+			ownNameEvents++;
 			pi.setSessionName(name);
 			nameSetByTool = name;
 			return { content: [{ type: "text", text: `Session name set to "${name}".` }], details: { name } };

@@ -207,4 +207,17 @@ describe("session naming tool extension", () => {
 		expect(harness.sessionManager.getSessionName()).toBe("Second Title");
 		expect(toolResultErrors(harness, "set_session_name")).toEqual([false, false]);
 	});
+
+	it("refuses to rename after the user sets the tool's title manually", async () => {
+		const harness = await createSessionNameHarness();
+		harness.setResponses([nameCall("First Title"), endTurn()]);
+		await harness.session.prompt("Name the session");
+		harness.session.setSessionName("First Title");
+		harness.setResponses([nameCall("Second Title"), endTurn()]);
+
+		await harness.session.prompt("Rename the session");
+
+		expect(harness.sessionManager.getSessionName()).toBe("First Title");
+		expect(toolResultErrors(harness, "set_session_name")).toEqual([false, true]);
+	});
 });

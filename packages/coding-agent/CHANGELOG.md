@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `set_session_name` no longer renames a session after the user set the tool's own title with `/name`; any manual name change now takes the name out of the tool's control
 - A repeated compaction that splits a turn kept by the previous one no longer carries the previous `<read-files>`/`<modified-files>` block into the summary next to the new one
 - Compaction file lists keep files read after a `/tree` branch summary as the most recent ones; the summary's older paths were treated as newer and could push the latest reads out of the 100-path cap
 - The `ask_questions` panel truncates its tab bar, help line and Submit status to the terminal width, so a narrow terminal no longer crashes the render with a line-width error
