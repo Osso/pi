@@ -43,6 +43,31 @@ describe("Input component", () => {
 		assert.strictEqual(input.getValue(), "a b A");
 	});
 
+	describe("deleting between regional indicators", () => {
+		// "🇺x🇸": deleting x joins the two regional indicators into one flag grapheme.
+		it("keeps the cursor out of the flag joined by forward delete", () => {
+			const input = new Input();
+			input.setValue("🇺x🇸");
+			input.handleInput("\x01");
+			input.handleInput("\x1b[C");
+			input.handleInput("\x1b[3~");
+			input.handleInput("a");
+
+			assert.strictEqual(input.getValue(), "a🇺🇸");
+		});
+
+		it("keeps the cursor out of the flag joined by backspace", () => {
+			const input = new Input();
+			input.setValue("🇺x🇸");
+			input.handleInput("\x05");
+			input.handleInput("\x1b[D");
+			input.handleInput("\x7f");
+			input.handleInput("a");
+
+			assert.strictEqual(input.getValue(), "a🇺🇸");
+		});
+	});
+
 	describe("render", () => {
 		it("does not overflow with wide CJK and fullwidth text", () => {
 			const width = 93;

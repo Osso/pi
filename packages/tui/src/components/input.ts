@@ -231,8 +231,9 @@ export class Input implements Component, Focusable {
 			const graphemes = [...segmenter.segment(beforeCursor)];
 			const lastGrapheme = graphemes[graphemes.length - 1];
 			const graphemeLength = lastGrapheme ? lastGrapheme.segment.length : 1;
-			this.value = this.value.slice(0, this.cursor - graphemeLength) + this.value.slice(this.cursor);
+			const value = this.value.slice(0, this.cursor - graphemeLength) + this.value.slice(this.cursor);
 			this.cursor -= graphemeLength;
+			this.setValue(value);
 		}
 	}
 
@@ -244,7 +245,7 @@ export class Input implements Component, Focusable {
 			const graphemes = [...segmenter.segment(afterCursor)];
 			const firstGrapheme = graphemes[0];
 			const graphemeLength = firstGrapheme ? firstGrapheme.segment.length : 1;
-			this.value = this.value.slice(0, this.cursor) + this.value.slice(this.cursor + graphemeLength);
+			this.setValue(this.value.slice(0, this.cursor) + this.value.slice(this.cursor + graphemeLength));
 		}
 	}
 
@@ -284,8 +285,9 @@ export class Input implements Component, Focusable {
 		this.killRing.push(deletedText, { prepend: true, accumulate: wasKill });
 		this.lastAction = "kill";
 
-		this.value = this.value.slice(0, deleteFrom) + this.value.slice(this.cursor);
+		const value = this.value.slice(0, deleteFrom) + this.value.slice(this.cursor);
 		this.cursor = deleteFrom;
+		this.setValue(value);
 	}
 
 	private deleteWordForward(): void {
@@ -305,7 +307,7 @@ export class Input implements Component, Focusable {
 		this.killRing.push(deletedText, { prepend: false, accumulate: wasKill });
 		this.lastAction = "kill";
 
-		this.value = this.value.slice(0, this.cursor) + this.value.slice(deleteTo);
+		this.setValue(this.value.slice(0, this.cursor) + this.value.slice(deleteTo));
 	}
 
 	private yank(): void {
