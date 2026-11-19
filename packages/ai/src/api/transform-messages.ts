@@ -150,23 +150,36 @@ export function transformMessages<TApi extends Api>(
 	// Second pass: insert synthetic empty tool results for orphaned tool calls
 	// This preserves thinking signatures and satisfies API requirements
 	const result: Message[] = [];
-	// A result stored after the user message that interrupted its batch moves up to where its call is
-	// resolved, so the call gets that one result instead of a synthetic one plus a stray late one.
-	const unseenResults = new Map<string, ToolResultMessage>();
-	for (const msg of transformed) {
-		if (msg.role === "toolResult" && !unseenResults.has(msg.toolCallId)) unseenResults.set(msg.toolCallId, msg);
-	}
+	// A result stored after the user message that interrupted its batch (and before the next assistant
+	// message) moves up to where its call is resolved, so the call gets that one result instead of a
+	// synthetic one plus a stray late one. Later results are never taken: providers reuse call ids.
+	let lateResults = new Map<string, ToolResultMessage>();
 	const movedResults = new Set<ToolResultMessage>();
 	let pendingToolCalls: ToolCall[] = [];
 	let pendingToolCallIds = new Set<string>();
 	let existingToolResultIds = new Set<string>();
+	// Results of the pending batch go out in call order: Gemini pairs responses with calls by position.
+	let bufferedResults = new Map<string, ToolResultMessage>();
+	const flushBufferedResults = () => {
+		for (const tc of pendingToolCalls) {
+			const buffered = bufferedResults.get(tc.id);
+			if (buffered) result.push(buffered);
+			bufferedResults.delete(tc.id);
+		}
+	};
 	const insertSyntheticToolResults = () => {
 		if (pendingToolCalls.length > 0) {
 			for (const tc of pendingToolCalls) {
+				const buffered = bufferedResults.get(tc.id);
+				bufferedResults.delete(tc.id);
+				if (buffered) {
+					result.push(buffered);
+					continue;
+				}
 				if (existingToolResultIds.has(tc.id)) continue;
-				const lateResult = unseenResults.get(tc.id);
+				const lateResult = lateResults.get(tc.id);
 				if (lateResult) {
-					unseenResults.delete(tc.id);
+					lateResults.delete(tc.id);
 					movedResults.add(lateResult);
 					result.push(lateResult);
 				} else {
@@ -183,10 +196,11 @@ export function transformMessages<TApi extends Api>(
 			pendingToolCalls = [];
 			pendingToolCallIds = new Set();
 			existingToolResultIds = new Set();
+			bufferedResults = new Map();
 		}
 	};
 
-	for (const msg of transformed) {
+	for (const [index, msg] of transformed.entries()) {
 		if (msg.role === "assistant") {
 			// If we have pending orphaned tool calls from a previous assistant, insert synthetic results now
 			insertSyntheticToolResults();
@@ -207,14 +221,16 @@ export function transformMessages<TApi extends Api>(
 				pendingToolCalls = toolCalls;
 				pendingToolCallIds = new Set(toolCalls.map((toolCall) => toolCall.id));
 				existingToolResultIds = new Set();
+				lateResults = collectResultsBeforeNextAssistant(transformed, index);
 			}
 
 			result.push(msg);
 		} else if (msg.role === "toolResult") {
 			if (movedResults.has(msg)) continue;
-			if (unseenResults.get(msg.toolCallId) === msg) unseenResults.delete(msg.toolCallId);
-			if (pendingToolCallIds.has(msg.toolCallId)) {
+			if (pendingToolCallIds.has(msg.toolCallId) && !existingToolResultIds.has(msg.toolCallId)) {
 				existingToolResultIds.add(msg.toolCallId);
+				bufferedResults.set(msg.toolCallId, msg);
+				continue;
 			}
 			result.push(msg);
 		} else if (msg.role === "user") {
@@ -222,6 +238,7 @@ export function transformMessages<TApi extends Api>(
 			insertSyntheticToolResults();
 			result.push(msg);
 		} else {
+			flushBufferedResults();
 			result.push(msg);
 		}
 	}
@@ -230,6 +247,19 @@ export function transformMessages<TApi extends Api>(
 	insertSyntheticToolResults();
 
 	return result;
+}
+
+/** Tool results stored after the assistant message at `assistantIndex` and before the next one, first per call id. */
+function collectResultsBeforeNextAssistant(
+	messages: Message[],
+	assistantIndex: number,
+): Map<string, ToolResultMessage> {
+	const results = new Map<string, ToolResultMessage>();
+	for (const msg of messages.slice(assistantIndex + 1)) {
+		if (msg.role === "assistant") break;
+		if (msg.role === "toolResult" && !results.has(msg.toolCallId)) results.set(msg.toolCallId, msg);
+	}
+	return results;
 }
 
 /** A run of consecutive tool results. Providers that need one turn for all results of a tool-call batch send it as one message. */

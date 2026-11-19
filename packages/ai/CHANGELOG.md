@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- Fixed history replay moving a later turn's tool result to an earlier unanswered call that used the same call ID (providers with index-based IDs); a late result is now taken only from before the next assistant message
+- Fixed history replay emitting a batch's tool results out of call order when a synthetic result filled an earlier call, which paired Gemini function responses with the wrong calls
 - Fixed Google and Vertex blocked-prompt errors reporting zero usage when the blocking chunk carried token counts
 - Fixed OpenRouter history replay sending an encrypted `reasoning_details` entry with the original tool call ID after the call ID was shortened to 40 characters; the entry now carries the replayed ID
 - Fixed OpenAI Completions streams losing an encrypted `reasoning_details` entry that arrived for a tool call ID before a later delta switched the call to that ID

@@ -79,3 +79,59 @@ describe("transformMessages with a tool result stored after an interrupting user
 		expect(responses).toEqual([{ output: "contents of a" }, { output: "contents of b" }]);
 	});
 });
+
+function summarize(messages: Message[]): string[] {
+	return messages.map((message) =>
+		message.role === "toolResult"
+			? `toolResult ${message.toolCallId}: ${message.content.map((part) => (part.type === "text" ? part.text : "")).join("")}`
+			: message.role,
+	);
+}
+
+describe("transformMessages pairing results with an incomplete batch", () => {
+	it("does not take a result of a later turn that reuses the call id", () => {
+		const read = (path: string): AssistantMessage => ({
+			...toolBatch,
+			content: [{ type: "toolCall", id: "call_0", name: "read", arguments: { path } }],
+		});
+		const transformed = transformMessages(
+			[
+				{ role: "user", content: "read a", timestamp: 1 },
+				read("a.txt"),
+				{ role: "user", content: "read b instead", timestamp: 4 },
+				read("b.txt"),
+				readResult("call_0", "contents of b"),
+			],
+			model,
+		);
+
+		expect(summarize(transformed)).toEqual([
+			"user",
+			"assistant",
+			"toolResult call_0: No result provided",
+			"user",
+			"assistant",
+			"toolResult call_0: contents of b",
+		]);
+	});
+
+	it("keeps call order when a synthetic result fills an earlier call of the batch", () => {
+		const transformed = transformMessages(
+			[
+				{ role: "user", content: "read both files", timestamp: 1 },
+				toolBatch,
+				readResult("call_b", "contents of b"),
+				{ role: "user", content: "stop", timestamp: 4 },
+			],
+			model,
+		);
+
+		expect(summarize(transformed)).toEqual([
+			"user",
+			"assistant",
+			"toolResult call_a: No result provided",
+			"toolResult call_b: contents of b",
+			"user",
+		]);
+	});
+});
