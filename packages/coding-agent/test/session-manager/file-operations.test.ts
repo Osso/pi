@@ -421,10 +421,24 @@ describe("SessionManager custom flat session directory", () => {
 		expect(continuedA.getSessionFile()).toBe(sessionA);
 	});
 
+	it("backfills transcripts missing from a nonempty index once, then lists only the index", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const indexed = createPersistedSession(projectA, "indexed", { controlDbPath });
+		const unindexedOtherProject = createPersistedSession(projectB, "before the index");
+
+		const all = await SessionManager.listAll(tempDir, undefined, controlDbPath);
+		expect(new Set(all.map((session) => session.path))).toEqual(new Set([indexed, unindexedOtherProject]));
+		expect(readSessionMetadata(controlDbPath, unindexedOtherProject)).toMatchObject({ cwd: projectB });
+
+		const writtenAfterBackfill = createPersistedSession(projectB, "never indexed");
+		const allAgain = await SessionManager.listAll(tempDir, undefined, controlDbPath);
+		expect(allAgain.map((session) => session.path)).not.toContain(writtenAfterBackfill);
+	});
+
 	it("lists from sqlite metadata even when metadata paths do not match session files", async () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const sessionA = createPersistedSession(projectA, "from A");
-		createPersistedSession(projectA, "from B");
+		const sessionB = createPersistedSession(projectA, "from B");
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: sessionA,
 			id: "metadata-a",
@@ -450,8 +464,8 @@ describe("SessionManager custom flat session directory", () => {
 
 		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
 
-		expect(currentA.map((entry) => entry.path)).toEqual([join(tempDir, "missing.jsonl"), sessionA]);
-		expect(currentA.map((entry) => entry.firstMessage)).toEqual(["metadata missing", "metadata A"]);
+		expect(currentA.map((entry) => entry.path)).toEqual([sessionB, join(tempDir, "missing.jsonl"), sessionA]);
+		expect(currentA.map((entry) => entry.firstMessage)).toEqual(["from B", "metadata missing", "metadata A"]);
 	});
 
 	it("updates sqlite metadata incrementally on messages and skips writes for custom entries", () => {
@@ -657,7 +671,7 @@ describe("SessionManager custom flat session directory", () => {
 		expect(archived.map((session) => session.path)).toEqual([archivedOrdinary]);
 	});
 
-	it("treats nonempty sqlite metadata as authoritative instead of scanning transcripts", async () => {
+	it("backfills an unindexed main session without exposing indexed subagent sessions", async () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const mainSession = createPersistedSession(projectA, "unindexed main prompt");
 		const subagentSessionFile = createPersistedSession(projectA, "indexed subagent prompt", {
@@ -668,9 +682,8 @@ describe("SessionManager custom flat session directory", () => {
 
 		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
 
-		expect(currentA).toEqual([]);
-		expect(existsSync(mainSession)).toBe(true);
-		expect(readSessionMetadata(controlDbPath, mainSession)).toBeUndefined();
+		expect(currentA.map((entry) => entry.path)).toEqual([mainSession]);
+		expect(readSessionMetadata(controlDbPath, mainSession)).toMatchObject({ firstMessage: "unindexed main prompt" });
 		expect(readSessionMetadata(controlDbPath, subagentSessionFile)).toMatchObject({ isSubagent: true });
 	});
 

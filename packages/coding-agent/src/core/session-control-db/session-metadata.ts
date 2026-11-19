@@ -302,13 +302,28 @@ export function listArchivedSessionMetadata(controlDbPath: string): SessionMetad
 	return listSessionMetadataByArchiveState(controlDbPath, true);
 }
 
+/** Whether every transcript under a session root has been indexed once; the index is authoritative only then. */
+export function isSessionRootIndexed(controlDbPath: string, root: string): boolean {
+	return withControlDb(
+		controlDbPath,
+		(db) => db.prepare("SELECT 1 FROM session_metadata_indexed_roots WHERE root = ?").get(root) !== undefined,
+	);
+}
+
+export function markSessionRootIndexed(controlDbPath: string, root: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare("INSERT OR IGNORE INTO session_metadata_indexed_roots (root, indexed_at) VALUES (?, ?)").run(
+			root,
+			new Date().toISOString(),
+		);
+	});
+}
+
 export function listResumeSessionMetadata(
 	controlDbPath: string,
 	options: ResumeSessionMetadataOptions,
-): SessionMetadata[] | undefined {
+): SessionMetadata[] {
 	return withControlDb(controlDbPath, (db) => {
-		if (!db.prepare("SELECT 1 FROM session_metadata LIMIT 1").get()) return undefined;
-
 		const predicates = [options.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL", "is_subagent = 0"];
 		const values: string[] = [];
 		if (options.cwd) {

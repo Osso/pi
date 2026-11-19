@@ -36,7 +36,6 @@ import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	getControlDbPath,
 	listResumeSessionMetadata,
-	listSessionMetadata,
 	normalizeSessionName,
 	readSessionGoal,
 	readSessionMetadata,
@@ -53,6 +52,7 @@ import {
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { loadEntriesFromFile, parseSessionEntryLine } from "./session-file-reader.ts";
+import { backfillSessionIndex } from "./session-index-backfill.ts";
 import {
 	applySessionInfoEntry,
 	createSessionInfoAccumulator,
@@ -848,30 +848,25 @@ function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
 	};
 }
 
-function excludeKnownSubagentSessions(controlDbPath: string | undefined, sessions: SessionInfo[]): SessionInfo[] {
-	const nonResidentSessions = sessions.filter((session) => !isResidentSession(session));
-	if (!controlDbPath) return nonResidentSessions;
-	const subagentSessionPaths = new Set(
-		listSessionMetadata(controlDbPath)
-			.filter((metadata) => metadata.isSubagent)
-			.map((metadata) => normalizePath(metadata.sessionPath)),
-	);
-	if (subagentSessionPaths.size === 0) return nonResidentSessions;
-	return nonResidentSessions.filter((session) => !subagentSessionPaths.has(normalizePath(session.path)));
-}
-
-function cacheSessionMetadata(controlDbPath: string | undefined, sessions: SessionInfo[]): void {
-	if (!controlDbPath) return;
+function cacheSessionMetadata(controlDbPath: string, sessions: SessionInfo[]): void {
 	for (const session of sessions) {
 		writeSessionMetadata(controlDbPath, writableSessionMetadataFromInfo(session));
 	}
 }
 
-function listMetadataSessions(
+/** Resume-list rows from the index; its root (`scanDir` or the sessions root) is backfilled once before it answers. */
+async function listMetadataSessions(
 	controlDbPath: string | undefined,
-	options: { cwd?: string; dir?: string; archived: boolean },
-): SessionInfo[] | undefined {
+	options: { cwd?: string; dir?: string; archived: boolean; scanDir?: string },
+	progress?: SessionListProgress,
+): Promise<SessionInfo[] | undefined> {
 	if (!controlDbPath) return undefined;
+	const { scanDir } = options;
+	const scan = () => (scanDir ? listSessionsFromDir(scanDir, progress) : listDefaultSessionRoot(progress));
+	if (!options.archived)
+		await backfillSessionIndex(controlDbPath, scanDir ?? getSessionsDir(), scan, (s) =>
+			cacheSessionMetadata(controlDbPath, s),
+		);
 	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
 	const normalizedDir = options.dir ? join(normalizePath(options.dir)) : undefined;
 	const sessionPathPrefix = normalizedDir && !normalizedDir.endsWith(sep) ? `${normalizedDir}${sep}` : normalizedDir;
@@ -880,7 +875,7 @@ function listMetadataSessions(
 		cwd: resolvedCwd,
 		sessionPathPrefix,
 	})
-		?.map(sessionInfoFromMetadata)
+		.map(sessionInfoFromMetadata)
 		.filter((session) => !isResidentSession(session));
 }
 
@@ -2079,18 +2074,17 @@ export class SessionManager {
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDirPath(cwd);
-		const metadataSessions = listMetadataSessions(controlDbPath, { cwd, dir, archived: false });
+		const options = { cwd, dir, archived: false, scanDir: sessionDir ? dir : undefined };
+		const metadataSessions = await listMetadataSessions(controlDbPath, options, onProgress);
 		if (metadataSessions) return metadataSessions;
 
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
 		const resolvedCwd = resolvePath(cwd);
 		const sessions = (await listSessionsFromDir(dir, onProgress)).filter(
-			(session) => !filterCwd || sessionCwdMatches(session.cwd, resolvedCwd),
+			(session) => (!filterCwd || sessionCwdMatches(session.cwd, resolvedCwd)) && !isResidentSession(session),
 		);
-		cacheSessionMetadata(controlDbPath, sessions);
-		const resumeSessions = excludeKnownSubagentSessions(controlDbPath, sessions);
-		resumeSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-		return resumeSessions;
+		sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+		return sessions;
 	}
 
 	/** List archived sessions across all project directories. */
@@ -2101,7 +2095,7 @@ export class SessionManager {
 	): Promise<SessionInfo[]> {
 		if (!controlDbPath) return [];
 		const dir = sessionDir ? normalizePath(sessionDir) : undefined;
-		return listMetadataSessions(controlDbPath, { dir, archived: true }) ?? [];
+		return (await listMetadataSessions(controlDbPath, { dir, archived: true })) ?? [];
 	}
 
 	/**
@@ -2123,20 +2117,16 @@ export class SessionManager {
 			typeof sessionDirOrOnProgress === "string" ? normalizePath(sessionDirOrOnProgress) : undefined;
 		const progress = typeof sessionDirOrOnProgress === "function" ? sessionDirOrOnProgress : onProgress;
 		if (customSessionDir) {
-			const metadataSessions = listMetadataSessions(controlDbPath, { dir: customSessionDir, archived: false });
+			const options = { dir: customSessionDir, archived: false, scanDir: customSessionDir };
+			const metadataSessions = await listMetadataSessions(controlDbPath, options, progress);
 			if (metadataSessions) return metadataSessions;
-			const sessions = await listSessionsFromDir(customSessionDir, progress);
-			cacheSessionMetadata(controlDbPath, sessions);
-			const resumeSessions = excludeKnownSubagentSessions(controlDbPath, sessions);
-			resumeSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-			return resumeSessions;
+			const sessions = (await listSessionsFromDir(customSessionDir, progress)).filter((s) => !isResidentSession(s));
+			sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+			return sessions;
 		}
 
-		const metadataSessions = listMetadataSessions(controlDbPath, { archived: false });
+		const metadataSessions = await listMetadataSessions(controlDbPath, { archived: false }, progress);
 		if (metadataSessions) return metadataSessions;
-
-		const sessions = await listDefaultSessionRoot(progress);
-		cacheSessionMetadata(controlDbPath, sessions);
-		return excludeKnownSubagentSessions(controlDbPath, sessions);
+		return (await listDefaultSessionRoot(progress)).filter((session) => !isResidentSession(session));
 	}
 }

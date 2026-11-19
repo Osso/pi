@@ -159,7 +159,8 @@ describe("session selector path/delete interactions", () => {
 			() => {},
 			{ keybindings, ...options },
 		);
-		await flushPromises();
+		// Index-backed loaders read transcripts on first use, so the initial Current Folder load can take real I/O.
+		await waitFor(() => !stripAnsi(selector.render(120).join("\n")).includes("Current Folder | Loading"));
 		return selector;
 	}
 	const tempDirs: string[] = [];

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Resume lists and `--session <id>` lookup no longer miss sessions written before the control-DB session index had any rows. Previously, once any session was indexed (for example a new session in one project), sessions from other projects were not found until their transcripts were opened again. The first list for a session directory now indexes every transcript under it once.
 - An `auth.json` credential that resolves to no API key (for example `$VAR` with `VAR` unset) is now an auth error; before, the request was sent without a key, and a model pool tried that member instead of failing over to the next
 - `/export <file>.jsonl` writes the whole current branch of a reopened compacted session; before, it wrote only the active slice loaded in memory and dropped the history before the compaction's first kept entry
 - `/usage openai` reads the clock once for platform spend, so a costs request that crosses midnight UTC no longer reports $0.00 for today beside the previous month's total

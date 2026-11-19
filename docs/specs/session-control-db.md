@@ -66,10 +66,14 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] `session_metadata` stores only the first user message, never accumulated transcript text, so
       per-append metadata rewrites stay bounded. Opening a control DB whose `session_metadata` still has
       the legacy `all_messages_text` column drops that column.
-- [x] Resume lists treat a nonempty `session_metadata` table as authoritative: Current Folder,
+- [x] Resume lists read `session_metadata`: Current Folder,
       All, and Archived return only non-resident main-session rows matching archive state, cwd, and
       configured session-directory scope; resident Architect histories are excluded from
-      every picker scope. Transcript scanning/indexing runs only when the table is empty. Startup
+      every picker scope. The first active-session list for a session root (the default sessions
+      directory or a configured session directory) indexes every transcript under that root once and
+      records the root in `session_metadata_indexed_roots`; transcripts that already have a row keep it.
+      After that the index is authoritative for the root and no transcript scan runs, so `--session <id>`
+      finds sessions from every project even when they were written before the index existed. Startup
       empty-session cleanup uses an index-scoped lookup of active non-subagent zero-message candidate IDs
       and paths; it does not scan the full `session_metadata` table, while resident, file, liveness, and deletion checks remain unchanged.
 - [x] Store multi-agent state as per-entity rows keyed by session path

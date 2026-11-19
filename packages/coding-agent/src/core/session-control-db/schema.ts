@@ -67,6 +67,11 @@ export const CONTROL_DB_SCHEMA_SQL = `
 		CREATE INDEX IF NOT EXISTS session_metadata_modified_at_idx
 		ON session_metadata(modified_at DESC, updated_at DESC);
 
+		CREATE TABLE IF NOT EXISTS session_metadata_indexed_roots (
+			root TEXT PRIMARY KEY,
+			indexed_at TEXT NOT NULL
+		);
+
 		CREATE INDEX IF NOT EXISTS session_metadata_id_idx
 		ON session_metadata(id);
 
