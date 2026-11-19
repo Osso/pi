@@ -312,10 +312,20 @@ export function parseArgs(args: string[]): Args {
 	}
 
 	result.diagnostics.push(...collectStandaloneWorkerDiagnostics(result));
-	if (args.some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg))) {
+	if (requestsTerminalExport(args)) {
 		result.diagnostics.push(...collectTerminalExportDiagnostics(result));
 	}
 	return result;
+}
+
+/** Arguments before `--`; everything after it is message text, even when it looks like an option. */
+export function optionArgs(args: string[]): string[] {
+	const end = args.indexOf("--");
+	return end === -1 ? args : args.slice(0, end);
+}
+
+export function requestsTerminalExport(args: string[]): boolean {
+	return optionArgs(args).some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg));
 }
 
 function collectTerminalExportDiagnostics(parsed: Args): Args["diagnostics"] {

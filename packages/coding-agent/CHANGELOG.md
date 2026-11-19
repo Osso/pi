@@ -273,6 +273,8 @@
 
 ### Fixed
 
+- Fixed `--architect`, `--export-terminal`/`--export-columns` and `--offline` being honored after the `--` end-of-options delimiter, where they are prompt text
+
 - `--export-terminal codex/local.jsonl` exports an existing saved transcript at that relative path instead of rejecting it as an external session alias.
 - `--session codex/<id>` or `claude/<id>` no longer deletes the Pi-only messages of an earlier import that was archived. Previously, the importer saw no plain `.jsonl` file and wrote a fresh import; restoring then kept the new copy and removed the archive.
 - `pi -p`, `--mode json` and RPC output no longer replace an emoji or other non-BMP character with two `U+FFFD` when it falls on a 1024-character stdout chunk boundary.

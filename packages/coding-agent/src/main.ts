@@ -57,7 +57,7 @@ import specValidationExtension from "../extensions/spec-validation/src/index.ts"
 import supervisorSessionExtension from "../extensions/supervisor-session/src/index.ts";
 import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
-import { type Args, parseArgs, printHelp } from "./cli/args.ts";
+import { type Args, optionArgs, parseArgs, printHelp, requestsTerminalExport } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
 import { handleDebugCommand } from "./cli/debug-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -736,7 +736,7 @@ function createFirstPartyExtensionFactories(
 
 function rejectInvalidStandaloneWorkerStartup(args: string[], parsed: Args): void {
 	if (!parsed.noSupervisor) return;
-	const requestsResidentConsole = args.includes("--architect");
+	const requestsResidentConsole = optionArgs(args).includes("--architect");
 	const hasArgumentErrors = parsed.diagnostics.some((diagnostic) => diagnostic.type === "error");
 	if (hasArgumentErrors || requestsResidentConsole) {
 		writeDiagnosticsToStderr(parsed.diagnostics);
@@ -888,7 +888,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
-	if (args.some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg))) {
+	if (requestsTerminalExport(args)) {
 		await exportTerminalHistory(initialArgs);
 		return;
 	}
@@ -899,7 +899,7 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 	resetTimings();
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = optionArgs(args).includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (args.length === 1 && args[0] === "architect") {
 		await loadOpenRouterCatalogAtStartup();
 		await runArchitectService();
