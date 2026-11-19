@@ -170,19 +170,18 @@ export function createLsToolDefinition(
 						const results: string[] = [];
 						let entryLimitReached = false;
 						for (const entry of entries) {
-							if (results.length >= effectiveLimit) {
-								entryLimitReached = true;
-								break;
-							}
-
 							const fullPath = nodePath.join(dirPath, entry);
 							let suffix = "";
 							try {
 								const entryStat = await ops.stat(fullPath);
 								if (entryStat.isDirectory()) suffix = "/";
 							} catch {
-								// Skip entries we cannot stat.
+								// Skip entries we cannot stat; they never count toward the limit notice.
 								continue;
+							}
+							if (results.length >= effectiveLimit) {
+								entryLimitReached = true;
+								break;
 							}
 							results.push(entry + suffix);
 						}

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isToolResultTextTooLarge } from "@earendil-works/pi-agent-core";
@@ -1469,6 +1469,15 @@ describe("Coding Agent Tools", () => {
 			const result = await lsTool.execute("ls-limit-fraction", { path: testDir, limit: 1.9 });
 
 			expect(getTextOutput(result)).toBe("a.txt\n\n[1 entries limit reached. Use limit=2 for more]");
+		});
+
+		it("does not report the limit when only unlistable entries remain", async () => {
+			writeFileSync(join(testDir, "a.txt"), "a");
+			symlinkSync(join(testDir, "missing.txt"), join(testDir, "z-link"));
+
+			const result = await lsTool.execute("ls-limit-dangling", { path: testDir, limit: 1 });
+
+			expect(getTextOutput(result)).toBe("a.txt");
 		});
 	});
 });

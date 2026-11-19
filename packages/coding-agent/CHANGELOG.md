@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `ls` no longer reports "entries limit reached" when the only entries past the limit cannot be listed, such as dangling symlinks
 - A goal completion review that the Supervisor answers with `wait` keeps its scheduled re-review and completion report when the turn ends; the turn end no longer starts an idle review that replaced it
 - `set_session_name` no longer renames a session after the user set the tool's own title with `/name`; any manual name change now takes the name out of the tool's control
 - A repeated compaction that splits a turn kept by the previous one no longer carries the previous `<read-files>`/`<modified-files>` block into the summary next to the new one
