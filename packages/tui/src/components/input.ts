@@ -1,3 +1,4 @@
+import { graphemeStartAt } from "../grapheme-boundary.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { KillRing } from "../kill-ring.ts";
 import { type Component, CURSOR_MARKER, type Focusable } from "../tui.ts";
@@ -51,17 +52,7 @@ export class Input implements Component, Focusable {
 
 	setValue(value: string): void {
 		this.value = value;
-		if (this.cursor >= value.length) {
-			this.cursor = value.length;
-			return;
-		}
-		// Keep the old offset only on a grapheme boundary of the new value, never inside an emoji or surrogate pair.
-		let boundary = 0;
-		for (const { index } of segmenter.segment(value)) {
-			if (index > this.cursor) break;
-			boundary = index;
-		}
-		this.cursor = boundary;
+		this.cursor = graphemeStartAt(segmenter.segment(value), Math.min(this.cursor, value.length));
 	}
 
 	handleInput(data: string): void {

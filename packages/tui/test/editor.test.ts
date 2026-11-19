@@ -1014,6 +1014,24 @@ describe("Editor component", () => {
 		});
 	});
 
+	describe("deleting between regional indicators", () => {
+		// Deleting what separates two regional indicators joins them into one flag grapheme.
+		for (const [name, text, keys] of [
+			["forward delete", "🇺x🇸", ["\x01", "\x1b[C", "\x1b[3~"]],
+			["backspace", "🇺x🇸", ["\x05", "\x1b[D", "\x7f"]],
+			["forward delete at the end of a line", "🇺\n🇸", ["\x1b[A", "\x05", "\x1b[3~"]],
+		] as const) {
+			it(`keeps the cursor out of the flag joined by ${name}`, () => {
+				const editor = new Editor(createTestTUI(), defaultEditorTheme);
+				editor.setText(text);
+				for (const key of keys) editor.handleInput(key);
+				editor.handleInput("a");
+
+				assert.strictEqual(editor.getText(), "a🇺🇸");
+			});
+		}
+	});
+
 	describe("Grapheme-aware text wrapping", () => {
 		it("renders an optional prompt prefix before the first input line", () => {
 			const editor = new Editor(createTestTUI(), {

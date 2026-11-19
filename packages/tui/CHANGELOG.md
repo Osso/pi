@@ -20,7 +20,7 @@
 
 ### Fixed
 
-- Fixed `Input` leaving the cursor inside a flag emoji when a delete joined two regional indicators (for example deleting `x` from `🇺x🇸`), so the next typed character split the flag
+- Fixed `Input` and `Editor` leaving the cursor inside a flag emoji when a delete joined two regional indicators (for example deleting `x` from `🇺x🇸`), so the next typed character split the flag
 - Fixed `@` file suggestions returning nothing for a query that starts with `-` (for example `@-draft`); fd read the query as an option
 - Fixed legacy alt+symbol input (`ESC` followed by a symbol such as `.` or `,`) not matching `alt+.`-style keybindings (port of upstream 8479bd847, [#6523](https://github.com/earendil-works/pi-mono/issues/6523))
 - Fixed `Input` dropping shifted keys sent as xterm modifyOtherKeys sequences, for example shift+space under tmux extended keys (`ESC[27;2;32~`). Single-line inputs such as the `ask_questions` free-text answer did not print a space for shift+space.

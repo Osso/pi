@@ -1,5 +1,6 @@
 import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.ts";
 import { maxCursorColumn } from "../editor-columns.ts";
+import { graphemeStartAt } from "../grapheme-boundary.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
@@ -1613,12 +1614,10 @@ export class Editor implements Component, Focusable {
 		}
 	}
 
-	/**
-	 * Set cursor column and clear preferredVisualCol.
-	 * Use this for all non-vertical cursor movements to reset sticky column behavior.
-	 */
+	/** Set the cursor column (moved back to a grapheme start) after horizontal moves and edits; resets the sticky column. */
 	private setCursorCol(col: number): void {
-		this.state.cursorCol = col;
+		const line = this.state.lines[this.state.cursorLine] ?? "";
+		this.state.cursorCol = graphemeStartAt(this.segment(line, "grapheme"), col);
 		this.preferredVisualCol = null;
 		this.snappedFromCursorCol = null;
 	}
@@ -1928,8 +1927,6 @@ export class Editor implements Component, Focusable {
 
 			// Delete grapheme at cursor position (handles emojis, combining characters, etc.)
 			const afterCursor = currentLine.slice(this.state.cursorCol);
-
-			// Find the first grapheme at cursor
 			const graphemes = [...this.segment(afterCursor, "grapheme")];
 			const firstGrapheme = graphemes[0];
 			const graphemeLength = firstGrapheme ? firstGrapheme.segment.length : 1;
@@ -1945,6 +1942,7 @@ export class Editor implements Component, Focusable {
 			this.state.lines[this.state.cursorLine] = currentLine + nextLine;
 			this.state.lines.splice(this.state.cursorLine + 1, 1);
 		}
+		this.setCursorCol(this.state.cursorCol);
 
 		if (this.onChange) {
 			this.onChange(this.getText());
