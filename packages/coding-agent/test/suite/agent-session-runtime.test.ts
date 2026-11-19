@@ -246,7 +246,9 @@ describe("AgentSessionRuntime characterization", () => {
 			"process restart requested",
 		);
 
-		expect(calls).toEqual([{ sessionFile: runtime.session.sessionManager.getSessionFile(), prompt: "Restarted." }]);
+		expect(calls).toEqual([
+			{ sessionFile: runtime.session.sessionManager.getSessionFile(), prompt: "Restarted.", interruptedRun: false },
+		]);
 	});
 
 	it("flushes pending session entries before process restart handoff", async () => {
