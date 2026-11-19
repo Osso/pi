@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `ask_questions` panel truncates its tab bar, help line and Submit status to the terminal width, so a narrow terminal no longer crashes the render with a line-width error
 - The `/resume` Archived scope keeps recent ordering instead of moving named sessions first, as the startup picker already did
 - Bash output (tool and user `!` commands) no longer corrupts a UTF-8 character on stdout into replacement characters when stderr writes between its bytes; each stream is now passed on at character boundaries
 - A Bash command killed by a signal in a session with background jobs now reports `128 + signal number` (143 for SIGTERM) instead of exit code 1, as it already did without background jobs

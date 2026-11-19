@@ -221,7 +221,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		const status = canSubmit()
 			? theme.fg("success", "Enter to submit")
 			: theme.fg("warning", "Answer every question to submit");
-		return [...lines, "", `   ${status}`];
+		return [...lines, "", truncateToWidth(`   ${status}`, width)];
 	}
 
 	function renderBody(width: number): string[] {
@@ -261,8 +261,9 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		invalidate(): void {},
 		render(width: number): string[] {
 			const rule = theme.fg("accent", "─".repeat(Math.max(1, width)));
-			const tabBar = tabCount > 1 ? [renderTabBar(), ""] : [];
-			return [rule, ...tabBar, ...renderBody(width), "", ` ${theme.fg("dim", renderHelp())}`, rule];
+			const tabBar = tabCount > 1 ? [truncateToWidth(renderTabBar(), width), ""] : [];
+			const help = truncateToWidth(` ${theme.fg("dim", renderHelp())}`, width);
+			return [rule, ...tabBar, ...renderBody(width), "", help, rule];
 		},
 	};
 }

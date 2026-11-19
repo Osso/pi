@@ -1,4 +1,4 @@
-import { CURSOR_MARKER, setKeybindings } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
@@ -126,5 +126,17 @@ describe("ask_questions panel free text", () => {
 		const empty = setup([{ ...choice, multiSelect: true }, { question: "Explain?" }]);
 		empty.press(KEY.tab, "detail", KEY.enter, KEY.enter);
 		expect(empty.results[0]).toEqual({ answers: { "Which?": "", "Explain?": "detail" }, cancelled: false });
+	});
+
+	it("keeps the tab bar, help and submit lines within a narrow terminal width", () => {
+		const { panel, press } = setup(
+			["Database", "Hosting", "Caching", "Monitoring"].map((header) => ({ ...choice, header })),
+		);
+		const widths = () => panel.render(50).map((line) => visibleWidth(line));
+		expect(Math.max(...widths())).toBeLessThanOrEqual(50);
+		press(KEY.right, KEY.right, KEY.right, KEY.right);
+		expect(stripAnsi(panel.render(50).join("\n"))).toContain("Answer every question");
+		expect(Math.max(...widths())).toBeLessThanOrEqual(50);
+		expect(Math.max(...panel.render(20).map((line) => visibleWidth(line)))).toBeLessThanOrEqual(20);
 	});
 });
