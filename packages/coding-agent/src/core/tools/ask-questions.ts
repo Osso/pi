@@ -140,6 +140,13 @@ function settleQuestionRace(race: QuestionPanelRace, result: AskQuestionsAnswer)
 	race.close?.(result);
 }
 
+/** An aborted turn closes its open or queued panel as cancelled. */
+function cancelQuestionRaceOnAbort(race: QuestionPanelRace, signal: AbortSignal | undefined): void {
+	const close = () => settleQuestionRace(race, { answers: {}, cancelled: true });
+	if (signal?.aborted) close();
+	else signal?.addEventListener("abort", close, { once: true });
+}
+
 async function showQuestions(
 	ui: ExtensionUIContext,
 	questions: AskQuestionsToolInput["questions"],
@@ -195,9 +202,7 @@ export function askQuestionsInUi(
 	signal?: AbortSignal,
 ): Promise<AskQuestionsPanelResult> {
 	const race: QuestionPanelRace = {};
-	const close = () => settleQuestionRace(race, { answers: {}, cancelled: true });
-	if (signal?.aborted) close();
-	else signal?.addEventListener("abort", close, { once: true });
+	cancelQuestionRaceOnAbort(race, signal);
 	return queueQuestions(ui, questions, race);
 }
 
@@ -219,8 +224,10 @@ async function askQuestions(
 	ctx: ExtensionContext,
 	requestId: string,
 	params: AskQuestionsToolInput,
+	signal: AbortSignal | undefined,
 ): Promise<AskQuestionsAnswer> {
 	const race: QuestionPanelRace = {};
+	cancelQuestionRaceOnAbort(race, signal);
 	const supervisor = askSupervisorQuestions(ctx, requestId, params, (reply) => {
 		if (reply.kind === "escalate") {
 			ctx.ui.notify(`The Supervisor asked the user to answer: ${reply.reason}`, "info");
@@ -431,7 +438,8 @@ function closeAskQuestionsNotification(notification: DesktopNotificationHandle |
 function startQueuedQuestionRequest(toolCallId: string, params: AskQuestionsToolInput, ctx: ExtensionContext) {
 	const ui = ctx.ui;
 	const target = captureQuestionInboxTarget(ctx);
-	const pending = askQuestions(ctx, toolCallId, params);
+	// Queued questions outlive the turn that asked them, so the turn's abort must not cancel them.
+	const pending = askQuestions(ctx, toolCallId, params, undefined);
 	void deliverQueuedAnswers(ui, target, toolCallId, pending).catch((error: unknown) => {
 		console.error(`Failed question delivery handler (request ${toolCallId}):`, error);
 	});
@@ -471,13 +479,13 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 		parameters: askQuestionsSchema,
 		approvalRequired: false,
 		executionMode: "sequential",
-		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params, signal, _onUpdate, ctx) {
 			if (typeof params.blocking !== "boolean")
 				throw new Error("ask_questions requires explicit blocking: true or false");
 			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
 			validateQuestions(params.questions);
 			if (!params.blocking) return startQueuedQuestionRequest(toolCallId, params, ctx);
-			const { answers, cancelled, answeredBy } = await askQuestions(ctx, toolCallId, params);
+			const { answers, cancelled, answeredBy } = await askQuestions(ctx, toolCallId, params, signal);
 			return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers, answeredBy);
 		},
 		renderCall(args, theme, context) {

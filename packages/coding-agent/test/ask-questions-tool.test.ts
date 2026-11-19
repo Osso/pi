@@ -267,6 +267,36 @@ describe("ask_questions tool", () => {
 		).rejects.toThrow('Duplicate option label "A" in question "Pick one?"');
 	});
 
+	it("closes an open blocking panel as cancelled when the turn is aborted", async () => {
+		const keybindings = new KeybindingsManager();
+		setKeybindings(keybindings);
+		let panelOpened: () => void = () => {};
+		const opened = new Promise<void>((resolve) => {
+			panelOpened = resolve;
+		});
+		const custom = <T>(
+			factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: T) => void) => Component,
+		): Promise<T> =>
+			new Promise<T>((resolve) => {
+				factory({ requestRender: () => {} } as unknown as TUI, theme, keybindings, resolve);
+				panelOpened();
+			});
+		const ctx = { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+		const abort = new AbortController();
+
+		const pending = createAskQuestionsToolDefinition().execute(
+			"call-abort",
+			{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			abort.signal,
+			undefined,
+			ctx,
+		);
+		await opened;
+		abort.abort();
+
+		expect((await pending).details).toMatchObject({ cancelled: true, answers: {} });
+	});
+
 	it("returns partial answers when cancelled after earlier questions", async () => {
 		const tool = createAskQuestionsToolDefinition();
 		const { ctx } = setup([KEY.enter, KEY.escape]);
