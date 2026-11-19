@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- `@` file completion matches mixed-case queries case-insensitively (`@Read` finds `README.md`), an explicit `@.git/` query no longer lists `.git` contents, and Tab after a slash command and a space (`/model `) opens argument completion again.
 - Fixed `Input` paste keeping tmux CSI-u control keys (`\x1b[106;5u`) and DEL/C1 control bytes in the value, where a pasted `\x9b` sequence reached the terminal when the line was rendered
 - Fixed `Input` word movement at the line edge (Alt+F at the end, Alt+B at the start) not breaking kill accumulation, so the next Ctrl+W joined an earlier kill
 - Fixed kitty F1, F2 and F4 release and repeat events (`CSI 1;<mod>:<event> P/Q/S`) not being recognized, so a shortcut bound to one of these keys fired again on key release (completes the port of upstream deb12d78e, [#11468](https://github.com/earendil-works/pi-mono/issues/11468))

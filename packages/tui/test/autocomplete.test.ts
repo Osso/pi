@@ -138,6 +138,13 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.strictEqual(result, null, "Should not trigger for slash commands");
 		});
 
+		it("allows forced completion of an empty slash command argument", () => {
+			const provider = new CombinedAutocompleteProvider([], "/tmp");
+
+			assert.strictEqual(provider.shouldTriggerFileCompletion(["/model "], 0, "/model ".length), true);
+			assert.strictEqual(provider.shouldTriggerFileCompletion(["/model"], 0, "/model".length), false);
+		});
+
 		it("uses slash command argument completions when forced", async () => {
 			const provider = new CombinedAutocompleteProvider(
 				[
@@ -323,6 +330,18 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.deepStrictEqual(values, ["@README.md"]);
 		});
 
+		test("matches a mixed-case query case-insensitively", async () => {
+			setupFolder(baseDir, { files: { "README.md": "readme" } });
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const result = await getSuggestions(provider, ["@Read"], 0, "@Read".length);
+
+			assert.deepStrictEqual(
+				result?.items.map((item) => item.value),
+				["@README.md"],
+			);
+		});
+
 		test("ranks directories before files", async () => {
 			setupFolder(baseDir, {
 				dirs: ["src"],
@@ -423,6 +442,15 @@ describe("CombinedAutocompleteProvider", () => {
 
 			const values = result?.items.map((item) => item.value);
 			assert.ok(values?.includes('@"my folder/"'));
+		});
+
+		test("excludes .git contents when the query names .git explicitly", async () => {
+			setupFolder(baseDir, { dirs: [".git"], files: { ".git/config": "[core]" } });
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const result = await getSuggestions(provider, ["@.git/"], 0, "@.git/".length);
+
+			assert.deepStrictEqual(result?.items.map((item) => item.value) ?? [], []);
 		});
 
 		test("includes hidden paths but excludes .git", async () => {

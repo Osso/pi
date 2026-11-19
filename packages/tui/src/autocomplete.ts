@@ -141,6 +141,7 @@ async function walkDirectoryWithFd(
 		"d",
 		"--follow",
 		"--hidden",
+		"--ignore-case",
 		"--no-ignore-vcs",
 		"--exclude",
 		".git",
@@ -199,12 +200,10 @@ async function walkDirectoryWithFd(
 			const results: Array<{ path: string; isDirectory: boolean }> = [];
 
 			for (const line of lines) {
+				// Check the path relative to the fd root: an explicit `.git/` scope is stripped from the display path.
+				if (/(^|\/)\.git(\/|$)/.test(toDisplayPath(line).replace(/^\.\//, ""))) continue;
 				const displayLine = toDisplayPath(line).slice(inProject ? scope.length + 1 : line.startsWith("./") ? 2 : 0);
 				const hasTrailingSeparator = displayLine.endsWith("/");
-				const normalizedPath = hasTrailingSeparator ? displayLine.slice(0, -1) : displayLine;
-				if (normalizedPath === ".git" || normalizedPath.startsWith(".git/") || normalizedPath.includes("/.git/")) {
-					continue;
-				}
 
 				results.push({
 					path: displayLine,
@@ -778,7 +777,8 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const textBeforeCursor = currentLine.slice(0, cursorCol);
 
 		// Don't trigger if we're typing a slash command at the start of the line
-		if (textBeforeCursor.trim().startsWith("/") && !textBeforeCursor.trim().includes(" ")) {
+		const trimmed = textBeforeCursor.trimStart();
+		if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
 			return false;
 		}
 
