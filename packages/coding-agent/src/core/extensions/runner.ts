@@ -302,6 +302,7 @@ const noOpUIContext: ExtensionUIContext = {
 	setToolsExpanded: () => {},
 };
 
+type ToolResultRelocationHandlers = { prepare(targetCwd: string): Promise<void>; activate(): Promise<void> };
 export class ExtensionRunner {
 	private extensions: Extension[];
 	private runtime: ExtensionRuntime;
@@ -340,13 +341,8 @@ export class ExtensionRunner {
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
 	private restartFn: (options?: { notice?: string; process?: boolean }) => Promise<void> = async () => {};
-	private relocateHandler: (targetCwd: string) => Promise<void> = async () => {
-		throw new Error("Working-directory changes are not available in this session mode");
-	};
-	private prepareToolResultRelocationHandler: (targetCwd: string) => Promise<void> = async () => {
-		throw new Error("Tool-result working-directory changes are not available in this session mode");
-	};
-	private activateToolResultRelocationHandler: () => Promise<void> = async () => {};
+	private relocateHandler?: (targetCwd: string) => Promise<void>;
+	private toolResultRelocationHandlers?: ToolResultRelocationHandlers;
 	private pendingToolResultRelocations = new Map<string, string>();
 	private isToolResultRelocationPrepared = false;
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
@@ -481,12 +477,8 @@ export class ExtensionRunner {
 		this.relocateHandler = handler;
 	}
 
-	setToolResultRelocationHandlers(handlers: {
-		prepare(targetCwd: string): Promise<void>;
-		activate(): Promise<void>;
-	}): void {
-		this.prepareToolResultRelocationHandler = handlers.prepare;
-		this.activateToolResultRelocationHandler = handlers.activate;
+	setToolResultRelocationHandlers(handlers: ToolResultRelocationHandlers): void {
+		this.toolResultRelocationHandlers = handlers;
 	}
 
 	private scheduleToolResultRelocation(toolCallId: string, targetCwd: string): void {
@@ -505,7 +497,10 @@ export class ExtensionRunner {
 	}
 
 	async prepareWorkingDirectoryRelocation(targetCwd: string): Promise<void> {
-		await this.prepareToolResultRelocationHandler(targetCwd);
+		if (!this.toolResultRelocationHandlers) {
+			throw new Error("Tool-result working-directory changes are not available in this session mode");
+		}
+		await this.toolResultRelocationHandlers.prepare(targetCwd);
 		this.isToolResultRelocationPrepared = true;
 	}
 
@@ -516,16 +511,21 @@ export class ExtensionRunner {
 	async activateToolResultRelocation(): Promise<void> {
 		if (!this.isToolResultRelocationPrepared) return;
 		this.isToolResultRelocationPrepared = false;
-		await this.activateToolResultRelocationHandler();
+		await this.toolResultRelocationHandlers?.activate();
 	}
 
 	private createRelocationContextActions(): Pick<ExtensionContext, "relocate" | "relocateAfterToolResult"> {
+		const relocate = this.relocateHandler;
 		return {
-			relocate: (targetCwd) => {
-				this.assertActive();
-				return this.relocateHandler(targetCwd);
-			},
-			relocateAfterToolResult: (toolCallId, targetCwd) => this.scheduleToolResultRelocation(toolCallId, targetCwd),
+			...(relocate && {
+				relocate: (targetCwd: string) => {
+					this.assertActive();
+					return relocate(targetCwd);
+				},
+			}),
+			...(this.toolResultRelocationHandlers && {
+				relocateAfterToolResult: this.scheduleToolResultRelocation.bind(this),
+			}),
 		};
 	}
 

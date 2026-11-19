@@ -528,6 +528,24 @@ describe("ExtensionRunner", () => {
 			expect(ctx.signal?.aborted).toBe(true);
 		});
 
+		it("offers working-directory relocation only when the session runtime provides it", async () => {
+			const runner = new ExtensionRunner([], createExtensionRuntime(), tempDir, sessionManager, modelRegistry);
+			const direct = runner.createContext();
+			expect(direct.relocate).toBeUndefined();
+			expect(direct.relocateAfterToolResult).toBeUndefined();
+
+			const relocated: string[] = [];
+			runner.setRelocateHandler(async (targetCwd) => {
+				relocated.push(targetCwd);
+			});
+			runner.setToolResultRelocationHandlers({ prepare: async () => {}, activate: async () => {} });
+			const hosted = runner.createContext();
+			await hosted.relocate?.("/srv/project");
+
+			expect(relocated).toEqual(["/srv/project"]);
+			expect(hosted.relocateAfterToolResult).toBeTypeOf("function");
+		});
+
 		it("keeps ordinary and command context mutations session-local", async () => {
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const ownSetModel = vi.fn(async () => true);
