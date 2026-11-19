@@ -213,9 +213,6 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 					}
 				}
 
-				if (chunk.promptFeedback?.blockReason) {
-					throw new Error(`Prompt blocked: ${chunk.promptFeedback.blockReason}`);
-				}
 				if (candidate?.finishReason) {
 					output.stopReason = mapStopReason(candidate.finishReason);
 					if (output.stopReason === "stop" && output.content.some((b) => b.type === "toolCall")) {
@@ -242,6 +239,11 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 						},
 					};
 					calculateCost(model, output.usage);
+				}
+
+				// Thrown after usage is read so the error message keeps the prompt token counts.
+				if (chunk.promptFeedback?.blockReason) {
+					throw new Error(`Prompt blocked: ${chunk.promptFeedback.blockReason}`);
 				}
 			}
 

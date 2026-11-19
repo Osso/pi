@@ -7,7 +7,7 @@ import { stream as streamVertex } from "../src/api/google-vertex.ts";
 import type { Context, Model, StopReason } from "../src/types.ts";
 
 const sdkStream = vi.hoisted(() => ({
-	chunks: [] as Pick<GenerateContentResponse, "candidates" | "promptFeedback">[],
+	chunks: [] as Pick<GenerateContentResponse, "candidates" | "promptFeedback" | "usageMetadata">[],
 }));
 
 vi.mock("@google/genai", async (importOriginal) => {
@@ -102,7 +102,13 @@ describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 	});
 
 	it("reports a blocked prompt as an error", async () => {
-		sdkStream.chunks = [{ promptFeedback: { blockReason: BlockedReason.SAFETY }, candidates: [] }];
+		sdkStream.chunks = [
+			{
+				promptFeedback: { blockReason: BlockedReason.SAFETY },
+				candidates: [],
+				usageMetadata: { promptTokenCount: 17, totalTokenCount: 17 },
+			},
+		];
 
 		const response = stream();
 		const eventTypes: string[] = [];
@@ -112,6 +118,7 @@ describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 		expect(eventTypes).toEqual(["start", "error"]);
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toBe("Prompt blocked: SAFETY");
+		expect(message.usage).toMatchObject({ input: 17, totalTokens: 17 });
 	});
 
 	it.each(textParts)("preserves $name during streaming and replay", async ({ parts }) => {
