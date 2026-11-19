@@ -149,4 +149,15 @@ describe("isContextOverflow", () => {
 		const message = createLengthStopMessage(100, 0, 0);
 		expect(isContextOverflow(message, 200000)).toBe(false);
 	});
+
+	it("counts cache-write tokens as prompt tokens for length and stop overflow", () => {
+		const lengthStop = createLengthStopMessage(100, 300, 0);
+		lengthStop.usage.cacheWrite = 600;
+		expect(isContextOverflow(lengthStop, 1000)).toBe(true);
+
+		const silentStop = createLengthStopMessage(101, 300, 8);
+		silentStop.usage.cacheWrite = 600;
+		silentStop.stopReason = "stop";
+		expect(isContextOverflow(silentStop, 1000)).toBe(true);
+	});
 });
