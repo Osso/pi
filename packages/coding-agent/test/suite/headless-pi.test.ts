@@ -2382,6 +2382,16 @@ describe("headless Pi fixture", () => {
 				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 				expectSingleToolResult(restoredRequest, "rerun-output");
 				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Dead runner rerun"));
+				// The replacement runner is auto-detached too; its terminal notification may reach a later turn.
+				const carriesReplacementNotice = (request: HeadlessLlmRequest) =>
+					JSON.stringify(request.messages).includes(`\\"agentId\\":\\"${replacementRunner.id}\\"`);
+				if (!carriesReplacementNotice(restoredRequest)) {
+					const noticeRequest = await agent.waitForLlmRequest(
+						(request) => request.agentId === null && request.id !== restoredRequest.id,
+					);
+					expect(carriesReplacementNotice(noticeRequest)).toBe(true);
+					agent.respondToLlmRequest(noticeRequest.id, fauxCompletedAssistantMessage("Noted"));
+				}
 				await agent.waitForEvent((event) => event.type === "agent_end");
 			},
 			{ autoDetachTools: true },
