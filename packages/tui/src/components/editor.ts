@@ -4,6 +4,7 @@ import { graphemeStartAt } from "../grapheme-boundary.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
+import { decodePastedControlKeys } from "../paste-control-keys.ts";
 import { type Component, CURSOR_MARKER, type FixedCell, type Focusable, type TUI } from "../tui.ts";
 import { decodeTypedText } from "../typed-text.ts";
 import { UndoStack } from "../undo-stack.ts";
@@ -1443,20 +1444,8 @@ export class Editor implements Component, Focusable {
 
 		this.pushUndoSnapshot();
 
-		// Some terminals (e.g. tmux popups with extended-keys-format=csi-u) re-encode
-		// control bytes inside bracketed paste as CSI-u Ctrl+<letter> sequences
-		// (ESC [ <codepoint> ; 5 u). Decode those back to their literal byte so the
-		// per-char filter below preserves newlines instead of stripping ESC and
-		// leaking the printable tail (e.g. "[106;5u") into the editor.
-		const decodedText = pastedText.replace(/\x1b\[(\d+);5u/g, (match, code) => {
-			const cp = Number(code);
-			if (cp >= 97 && cp <= 122) return String.fromCharCode(cp - 96);
-			if (cp >= 65 && cp <= 90) return String.fromCharCode(cp - 64);
-			return match;
-		});
-
-		// Clean the pasted text: normalize line endings, expand tabs
-		const cleanText = this.normalizeText(decodedText);
+		// Clean the pasted text: decode CSI-u control keys, normalize line endings, expand tabs
+		const cleanText = this.normalizeText(decodePastedControlKeys(pastedText));
 
 		// Filter out non-printable characters except newlines
 		let filteredText = cleanText

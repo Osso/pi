@@ -1,6 +1,7 @@
 import { graphemeStartAt } from "../grapheme-boundary.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { KillRing } from "../kill-ring.ts";
+import { decodePastedControlKeys } from "../paste-control-keys.ts";
 import { type Component, CURSOR_MARKER, type Focusable } from "../tui.ts";
 import { decodeTypedText } from "../typed-text.ts";
 import { UndoStack } from "../undo-stack.ts";
@@ -358,8 +359,10 @@ export class Input implements Component, Focusable {
 		this.lastAction = null;
 		this.pushUndo();
 
-		// Clean the pasted text - remove newlines and carriage returns
-		const cleanText = pastedText.replace(/\r\n/g, "").replace(/\r/g, "").replace(/\n/g, "").replace(/\t/g, "    ");
+		// Single line: expand tabs, then drop line breaks and every other C0, DEL, and C1 control
+		const cleanText = decodePastedControlKeys(pastedText)
+			.replace(/\t/g, "    ")
+			.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 		// Insert at cursor position
 		this.value = this.value.slice(0, this.cursor) + cleanText + this.value.slice(this.cursor);

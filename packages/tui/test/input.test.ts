@@ -68,6 +68,18 @@ describe("Input component", () => {
 		});
 	});
 
+	it("pastes tmux CSI-u newlines and C1 controls as plain single-line text", () => {
+		const input = new Input();
+
+		input.handleInput("\x1b[200~line1\x1b[106;5uline2\x1b[106;5uline3\x1b[201~");
+		assert.strictEqual(input.getValue(), "line1line2line3");
+
+		input.setValue("");
+		// \x9b is the single-byte CSI: \x9b2J would clear the screen when the input line is written.
+		input.handleInput("\x1b[200~a\x7fb\x9b2Jc\x85d\x1b\te\x1b[201~");
+		assert.strictEqual(input.getValue(), "ab2Jcd    e");
+	});
+
 	describe("render", () => {
 		it("does not overflow with wide CJK and fullwidth text", () => {
 			const width = 93;
