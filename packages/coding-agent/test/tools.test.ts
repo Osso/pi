@@ -1089,6 +1089,27 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result)).toBe("latin1.txt:1: needle ok\nlatin1.txt:2: needle \uFFFD");
 		});
 
+		it("treats a leading ./ in a glob as the search directory", async () => {
+			mkdirSync(join(testDir, "src"));
+			writeFileSync(join(testDir, "src", "kept.ts"), "needle\n");
+			writeFileSync(join(testDir, "src", "skipped.js"), "needle\n");
+			writeFileSync(join(testDir, "top.ts"), "needle\n");
+
+			const included = await grepTool.execute("grep-dot-slash", {
+				pattern: "needle",
+				path: testDir,
+				glob: "./src/*.ts",
+			});
+			const excluded = await grepTool.execute("grep-dot-slash-not", {
+				pattern: "needle",
+				path: testDir,
+				glob: "!./src/**",
+			});
+
+			expect(getTextOutput(included)).toBe("src/kept.ts:1: needle");
+			expect(getTextOutput(excluded)).toBe("top.ts:1: needle");
+		});
+
 		it("keeps the path of matches under a directory whose name starts with ..", async () => {
 			mkdirSync(join(testDir, "..cfg"));
 			writeFileSync(join(testDir, "..cfg", "x.txt"), "needle\n");
