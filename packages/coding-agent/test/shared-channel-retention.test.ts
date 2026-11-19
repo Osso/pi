@@ -65,6 +65,18 @@ it("deletes channel messages 24h after creation while cursors and relay replicat
 	expect(nextRelayChannel(path, "peer", "aso")?.originId).toBe(after);
 });
 
+it("an expired message is not delivered while it waits for the next cleanup sweep", () => {
+	releases.push(retainControlDbConnection(path));
+	advanceSharedChannelCursor(path, reader, 0);
+	post("Pause writes to /shared/old-index.");
+	vi.setSystemTime(start + day + 5_000);
+	expect(hasPendingRuntimeCoordinationMessage(path, reader)).toBe(false);
+
+	post("Release /shared/new-index for writes.");
+	expect(bodies()).toEqual(["Release /shared/new-index for writes."]);
+	expect(hasPendingRuntimeCoordinationMessage(path, reader)).toBe(true);
+});
+
 it("startup removes channel messages already older than 24h", () => {
 	post("stale");
 	vi.setSystemTime(start + day);

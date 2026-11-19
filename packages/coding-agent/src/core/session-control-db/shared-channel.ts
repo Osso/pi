@@ -76,6 +76,11 @@ export function postSharedChannelMessage(controlDbPath: string, input: PostShare
 	});
 }
 
+/** Messages at or before this `created_at` are expired even before the periodic cleanup deletes them. */
+function sharedChannelCutoff(): string {
+	return new Date(Date.now() - MAILBOX_MESSAGE_RETENTION_MS).toISOString();
+}
+
 export function listSharedChannelMessagesAfter(
 	controlDbPath: string,
 	lastSeenId: number,
@@ -88,12 +93,12 @@ export function listSharedChannelMessagesAfter(
 				`
 				SELECT id, sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id
 				FROM shared_channel_messages
-				WHERE id > ? AND id <= ?
+				WHERE id > ? AND id <= ? AND created_at > ?
 				ORDER BY id ASC
 				LIMIT ?
 				`,
 			)
-			.all(lastSeenId, throughId, limit) as SharedChannelMessageRow[];
+			.all(lastSeenId, throughId, sharedChannelCutoff(), limit) as SharedChannelMessageRow[];
 		return rows.map(sharedChannelMessageFromRow);
 	});
 }
@@ -120,12 +125,13 @@ export function hasPendingRuntimeCoordinationMessage(controlDbPath: string, reci
 				SELECT 1 AS present
 				FROM shared_channel_messages
 				WHERE id > ?
+					AND created_at > ?
 					AND sender_agent_id IS NULL
 					AND (origin_host IS NOT NULL OR sender_session_id <> ?)
 				LIMIT 1
 				`,
 			)
-			.get(cursor, recipient.sessionId) as { present: number } | undefined;
+			.get(cursor, sharedChannelCutoff(), recipient.sessionId) as { present: number } | undefined;
 		return row != null;
 	});
 }
