@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/export <file>.jsonl` writes the whole current branch of a reopened compacted session; before, it wrote only the active slice loaded in memory and dropped the history before the compaction's first kept entry
 - `/usage openai` reads the clock once for platform spend, so a costs request that crosses midnight UTC no longer reports $0.00 for today beside the previous month's total
 - `/usage` shows `-` instead of `1969-12-31 18:00` for an ISO reset timestamp at epoch zero (OpenRouter `effective_budget.resets_at`, OpenCode Go, Open Grove)
 - `/usage openai` keeps the account email on the OpenAI API platform spend row when the costs request fails; before, the error row showed only the provider ID
