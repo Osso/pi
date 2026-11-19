@@ -853,7 +853,7 @@ async function exportTerminalHistory(parsed: Args): Promise<void> {
 	if (parsed.exportTerminal === undefined || parsed.exportColumns === undefined) {
 		throw new Error("Terminal export requires a session and explicit columns");
 	}
-	if (isExternalSessionAlias(parsed.exportTerminal)) {
+	if (isExternalSessionAlias(parsed.exportTerminal) && !existsSync(resolvePath(parsed.exportTerminal))) {
 		throw new Error("External session aliases are not supported by read-only terminal export");
 	}
 	const settings = readTerminalExportSettings();

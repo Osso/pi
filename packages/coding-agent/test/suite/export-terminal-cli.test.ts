@@ -209,6 +209,19 @@ describe("read-only terminal export CLI", () => {
 		30000,
 	);
 
+	it("exports a saved transcript whose relative path looks like an external session alias", async () => {
+		const paths = createHeadlessPaths();
+		try {
+			mkdirSync(join(paths.workspaceDir, "codex"));
+			copyFileSync(createSavedFixture(paths), join(paths.workspaceDir, "codex", "local.jsonl"));
+			const result = await runExport(paths, ["--export-terminal", "codex/local.jsonl", "--export-columns", "80"]);
+			expect(result.code, result.stderr).toBe(0);
+			expect(stripVTControlCharacters(result.stdout)).toContain("ACTIVE-BRANCH-LAST");
+		} finally {
+			rmSync(paths.tempDir, { recursive: true, force: true });
+		}
+	}, 30000);
+
 	it.each([false, true])(
 		"default ID lookup does not create directories (saved=%s)",
 		async (saved) => {
