@@ -2195,6 +2195,32 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("keeps the completion report for the scheduled re-review when the turn ends after a wait", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "verification window open" })
+				.mockResolvedValue({ kind: "pause", reason: "still waiting" });
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set complete after the verification window");
+			await harness.runGoalComplete("Tests pass.");
+
+			await harness.runAgentEnd();
+			await vi.advanceTimersByTimeAsync(55 * 60 * 1_000);
+
+			expect(reviewGoal.mock.calls.map(([request]) => request.kind)).toEqual([
+				"goal_completion_review",
+				"goal_completion_review",
+			]);
+			expect(reviewGoal).toHaveBeenLastCalledWith(
+				expect.objectContaining({ payload: expect.objectContaining({ completionReport: "Tests pass." }) }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("displays the Supervisor reason when completion review pauses the goal", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),

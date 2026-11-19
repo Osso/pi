@@ -36,6 +36,8 @@ export interface GoalScheduler<TGoal, TDecision> {
 	deferDecision(decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
 	deferReview(goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
 	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean;
+	/** True while a wait, a timed re-review, or a deferred decision is pending for the session. */
+	hasScheduledWork(sessionId: string): boolean;
 	waitForAgentsOrScheduleReview(
 		ctx: ExtensionContext,
 		goal: TGoal,
@@ -90,6 +92,14 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 
 	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean {
 		return (this.cancellationEpochs.get(ctx.sessionManager.getSessionId()) ?? 0) === epoch;
+	}
+
+	hasScheduledWork(sessionId: string): boolean {
+		return (
+			this.waitReviewTimers.has(sessionId) ||
+			this.waitControllers.has(sessionId) ||
+			this.pendingDecisionTimers.has(sessionId)
+		);
 	}
 
 	clearSession(sessionId: string): void {

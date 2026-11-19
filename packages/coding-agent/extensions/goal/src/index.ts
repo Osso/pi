@@ -667,6 +667,8 @@ function registerAgentGoalHandlers(
 	});
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		if (event.sessionContinuation) return;
+		// A completion wait already owns the next review; an idle review would replace it and drop the report.
+		if (runtime.completionScheduler.isWaiting(ctx.sessionManager.getSessionId())) return;
 		await runtime.goalWork.runEnding(ctx, () =>
 			runScheduledGoalAgentEnd({
 				event,

@@ -29,6 +29,7 @@ export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	createReviewGuard(ctx: ExtensionContext): () => boolean;
+	isWaiting(sessionId: string): boolean;
 	wait(
 		goal: Goal,
 		ctx: ExtensionContext,
@@ -120,6 +121,7 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
 		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
+		isWaiting: (sessionId) => scheduler.hasScheduledWork(sessionId),
 		wait: async (goal, ctx, completionReport, statusReason, displayId) => {
 			const message = `Waiting: ${statusReason}`;
 			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, completionReport }, [], {
