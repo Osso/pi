@@ -1,13 +1,17 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import runPlanExtension, { findNextPlanItem } from "../extensions/run-plan/src/index.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
-function createRunPlanHarness(cwd: string, options: { idle?: boolean; entries?: Array<Record<string, unknown>> } = {}) {
+function createRunPlanHarness(
+	cwd: string,
+	options: { idle?: boolean; entries?: Array<Record<string, unknown>>; sessionManager?: SessionManager } = {},
+) {
 	let command: RegisteredRunPlanCommand | undefined;
 	const eventHandlers = new Map<string, (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void>();
 	const entries = options.entries ?? [];
@@ -37,7 +41,11 @@ function createRunPlanHarness(cwd: string, options: { idle?: boolean; entries?: 
 	const ctx = {
 		cwd,
 		isIdle,
-		sessionManager: { getEntries: () => entries },
+		sessionManager: options.sessionManager ?? {
+			getEntries: () => entries,
+			getBranch: () => entries,
+			getSessionFile: () => undefined,
+		},
 		ui: { notify, setEditorText },
 	} as unknown as ExtensionCommandContext;
 
@@ -151,6 +159,34 @@ describe("run-plan extension", () => {
 			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
 			{ deliverAs: "followUp" },
 		);
+	});
+
+	it("restores the active plan saved before the loaded slice of a reopened compacted session", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		writeFileSync(planPath, "- [ ] Keep working\n");
+		const sessionDir = mkdtempSync(join(tmpdir(), "pi-run-plan-slice-"));
+		try {
+			const session = SessionManager.create(cwd, sessionDir);
+			session.appendMessage({ role: "user", content: "start", timestamp: 1 });
+			session.appendCustomEntry("run-plan:active", { file: "PLAN.md", path: planPath });
+			const firstKeptId = session.appendMessage({ role: "user", content: "kept", timestamp: 2 });
+			session.appendCompaction("summary", firstKeptId, 100);
+			session.appendMessage({ role: "user", content: "after", timestamp: 3 });
+			const sessionFile = session.getSessionFile();
+			if (!sessionFile) throw new Error("expected persisted session file");
+
+			const restored = createRunPlanHarness(cwd, { sessionManager: SessionManager.open(sessionFile, sessionDir) });
+			await restored.runEvent("session_start");
+			await restored.runEvent("agent_settled");
+
+			expect(process.env.PLAN_PATH).toBe(planPath);
+			expect(restored.sendUserMessage).toHaveBeenCalledWith(
+				"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+				{ deliverAs: "followUp" },
+			);
+		} finally {
+			rmSync(sessionDir, { recursive: true, force: true });
+		}
 	});
 
 	it("clears active plan environment when resumed history omits its state", async () => {

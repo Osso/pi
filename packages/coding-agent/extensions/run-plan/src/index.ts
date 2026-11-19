@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 
 // An item needs text; a blank "- [ ]" line must not hide the items after it.
 const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(\S.*)$/;
@@ -26,11 +27,10 @@ interface ActivePlan {
 	path: string;
 }
 
-function readPersistedActivePlan(ctx: Pick<ExtensionContext, "sessionManager">): ActivePlan | undefined {
-	const entries = ctx.sessionManager.getEntries();
-	for (let index = entries.length - 1; index >= 0; index -= 1) {
-		const entry = entries[index];
-		if (entry?.type !== "custom" || entry.customType !== activePlanEntryType) continue;
+/** Newest saved plan on the branch, including entries before a compacted session's loaded slice. */
+async function readPersistedActivePlan(ctx: Pick<ExtensionContext, "sessionManager">): Promise<ActivePlan | undefined> {
+	for await (const entry of readSessionHistoryReverse(ctx.sessionManager)) {
+		if (entry.type !== "custom" || entry.customType !== activePlanEntryType) continue;
 		if (!entry.data || typeof entry.data !== "object") return undefined;
 		const record = entry.data as Record<string, unknown>;
 		if (typeof record.file !== "string" || typeof record.path !== "string") return undefined;
@@ -128,7 +128,7 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		sessionCwd = ctx.cwd;
 		clearPlanEnvironment();
-		activePlan = readPersistedActivePlan(ctx);
+		activePlan = await readPersistedActivePlan(ctx);
 		if (activePlan) exportPlanEnvironment(activePlan);
 	});
 
