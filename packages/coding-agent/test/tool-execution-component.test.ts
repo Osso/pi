@@ -647,6 +647,32 @@ describe("ToolExecutionComponent parity", () => {
 		}
 	});
 
+	test("counts a retained empty line the same way in the read notice and the truncation footer", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-read-render-"));
+		try {
+			const path = join(dir, "empty-then-long.txt");
+			writeFileSync(path, `\n${"y".repeat(20480)}\n`);
+			const result = await createReadTool(dir).execute("read-empty-long", { path });
+			const component = new ToolExecutionComponent(
+				"read",
+				"tool-read-empty-long",
+				{ path },
+				{},
+				createReadToolDefinition(dir),
+				createFakeTui(),
+				dir,
+			);
+			component.updateResult({ ...result, isError: false }, false);
+			component.setExpanded(true);
+			const rendered = stripAnsi(component.render(120).join("\n"));
+
+			expect(rendered).toContain("[Showing lines 1-1 of file (10.0KB limit). Use offset=2 to continue.]");
+			expect(rendered).toContain("[Truncated: 1 lines shown (10.0KB limit)]");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("trims trailing blank display lines from read results", () => {
 		const component = new ToolExecutionComponent(
 			"read",

@@ -449,6 +449,7 @@ function createReadToolDefinitionInternal(
 								details = {
 									truncation: {
 										...truncation,
+										outputLines: shownLines,
 										truncated: true,
 										truncatedBy: "bytes",
 										totalBytes: fileSize ?? truncation.totalBytes,
