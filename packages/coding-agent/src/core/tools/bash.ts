@@ -525,7 +525,8 @@ export function createBashToolDefinition(
 
 			const formatOutput = (snapshot: Awaited<ReturnType<typeof finishOutput>>, emptyText = "(no output)") => {
 				const truncation = snapshot.truncation;
-				let text = snapshot.content || emptyText;
+				// A truncated tail can be one retained blank line; that is output, not the empty-output case.
+				let text = truncation.truncated ? snapshot.content : snapshot.content || emptyText;
 				let details: BashToolDetails | undefined;
 				if (truncation.truncated) {
 					details = { truncation, fullOutputPath: snapshot.fullOutputPath };

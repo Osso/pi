@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `bash` tool shows a retained trailing blank line with its truncation notice instead of `(no output)`.
 - Opening a resident Architect or Supervisor session through a symlinked agent directory no longer deletes its live transcript; the live listener's directory is compared by filesystem identity.
 - `pi extensions` and `/extensions` label directory extensions as `<dir>/index.ts`, so two directory extensions no longer print identical rows.
 - `/fast` now works on custom Responses API providers such as a CLIProxyAPI `proxy` relay, which forwards `service_tier` to Codex; previously it rejected them as non-Codex providers.

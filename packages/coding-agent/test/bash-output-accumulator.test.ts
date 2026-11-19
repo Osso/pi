@@ -68,6 +68,23 @@ it("keeps complete trailing lines instead of the trimmed first line", async () =
 	expect(result.details?.truncation).toMatchObject({ totalLines: 2, outputLines: 1, lastLinePartial: false });
 });
 
+it("shows a retained trailing blank line instead of the empty-output marker", async () => {
+	const bash = createBashTool(process.cwd(), {
+		operations: {
+			exec: async (_command, _cwd, { onData }) => {
+				onData(Buffer.from(`${"x".repeat(DEFAULT_MAX_BYTES + 1)}\n\n`));
+				return { exitCode: 0 };
+			},
+		},
+	});
+
+	const result = await bash.execute("blank-tail", { command: "injected-output" });
+	fullOutputPath = result.details?.fullOutputPath;
+	const output = result.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+
+	expect(output).toBe(`\n\n[Showing lines 2-2 of 2 (10.0KB limit). Full output: ${fullOutputPath}]`);
+});
+
 it("does not report truncation when only the final newline exceeds the byte limit", async () => {
 	const content = `${"x".repeat(DEFAULT_MAX_BYTES)}\n`;
 	const bash = createBashTool(process.cwd(), {
