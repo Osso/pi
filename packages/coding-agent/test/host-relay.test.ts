@@ -320,6 +320,27 @@ describe("cross-host relay", () => {
 		]);
 	});
 
+	it("drops a mailbox message that expired in transit and imports the next one", () => {
+		queue(dbA, "agent-server", "stale", "stale payload");
+		queue(dbA, "agent-server", "fresh", "fresh payload");
+		const stale = nextRelayMailbox(dbA, "agent-server");
+		if (!stale) throw new Error("Expected relay payload");
+		const expired = {
+			...stale,
+			data: { ...stale.data, createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() },
+		};
+
+		importRelayMailbox(dbB, "aso", expired, "agent-server");
+		ackRelayMailbox(dbA, "agent-server", stale);
+		const fresh = nextRelayMailbox(dbA, "agent-server");
+		if (!fresh) throw new Error("Expected the fresh relay payload");
+		importRelayMailbox(dbB, "aso", fresh, "agent-server");
+
+		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((message) => message.body)).toEqual([
+			"fresh payload",
+		]);
+	});
+
 	it("rejects local claims and direct delivery deletion for foreign-host rows", () => {
 		const id = queue(dbA, "agent-server", "foreign", "foreign row");
 		registerRuntimeMailboxListener(dbA, b, process.pid);

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The cross-host relay drops a direct message that expired in transit and acknowledges it, instead of closing the connection and holding later mail
 - `attach_session_agent` rejects a `path` with no transcript instead of attaching a new empty session under a fresh ID
 - `/restart` during a turn started by a custom message, such as a `/loop` prompt, now continues that turn after the restart instead of leaving it unanswered
 - The session picker refuses to archive the active session; archiving it split the live transcript and a later restore discarded its earlier history
