@@ -290,7 +290,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						if (!aborted && connectionLimitBeforeStart && !retriedWebSocketConnectionLimit) {
 							retriedWebSocketConnectionLimit = true;
 							options?.onRetry?.(
-								{ attempt: 1, reason: "WebSocket connection limit reached, reconnecting" },
+								{ attempt: 2, reason: "WebSocket connection limit reached, reconnecting" },
 								model,
 							);
 							continue;
@@ -372,7 +372,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 
 						options?.onRetry?.(
 							{
-								attempt: attempt + 1,
+								attempt: attempt + 2,
 								maxAttempts: maxRetries + 1,
 								delayMs,
 								reason: `HTTP ${response.status}`,
@@ -408,7 +408,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					if (attempt < maxRetries && !isQuotaExhaustionErrorText(lastError.message)) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
 						options?.onRetry?.(
-							{ attempt: attempt + 1, maxAttempts: maxRetries + 1, delayMs, reason: lastError.message },
+							{ attempt: attempt + 2, maxAttempts: maxRetries + 1, delayMs, reason: lastError.message },
 							model,
 						);
 						await sleep(delayMs, options?.signal);

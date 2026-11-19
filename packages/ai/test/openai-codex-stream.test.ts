@@ -272,7 +272,7 @@ describe("Codex metadata diagnostics", () => {
 		}).result();
 		expect(calls).toBe(2);
 		expect(result.errorMessage).toBe("original HTTP error\nOpenAI request ID: req_http");
-		expect(retries).toEqual([{ attempt: 1, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
+		expect(retries).toEqual([{ attempt: 2, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
 		expect(events.map(({ timestamp, elapsedMs, ...event }) => event)).toEqual(
 			[500, 400].map((httpStatus, index) => ({
 				phase: "error",
@@ -697,7 +697,7 @@ describe("openai-codex streaming", () => {
 
 		expect(sawDone).toBe(true);
 		expect(codexCalls).toBe(2);
-		expect(retries).toEqual([{ attempt: 1, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
+		expect(retries).toEqual([{ attempt: 2, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
 	});
 
 	it("removes SSE retry backoff abort listeners after the retry succeeds", async () => {

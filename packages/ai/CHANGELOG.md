@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Codex `onRetry` events reporting the retry ordinal as `attempt`; they now report the 1-based attempt about to run, so provider-failure diagnostics log the first retry as attempt 2
 - Fixed OpenAI Codex WebSocket requests without an explicit `transport` resending the full history; an omitted transport now uses the documented `auto` cached-context continuation
 - Fixed history replay moving a later turn's tool result to an earlier unanswered call that used the same call ID (providers with index-based IDs); a late result is now taken only from before the next assistant message
 - Fixed history replay emitting a batch's tool results out of call order when a synthetic result filled an earlier call, which paired Gemini function responses with the wrong calls
