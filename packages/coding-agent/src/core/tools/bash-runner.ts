@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { getShellConfig, killProcessTree } from "../../utils/shell.ts";
 import { type DetachedBashForegroundCompletion, writeDetachedBashActivation } from "../detached-bash-runner.ts";
 import type { DetachedJobLifecycleController } from "../detached-job-runner.ts";
@@ -153,7 +154,9 @@ function settleForegroundBashRunner(
 	if (completion) {
 		if (completion.timedOut) throw new Error(`timeout:${timeout}`);
 		if (aborted || completion.cancelReason) throw new Error("aborted");
-		return { exitCode: completion.exitCode ?? 1 };
+		// A signal-killed shell has no exit code; use the shell convention 128 + signal number, as bash.ts does.
+		const signalNumber = completion.signal ? osConstants.signals[completion.signal] : undefined;
+		return { exitCode: completion.exitCode ?? (signalNumber ? 128 + signalNumber : 1) };
 	}
 	if (isProcessIdentityAlive(runner.processIdentity)) return undefined;
 	const runnerErrorPath = `${runner.manifestPath}.runner-error`;

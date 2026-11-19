@@ -136,6 +136,30 @@ describe("bash tool background detach", () => {
 		expect(store.listAgents()).toHaveLength(0);
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"reports a signal-killed foreground command as 128 plus the signal number",
+		async () => {
+			const cwd = await createTempDir();
+			const store = new MultiAgentStore();
+			const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 1_000 });
+			const tool = createBashToolDefinition(cwd, {
+				backgroundJobs: createBackgroundJobs(cwd, store),
+				detachRegistry,
+			});
+
+			const execution = tool.execute(
+				"tool-bash-sigterm",
+				{ command: "printf 'before-kill\\n'; kill -TERM $$" },
+				undefined,
+				undefined,
+				{} as never,
+			);
+
+			await expect(execution).rejects.toThrow(/before-kill\s+Command exited with code 143$/);
+			expect(store.listAgents()).toHaveLength(0);
+		},
+	);
+
 	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "emit-after-detach.mjs");
