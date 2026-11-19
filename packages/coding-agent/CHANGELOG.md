@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Print and JSON modes exit nonzero and report the provider error when an extension appends a custom message after a failed turn; before, the trailing message hid the error and the process exited 0
 - Project-memory discovery no longer reads `<agentDir>/docs/local/memory.md` through a project symlink before excluding it; an unreadable global memory file no longer prints a read warning
 - Slash-command completion follows dispatch: it offers suffixed extension commands (`/name:1`, `/name:2`) that share a built-in name, and a prompt template no longer hides the argument completions of a same-name extension command that runs instead
 - An extension command whose arguments start on a new line (`/cmd` Shift+Enter `args`) runs immediately during compaction; before, interactive mode split the name only at a space, so it was queued and then failed delivery as a steer

@@ -524,6 +524,22 @@ describe("runPrintMode", () => {
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
 
+	it("returns non-zero on an assistant error followed by an extension custom message", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const runtimeHost = createRuntimeHost([
+			{ role: "user", content: "question", timestamp: 1 },
+			createAssistantMessage({ stopReason: "error", errorMessage: "provider failure" }),
+			{ role: "custom", customType: "test-note", content: "turn finished", display: true, timestamp: 2 },
+		]);
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "json",
+		});
+
+		expect(exitCode).toBe(1);
+		expect(errorSpy).toHaveBeenCalledWith("provider failure");
+	});
+
 	it("prints an ordinary final assistant response", async () => {
 		const output = captureStdout();
 		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "ordinary answer" }));

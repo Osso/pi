@@ -35,6 +35,8 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 		const message = messages[index];
 		if (message === undefined) throw new Error("Message missing while finding last printable assistant message");
 		if (message.role === "toolResult" && message.toolName === "end_turn" && !message.isError) continue;
+		// Extension notes appended after the turn (e.g. from turn_end) do not end it.
+		if (message.role === "custom") continue;
 		if (message.role !== "assistant") return undefined;
 		if (message.stopReason === "error" || message.stopReason === "aborted") return message;
 		if (message.content.some((content) => getAssistantContentText(content))) return message;
