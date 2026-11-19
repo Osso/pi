@@ -130,6 +130,18 @@ describe("agents status widget", () => {
 		expect(lines[1]).toMatch(/✓ done +test +done +55s$/);
 	});
 
+	it("orders terminal agents by most recent update regardless of outcome", () => {
+		const rows = collectAgentRows(
+			[
+				agent({ id: "old-failure", lifecycle: "failed", updatedAt: "2026-10-08T11:59:52.000Z" }),
+				agent({ id: "new-success", lifecycle: "completed", updatedAt: "2026-10-08T11:59:59.000Z" }),
+				agent({ id: "mid-abort", lifecycle: "aborted", updatedAt: "2026-10-08T11:59:55.000Z" }),
+			],
+			NOW_MS,
+		);
+		expect(rows.map((row) => row.agent.id)).toEqual(["new-success", "mid-abort", "old-failure"]);
+	});
+
 	it("shows the agent type and model id between the name and activity", () => {
 		const reviewer = agent({
 			id: "review",

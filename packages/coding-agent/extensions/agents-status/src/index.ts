@@ -21,9 +21,10 @@ const LIFECYCLE_PRIORITY: Record<AgentLifecycleState, number> = {
 	steering_pending: 1,
 	running: 2,
 	cancelling: 3,
+	// Terminal agents form one group, ordered by most recent update.
 	failed: 4,
-	aborted: 5,
-	completed: 6,
+	aborted: 4,
+	completed: 4,
 };
 
 interface AgentRow {
