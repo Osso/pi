@@ -67,6 +67,21 @@ describe("tool inventory", () => {
 		expect(output.split("\n").every((line) => line.length <= 100)).toBe(true);
 	});
 
+	it("keeps a multi-line description on its tool row", () => {
+		const tools: ToolInfo[] = [
+			{
+				name: "report_title",
+				description: "Read the report.\nReturn its title.",
+				parameters: Type.Object({}),
+				sourceInfo: { path: "/ext/report.ts", source: "extension:report", scope: "temporary", origin: "top-level" },
+			},
+		];
+
+		const lines = formatToolInventory(tools, ["report_title"]).split("\n");
+		expect(lines).toHaveLength(3);
+		expect(lines[2]).toMatch(/^yes\s+report_title\s+extension:report\s+Read the report\. Return its title\.$/);
+	});
+
 	it("keeps Hostrun out of serialized public package and tool inventory metadata", () => {
 		const packageJson = readFileSync(resolve(__dirname, "../../../package.json"), "utf8");
 		const packageLockJson = readFileSync(resolve(__dirname, "../../../package-lock.json"), "utf8");

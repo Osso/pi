@@ -24,10 +24,11 @@ function sourceLabel(tool: ToolInfo): string {
 }
 
 function truncateDescription(description: string): string {
-	if (description.length <= DESCRIPTION_WIDTH) {
-		return description;
+	const singleLine = description.replace(/\s+/g, " ").trim();
+	if (singleLine.length <= DESCRIPTION_WIDTH) {
+		return singleLine;
 	}
-	return `${description.slice(0, DESCRIPTION_WIDTH - 3).trimEnd()}...`;
+	return `${singleLine.slice(0, DESCRIPTION_WIDTH - 3).trimEnd()}...`;
 }
 
 function formatRows(headers: ToolInventoryRow, rows: ToolInventoryRow[]): string[] {
