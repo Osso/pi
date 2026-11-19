@@ -110,6 +110,44 @@ describe("OpenAI Responses image generation", () => {
 		});
 	});
 
+	it("drops a streamed preview when its image generation call fails", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.output_item.added",
+				sequence_number: 0,
+				output_index: 0,
+				item: { id: "ig_failed", type: "image_generation_call", status: "in_progress" },
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.image_generation_call.partial_image",
+				item_id: "ig_failed",
+				output_index: 0,
+				partial_image_b64: "cHJldmlldw==",
+				partial_image_index: 0,
+				sequence_number: 1,
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.output_item.done",
+				sequence_number: 2,
+				output_index: 0,
+				item: { id: "ig_failed", type: "image_generation_call", status: "failed", result: null },
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.completed",
+				sequence_number: 3,
+				response: { id: "resp_failed", status: "completed" },
+			} as ResponseStreamEvent;
+		}
+
+		await processResponsesStream(events(), output, stream, model);
+
+		expect(output.imageGenerationResult).toBeUndefined();
+	});
+
 	it("extracts image generation output from the terminal response", async () => {
 		const model = createModel();
 		const output = createOutput(model);

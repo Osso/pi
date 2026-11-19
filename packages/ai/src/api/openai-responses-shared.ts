@@ -659,6 +659,9 @@ export async function processResponsesStream<TApi extends Api>(
 
 			if (item.type === "image_generation_call" && item.status === "completed" && item.result) {
 				output.imageGenerationResult = { type: "image", data: item.result, mimeType: "image/png" };
+			} else if (item.type === "image_generation_call" && item.status === "failed") {
+				// A preview streamed before the failure is not a generated image.
+				output.imageGenerationResult = undefined;
 			} else if (item.type === "reasoning" && slot?.type === "thinking") {
 				const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
 				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
