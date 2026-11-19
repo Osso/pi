@@ -227,6 +227,24 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.deepStrictEqual(values, ["@README.md", "@src/"].sort());
 		});
 
+		test("matches a query that starts with a dash", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"-draft.md": "draft",
+					"notes.md": "notes",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const line = "@-draft";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+
+			assert.deepStrictEqual(
+				result?.items.map((item) => item.value),
+				["@-draft.md"],
+			);
+		});
+
 		test("matches file with extension in query", async () => {
 			setupFolder(baseDir, {
 				files: {

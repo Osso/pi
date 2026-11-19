@@ -155,7 +155,7 @@ async function walkDirectoryWithFd(
 
 	if (toDisplayPath(query).includes("/")) args.push("--full-path");
 
-	if (query || inProject) args.push(query ? buildFdPathQuery(query) : ".");
+	if (query || inProject) args.push("--", query ? buildFdPathQuery(query) : ".");
 	if (inProject) args.push(scope);
 
 	return await new Promise((resolve) => {
@@ -199,7 +199,7 @@ async function walkDirectoryWithFd(
 			const results: Array<{ path: string; isDirectory: boolean }> = [];
 
 			for (const line of lines) {
-				const displayLine = toDisplayPath(line).slice(inProject ? scope.length + 1 : 0);
+				const displayLine = toDisplayPath(line).slice(inProject ? scope.length + 1 : line.startsWith("./") ? 2 : 0);
 				const hasTrailingSeparator = displayLine.endsWith("/");
 				const normalizedPath = hasTrailingSeparator ? displayLine.slice(0, -1) : displayLine;
 				if (normalizedPath === ".git" || normalizedPath.startsWith(".git/") || normalizedPath.includes("/.git/")) {
