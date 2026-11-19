@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A shared-channel post delivered to an idle session advances the read cursor when its turn starts, so `wait_agent({})` in that turn no longer returns the same post again
 - Date-bounded session history search no longer repeats a page when a new match (such as the message asking for the next page) is appended between pages
 - Restoring disabled multi-agent mode on session start or `/tree` now shows effort `max` instead of `ultra`, which implies proactive delegation
 - `find` with a `./`-prefixed pattern such as `./*.ts` matches only at the search root instead of in every subdirectory

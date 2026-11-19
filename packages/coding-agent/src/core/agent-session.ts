@@ -2930,9 +2930,7 @@ export class AgentSession {
 		const recipient = this._sharedChannelRecipient();
 		const cursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		const messageSnapshot = readSharedChannelMessageSnapshot(controlDbPath, cursor);
-		if (!messageSnapshot) {
-			return false;
-		}
+		if (!messageSnapshot) return false;
 		const { lastMessageId, messages } = messageSnapshot;
 		const deliverableMessages = messages.filter(
 			(message) => !isOwnSharedChannelMessage(message, recipient) && !isSubagentSharedChannelMessage(message),
@@ -2944,14 +2942,14 @@ export class AgentSession {
 
 		try {
 			const prompt = formatSharedChannelPrompt(deliverableMessages, recipient.sessionId);
-			const queued = await this._sendSharedChannelPrompt(prompt, options);
-			advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
+			// Acceptance advances the cursor (monotonic): an idle delivery resolves only after its whole turn.
+			const accept = () => advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
+			const queued = await this._sendSharedChannelPrompt(prompt, options, accept);
+			accept();
 			this._onSharedChannelMessageDelivered?.(prompt);
 			return queued;
 		} catch (error) {
-			if (isSessionBusyPromptError(error)) {
-				return false;
-			}
+			if (isSessionBusyPromptError(error)) return false;
 			throw error;
 		}
 	}
@@ -2963,14 +2961,14 @@ export class AgentSession {
 		};
 	}
 
-	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean> {
+	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }, onAccepted: () => void) {
 		const message = {
 			customType: "shared_channel",
 			content: prompt,
 			display: true,
 		};
 		if (options.triggerIfIdle && !this.isStreaming) {
-			await this.sendCustomMessage(message, { triggerTurn: true, deliverAs: "followUp" });
+			await this.sendCustomMessage(message, { triggerTurn: true, deliverAs: "followUp", onAccepted });
 			return false;
 		}
 		this._followUpMessages.push({ text: prompt, customType: message.customType });
@@ -3133,7 +3131,7 @@ export class AgentSession {
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn"; onAccepted?: () => void },
 	): Promise<void> {
 		const appMessage = {
 			role: "custom" as const,
@@ -3166,6 +3164,7 @@ export class AgentSession {
 				if (this.isStreaming)
 					throw new Error("Agent is already processing. Wait for completion before continuing.");
 				const run = this._runAgentPrompt([appMessage, ...startMessages]);
+				options.onAccepted?.();
 				release();
 				await run;
 			});

@@ -2240,6 +2240,32 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toBeUndefined();
 	});
 
+	it("advances the shared-channel cursor before the delivered post's turn runs", async () => {
+		const { controlDbPath, harness } = await createBoundMailboxHarness();
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const messageId = postSharedChannelMessage(controlDbPath, {
+			body: "Pause writes until the migration finishes.",
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+		// wait_agent called in this turn reads the cursor; it must not return the same post again.
+		let cursorDuringTurn: number | undefined;
+		harness.setResponses([
+			() => {
+				cursorDuringTurn = readSharedChannelCursor(controlDbPath, recipient);
+				return fauxAssistantMessage("acknowledged");
+			},
+		]);
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await harness.session.agent.waitForIdle();
+
+		expect(cursorDuringTurn).toBe(messageId);
+	});
+
 	it("delivers a shared-channel message posted while an idle drain is already delivering", async () => {
 		const { controlDbPath, harness } = await createBoundMailboxHarness();
 		harness.setResponses([fauxAssistantMessage("first reply"), fauxAssistantMessage("second reply")]);
