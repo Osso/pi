@@ -30,6 +30,7 @@ import {
 	loadPreviousGoalFile,
 	markGoalComplete,
 	pauseGoal,
+	recordContinuationTurn,
 	resumeGoal,
 	saveGoal,
 	USER_PAUSE_REASON,
@@ -352,10 +353,6 @@ interface IdleDecisionEffects {
 	goalWork: GoalWorkStarter;
 	onWait: (message: string) => Promise<void>;
 	appendStatus: AppendSupervisorStatus;
-}
-
-function recordContinuationTurn(goal: Goal, ctx: ExtensionContext): void {
-	saveGoal(ctx, { ...goal, continuationTurns: (goal.continuationTurns ?? 0) + 1 });
 }
 
 /** A mission goal never completes, so it continues; any other goal completes and hands over to the mission. */

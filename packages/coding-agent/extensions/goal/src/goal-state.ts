@@ -88,6 +88,11 @@ export function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Go
 	saveGoalJson(ctx, goal);
 }
 
+/** Saves the goal with one more automatic continuation turn counted. */
+export function recordContinuationTurn(goal: Goal, ctx: Pick<ExtensionContext, "sessionManager">): void {
+	saveGoal(ctx, { ...goal, continuationTurns: (goal.continuationTurns ?? 0) + 1 });
+}
+
 export function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;

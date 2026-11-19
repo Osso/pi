@@ -1,7 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { GoalReviewEvidenceController } from "./goal-review-evidence.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
-import { goalMatchesReview, loadOrMigrateActiveGoal, markGoalComplete } from "./goal-state.ts";
+import {
+	goalMatchesReview,
+	loadOrMigrateActiveGoal,
+	loadOrMigrateRunningGoal,
+	markGoalComplete,
+	recordContinuationTurn,
+} from "./goal-state.ts";
 import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
 import type { GoalWorkStarter } from "./goal-work.ts";
 import { continueMission } from "./mission.ts";
@@ -19,7 +25,7 @@ interface CompletionSchedulingOptions {
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
 	isSameGoal: (ctx: ExtensionContext, waiting: CompletionWait) => boolean;
 	onComplete: (waiting: CompletionWait, ctx: ExtensionContext) => void;
-	onContinue: (instructions: string, displayId?: string) => void;
+	onContinue: (ctx: ExtensionContext, instructions: string, displayId?: string) => void;
 	onStatus: (ctx: ExtensionContext, message: string, reviewAt?: string, displayId?: string) => void;
 	onClearStatus: (sessionId: string) => void;
 	onError: (error: unknown, ctx: ExtensionContext) => void;
@@ -70,7 +76,7 @@ async function applyCompletionDecision(
 			options.onComplete(waiting, ctx);
 			break;
 		case "continue":
-			options.onContinue(decision.instructions, decision.displayId);
+			options.onContinue(ctx, decision.instructions, decision.displayId);
 			break;
 		case "wait":
 			await scheduleCompletionReview(options, scheduler, waiting, ctx, decision);
@@ -151,7 +157,13 @@ export function createGoalCompletionScheduler(
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 			continueMission(ctx, goalWork);
 		},
-		onContinue: sendSupervisorInstructions.bind(undefined, pi),
+		onContinue: (ctx, instructions, displayId) => {
+			// A goal paused while its completion review waited stays paused until /goal resume.
+			const goal = loadOrMigrateRunningGoal(ctx);
+			if (!goal) return;
+			recordContinuationTurn(goal, ctx);
+			sendSupervisorInstructions(pi, instructions, displayId);
+		},
 		onStatus: status.append,
 		onClearStatus: status.clearSession,
 		onError: appendGoalSchedulingError.bind(undefined, status.append),

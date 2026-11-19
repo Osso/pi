@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A goal completion re-review that says continue no longer starts work on a paused goal, and counts the continuation turn it sends
 - `pi --mode json` keeps writing events while the session shuts down, so entries appended by `session_shutdown` handlers reach stdout
 - `pi -p` warns and exits 1 when the model reaches its output limit before writing any visible text, instead of exiting 0 with empty output
 - `wait_agent` reports a child or detached job whose completion was committed before the wait started, instead of returning an empty result

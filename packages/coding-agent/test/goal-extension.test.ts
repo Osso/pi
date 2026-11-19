@@ -2195,6 +2195,55 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("counts the turn a completion re-review continues", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "deployment rolling out" })
+				.mockResolvedValueOnce({ kind: "continue", reason: "not verified", instructions: "Verify the rollout." });
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set verify the deployment");
+			await harness.runGoalComplete("Deployment smoke test passed.");
+			harness.sendMessage.mockClear();
+
+			await vi.advanceTimersByTimeAsync(55 * 60 * 1_000);
+
+			expect(harness.sendMessage).toHaveBeenCalledTimes(1);
+			expect(readStoredGoal<{ continuationTurns?: number }>(cwd).continuationTurns).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not start work for a paused goal when a completion re-review says continue", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "deployment rolling out" })
+				.mockResolvedValueOnce({ kind: "continue", reason: "not verified", instructions: "Verify the rollout." });
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set verify the deployment");
+			await harness.runCommand("pause");
+			await harness.runGoalComplete("Deployment smoke test passed.");
+			harness.sendMessage.mockClear();
+			harness.sendUserMessage.mockClear();
+
+			await vi.advanceTimersByTimeAsync(55 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+			expect(harness.sendMessage).not.toHaveBeenCalled();
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+			expect(readStoredGoal<{ continuationTurns?: number; pausedAt?: string }>(cwd)).toMatchObject({
+				continuationTurns: 0,
+				pausedAt: expect.any(String),
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps the completion report for the scheduled re-review when the turn ends after a wait", async () => {
 		vi.useFakeTimers();
 		try {
