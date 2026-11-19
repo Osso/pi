@@ -17,7 +17,12 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
 import { runIdleSessionArchive } from "./idle-session-archive.ts";
-import { type ProcessRestarter, resolveRestartInterruptedToolCalls, restartCurrentProcess } from "./self-restart.ts";
+import {
+	appendRestartNotice,
+	type ProcessRestarter,
+	resolveRestartInterruptedToolCalls,
+	restartCurrentProcess,
+} from "./self-restart.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
 import { assertSessionCwdExists, findNearestExistingCwd } from "./session-cwd.ts";
@@ -446,6 +451,7 @@ export class AgentSessionRuntime {
 		const previousSessionFile = this.session.sessionFile;
 		const currentSessionManager = this.session.sessionManager;
 		const currentSessionFile = currentSessionManager.getSessionFile();
+		const interruptedRun = this.session.isStreaming;
 		// Teardown aborts in-flight tool calls; detached ones keep running and report as background jobs.
 		this.session.detachAllRunningTools();
 
@@ -453,10 +459,7 @@ export class AgentSessionRuntime {
 			this.persistSessionForProcessRestart();
 			await this.beforeProcessRestart?.();
 			await this.teardownCurrent("restart", currentSessionFile);
-			await this.processRestarter({
-				sessionFile: currentSessionFile,
-				prompt: options.notice,
-			});
+			await this.processRestarter({ sessionFile: currentSessionFile, prompt: options.notice, interruptedRun });
 			return;
 		}
 
@@ -470,9 +473,7 @@ export class AgentSessionRuntime {
 				: currentSessionManager;
 
 		resolveRestartInterruptedToolCalls(sessionManager);
-		if (options?.notice) {
-			sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
-		}
+		if (options?.notice) appendRestartNotice(sessionManager, options.notice, interruptedRun);
 
 		await this.teardownCurrent("restart", currentSessionFile);
 		this.apply(

@@ -29,6 +29,8 @@ export function shouldContinueInterruptedSession(messages: readonly AgentMessage
 	while (lastMessageIndex >= 0) {
 		const message = messages[lastMessageIndex];
 		if (message?.role !== "custom" || message.customType !== "self_restart") break;
+		// The restart cut off a run whose last input may be any message kind, such as a loop prompt.
+		if ((message.details as { interruptedRun?: unknown } | undefined)?.interruptedRun === true) return true;
 		lastMessageIndex -= 1;
 	}
 	const relevantMessages = messages.slice(0, lastMessageIndex + 1);

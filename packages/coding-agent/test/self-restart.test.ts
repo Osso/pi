@@ -8,6 +8,7 @@ import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
 	consumeSelfRestartRequest,
+	ENV_SELF_RESTART_INTERRUPTED_RUN,
 	ENV_SELF_RESTART_OLD_PID,
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_REQUEST,
@@ -53,15 +54,22 @@ describe("self restart request", () => {
 			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
 			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
 			[ENV_SELF_RESTART_OLD_PID]: "100",
+			[ENV_SELF_RESTART_INTERRUPTED_RUN]: "1",
 		};
 
 		const handoff = consumeSelfRestartRequest(env, 100, 1);
 
-		expect(handoff).toEqual({ sessionFile: "/tmp/session.jsonl", prompt: "Restarted.", oldPid: 100 });
+		expect(handoff).toEqual({
+			sessionFile: "/tmp/session.jsonl",
+			prompt: "Restarted.",
+			oldPid: 100,
+			interruptedRun: true,
+		});
 		expect(env[ENV_SELF_RESTART_REQUEST]).toBeUndefined();
 		expect(env[ENV_SELF_RESTART_SESSION]).toBeUndefined();
 		expect(env[ENV_SELF_RESTART_PROMPT]).toBeUndefined();
 		expect(env[ENV_SELF_RESTART_OLD_PID]).toBeUndefined();
+		expect(env[ENV_SELF_RESTART_INTERRUPTED_RUN]).toBeUndefined();
 	});
 
 	it("consumes a spawn handoff whose old pid is the parent process", () => {
@@ -75,7 +83,12 @@ describe("self restart request", () => {
 			42,
 		);
 
-		expect(handoff).toEqual({ sessionFile: "/tmp/session.jsonl", prompt: undefined, oldPid: 42 });
+		expect(handoff).toEqual({
+			sessionFile: "/tmp/session.jsonl",
+			prompt: undefined,
+			oldPid: 42,
+			interruptedRun: false,
+		});
 	});
 
 	it("discards a restart request leaked from an unrelated process", () => {

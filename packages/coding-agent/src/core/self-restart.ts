@@ -11,6 +11,7 @@ export const ENV_SELF_RESTART_REQUEST = "PI_SELF_RESTART_REQUEST";
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
 export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 export const ENV_SELF_RESTART_OLD_PID = "PI_SELF_RESTART_OLD_PID";
+export const ENV_SELF_RESTART_INTERRUPTED_RUN = "PI_SELF_RESTART_INTERRUPTED_RUN";
 const SELF_RESTART_PARENT_EXIT_TIMEOUT_MS = 5000;
 const SELF_RESTART_PARENT_EXIT_POLL_MS = 25;
 
@@ -18,6 +19,8 @@ export interface SelfRestartRequest {
 	sessionFile: string;
 	prompt?: string;
 	oldPid?: number;
+	/** An agent run was active when the restart started; the restored session continues it. */
+	interruptedRun?: boolean;
 }
 
 /**
@@ -29,6 +32,7 @@ export interface SelfRestartHandoff {
 	sessionFile: string;
 	prompt?: string;
 	oldPid?: number;
+	interruptedRun?: boolean;
 }
 
 type ExecveFunction = (file: string, args?: readonly string[], env?: NodeJS.ProcessEnv) => void;
@@ -155,10 +159,12 @@ export function consumeSelfRestartRequest(
 	const sessionFile = env[ENV_SELF_RESTART_SESSION];
 	const prompt = env[ENV_SELF_RESTART_PROMPT];
 	const oldPidRaw = env[ENV_SELF_RESTART_OLD_PID];
+	const interruptedRun = env[ENV_SELF_RESTART_INTERRUPTED_RUN] === "1";
 	delete env[ENV_SELF_RESTART_REQUEST];
 	delete env[ENV_SELF_RESTART_SESSION];
 	delete env[ENV_SELF_RESTART_PROMPT];
 	delete env[ENV_SELF_RESTART_OLD_PID];
+	delete env[ENV_SELF_RESTART_INTERRUPTED_RUN];
 
 	if (!requested || !sessionFile) {
 		return undefined;
@@ -172,7 +178,7 @@ export function consumeSelfRestartRequest(
 			return undefined;
 		}
 	}
-	return { sessionFile, prompt: prompt || undefined, oldPid };
+	return { sessionFile, prompt: prompt || undefined, oldPid, interruptedRun };
 }
 
 export async function waitForSelfRestartParentExit(
@@ -262,7 +268,12 @@ export function appendSelfRestartNotice(sessionManager: SessionManager, handoff:
 		return;
 	}
 
-	sessionManager.appendCustomMessageEntry("self_restart", formatRestartNotice(handoff), true);
+	appendRestartNotice(sessionManager, formatRestartNotice(handoff), handoff.interruptedRun === true);
+}
+
+/** `interruptedRun` on the notice tells startup to continue the run the restart cut off. */
+export function appendRestartNotice(sessionManager: SessionManager, notice: string, interruptedRun: boolean): void {
+	sessionManager.appendCustomMessageEntry("self_restart", notice, true, { interruptedRun });
 }
 
 function formatRestartNotice(handoff: SelfRestartHandoff): string {
@@ -319,6 +330,7 @@ function buildSelfRestartEnv(request: SelfRestartRequest, dependencies: RestartT
 		[ENV_SELF_RESTART_SESSION]: request.sessionFile,
 		[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
 		[ENV_SELF_RESTART_OLD_PID]: request.oldPid?.toString() ?? process.pid.toString(),
+		[ENV_SELF_RESTART_INTERRUPTED_RUN]: request.interruptedRun ? "1" : "",
 	};
 }
 
