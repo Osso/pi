@@ -3679,6 +3679,41 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("wait_agent reports a completion committed before the wait started", async () => {
+		const harness = createMultiAgentHarness();
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => harness.store.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-07-12T00:00:00.000Z",
+			processIdentity: testProcessIdentity("external-owner"),
+			sessionPath: persistence.sessionPath,
+		});
+		const prepared = coordinator.prepareChild({
+			agentId: harness.store.allocateAgentIdForLifecycleCoordinator(),
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "External worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const created = coordinator.commitRunningChild(prepared, persistence.sessionPath);
+		if (!created.ok) throw new Error("expected running child");
+		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
+		const finalized = coordinator.finalizeChild({
+			agent: created.agent,
+			ownership: created.ownership,
+			result: { summary: "external done" },
+			terminalLifecycle: "completed",
+		});
+		expect(finalized.ok).toBe(true);
+
+		const first = await harness.call<WaitAgentsDetails>("wait_agent", {});
+
+		expect(first.details.agent).toMatchObject({ id: created.agent.id, lifecycle: "completed" });
+		expect(await harness.call<WaitAgentsDetails>("wait_agent", {})).toEqual({ content: [], details: {} });
+	});
+
 	it("wait_agent returns immediately when no agents are active", async () => {
 		const harness = createMultiAgentHarness();
 

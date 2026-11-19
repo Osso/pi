@@ -262,6 +262,9 @@ export async function waitNotifications(
 	if (!persistence) {
 		return { kind: "unavailable", message: "wait_agent requires a persisted supervisor session." };
 	}
+	// A runner commits its terminal state before it signals the parent; project that outbox so a completion
+	// that is already committed is reported by this wait instead of falling through to "no active agents".
+	projectTerminalOutbox(store, persistence);
 	const pending = listPendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 	const [firstPending] = pending;
 	if (firstPending) return { agent: firstPending.agent, kind: "agent" };
@@ -313,17 +316,21 @@ export function consumeNotifications(
 	if (persistence) {
 		// The wake read the committed snapshot directly. Project its terminal outbox now so the store
 		// resyncs and its notification is consumed here instead of being reported by a later wait.
-		deliverTerminalOutboxProjections({
-			artifactRoot: artifactRootForStore(store),
-			claimId: randomUUID(),
-			controlDbPath: persistence.controlDbPath,
-			now: () => new Date().toISOString(),
-			store,
-		});
+		projectTerminalOutbox(store, persistence);
 		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 		if (pending) return pending;
 	}
 	return result(formatAgentStatus(wake.agent), { agent: wake.agent });
+}
+
+function projectTerminalOutbox(store: MultiAgentStore, persistence: { controlDbPath: string }): void {
+	deliverTerminalOutboxProjections({
+		artifactRoot: artifactRootForStore(store),
+		claimId: randomUUID(),
+		controlDbPath: persistence.controlDbPath,
+		now: () => new Date().toISOString(),
+		store,
+	});
 }
 
 export function runtimeCoordinationRecipient(

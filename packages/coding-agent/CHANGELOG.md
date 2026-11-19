@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `wait_agent` reports a child or detached job whose completion was committed before the wait started, instead of returning an empty result
 - The main-session thinking timer now starts when a model request begins while a child agent view is selected
 - A durable `pyrun_eval` moved to the background now returns its job handle at once, even while a Pi bridge request inside it (such as a blocking `ask_questions`) waits for an answer
 - The agents status widget keeps the right-aligned elapsed time in a narrow terminal by shortening the name and kind columns
