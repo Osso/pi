@@ -115,6 +115,19 @@ describe.each(["current", "parent"] as const)("%s session history date bounds", 
 		expect(old.details?.nextCursor).toBe("3");
 	});
 
+	it("does not repeat a bounded page when a new match is appended before the next page", async () => {
+		const fixture = createFixture(3);
+		const search = makeSearch(kind, fixture);
+		const params = { query: "needle", since: timestamp(0), limit: 1 };
+		const first = await search(params);
+		expect(contents(first)).toEqual(["needle 2"]);
+
+		fixture.manager.appendMessage({ role: "user", content: "Continue searching for needle", timestamp: 1 });
+		const second = await search({ ...params, cursor: first.details?.nextCursor });
+
+		expect(contents(second)).toEqual(["needle 1"]);
+	});
+
 	it("keeps neighboring context inside the bounds", async () => {
 		const search = makeSearch(kind, createFixture(6));
 		const result = await search({ query: "needle 2", since: timestamp(2), until: timestamp(3), context_entries: 2 });

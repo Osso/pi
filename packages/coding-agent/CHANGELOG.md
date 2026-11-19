@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Date-bounded session history search no longer repeats a page when a new match (such as the message asking for the next page) is appended between pages
 - Restoring disabled multi-agent mode on session start or `/tree` now shows effort `max` instead of `ultra`, which implies proactive delegation
 - `find` with a `./`-prefixed pattern such as `./*.ts` matches only at the search root instead of in every subdirectory
 - `ls` no longer reports "entries limit reached" when the only entries past the limit cannot be listed, such as dangling symlinks

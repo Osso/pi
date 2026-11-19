@@ -287,11 +287,15 @@ async function searchHistory(source: HistorySource, params: SearchCurrentSession
 	for await (const searchable of readSearchableHistoryReverse(source, options)) {
 		if (searchable.matches) totalMatches++;
 	}
-	const returnedMatches = Math.min(options.limit, Math.max(0, totalMatches - options.offset));
-	const entries = returnedMatches > 0 ? await readHistoryPage(source, options, totalMatches) : [];
-	const nextOffset = options.offset + returnedMatches;
+	// A newest-first cursor counts the older matches still to return, so matches appended after a page
+	// (such as the message that asks for the next page) cannot shift it.
+	const offset =
+		options.newestFirst && params.cursor !== undefined ? Math.max(0, totalMatches - options.offset) : options.offset;
+	const returnedMatches = Math.min(options.limit, Math.max(0, totalMatches - offset));
+	const entries = returnedMatches > 0 ? await readHistoryPage(source, { ...options, offset }, totalMatches) : [];
+	const nextOffset = offset + returnedMatches;
 	const continuation = options.newestFirst
-		? Buffer.from(JSON.stringify([cursorScope(options), nextOffset])).toString("base64url")
+		? Buffer.from(JSON.stringify([cursorScope(options), totalMatches - nextOffset])).toString("base64url")
 		: String(nextOffset);
 	const nextCursor = nextOffset < totalMatches ? continuation : undefined;
 	const details: SearchCurrentSessionHistoryToolDetails = {
