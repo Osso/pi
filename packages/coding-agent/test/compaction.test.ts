@@ -674,6 +674,40 @@ describe("prepareCompaction with previous compaction", () => {
 		expect(requireValue(preparation).fileOps.modified).toEqual(new Set(["parser.ts"]));
 	});
 
+	it("keeps a direct read newer than the files of an earlier branch summary under the cap", () => {
+		const user = createMessageEntry(createUserMessage("start"));
+		const branchSummary: SessionEntry = {
+			type: "branch_summary",
+			id: `test-id-${entryCounter++}`,
+			parentId: lastId,
+			timestamp: new Date().toISOString(),
+			fromId: user.id,
+			summary: "Explored the old code",
+			details: { readFiles: Array.from({ length: 100 }, (_, i) => `old/read-${i}.ts`), modifiedFiles: [] },
+		};
+		lastId = branchSummary.id;
+		const read: AssistantMessage = {
+			...createAssistantMessage(""),
+			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "current.ts" } }],
+		};
+		const entries = [
+			user,
+			branchSummary,
+			createMessageEntry(read),
+			createMessageEntry(createUserMessage("current")),
+			createMessageEntry(createAssistantMessage("current answer")),
+		];
+
+		const preparation = requireValue(
+			prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 }),
+		);
+		const { readFiles } = computeFileLists(preparation.fileOps);
+
+		expect(readFiles).toHaveLength(100);
+		expect(readFiles[0]).toBe("old/read-1.ts");
+		expect(readFiles.at(-1)).toBe("current.ts");
+	});
+
 	it("keeps the most recently used files when carried-forward file lists exceed the cap", () => {
 		const user = createMessageEntry(createUserMessage("start"));
 		const oldAnswer = createMessageEntry(createAssistantMessage("old answer"));

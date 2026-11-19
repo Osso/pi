@@ -48,28 +48,6 @@ export interface CompactionDetails {
 	modifiedFiles: string[];
 }
 
-/**
- * Extract file operations from messages and previous compaction entries.
- */
-function extractFileOperations(
-	messages: AgentMessage[],
-	entries: SessionEntry[],
-	prevCompactionIndex: number,
-): FileOperations {
-	const fileOps = createFileOps();
-
-	// Collect from previous compaction's details (if pi-generated)
-	const prevCompaction = entries[prevCompactionIndex];
-	if (prevCompaction?.type === "compaction") addSummaryFileOps(prevCompaction, fileOps);
-
-	// Extract from tool calls in messages
-	for (const msg of messages) {
-		extractFileOpsFromMessage(msg, fileOps);
-	}
-
-	return fileOps;
-}
-
 // ============================================================================
 // Message Extraction
 // ============================================================================
@@ -868,18 +846,15 @@ export function prepareCompaction(
 		return undefined;
 	}
 
-	// Extract file operations from messages and previous compaction
-	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
-	// Built-in branch summaries carry the file lists of the branch they replaced.
+	// File operations in use order: the previous compaction's lists, then every summarized entry
+	// (history and split-turn prefix). Built-in branch summaries carry the lists of the branch they replaced.
+	const fileOps = createFileOps();
+	const prevCompaction = pathEntries[prevCompactionIndex];
+	if (prevCompaction?.type === "compaction") addSummaryFileOps(prevCompaction, fileOps);
 	for (const entry of pathEntries.slice(boundaryStart, cutPoint.firstKeptEntryIndex)) {
 		if (entry.type === "branch_summary") addSummaryFileOps(entry, fileOps);
-	}
-
-	// Also extract file ops from turn prefix if splitting
-	if (cutPoint.isSplitTurn) {
-		for (const msg of turnPrefixMessages) {
-			extractFileOpsFromMessage(msg, fileOps);
-		}
+		const msg = getMessageFromEntryForCompaction(entry);
+		if (msg) extractFileOpsFromMessage(msg, fileOps);
 	}
 
 	return {

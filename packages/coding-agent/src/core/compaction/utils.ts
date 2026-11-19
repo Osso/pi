@@ -60,8 +60,8 @@ function touchPath(files: Set<string>, path: string): void {
 export function addSummaryFileOps(entry: { fromHook?: boolean; details?: unknown }, fileOps: FileOperations): void {
 	if (entry.fromHook || typeof entry.details !== "object" || entry.details === null) return;
 	const { readFiles, modifiedFiles } = entry.details as { readFiles?: unknown; modifiedFiles?: unknown };
-	if (Array.isArray(readFiles)) for (const file of readFiles) fileOps.read.add(String(file));
-	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) fileOps.modified.add(String(file));
+	if (Array.isArray(readFiles)) for (const file of readFiles) touchPath(fileOps.read, String(file));
+	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) touchPath(fileOps.modified, String(file));
 }
 
 /** Most recently used paths kept per file list; each summary carries the previous one's lists forward. */
