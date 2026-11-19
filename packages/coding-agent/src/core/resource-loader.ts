@@ -189,16 +189,14 @@ export function loadProjectContextFiles(options: {
 	appendUniqueContextFiles(contextFiles, instructionFilesByDir[0] ?? [], seenPaths);
 
 	for (const [index, ancestorDir] of ancestorDirs.entries()) {
-		const projectMemoryPath = join(ancestorDir, PROJECT_MEMORY_RELATIVE_PATH);
-		const loadedContextFiles = [
-			...(instructionFilesByDir[index + 1] ?? []),
-			...loadContextFilesFromDir(ancestorDir, [PROJECT_MEMORY_RELATIVE_PATH]),
-		];
-		const projectContextFiles = loadedContextFiles.filter(
-			(contextFile) =>
-				contextFile.path !== projectMemoryPath || contextFile.realPath !== globalProjectMemoryRealPath,
+		appendUniqueContextFiles(contextFiles, instructionFilesByDir[index + 1] ?? [], seenPaths);
+		// Never read the global memory file, including through a project-memory symlink to it.
+		if (canonicalizePath(join(ancestorDir, PROJECT_MEMORY_RELATIVE_PATH)) === globalProjectMemoryRealPath) continue;
+		appendUniqueContextFiles(
+			contextFiles,
+			loadContextFilesFromDir(ancestorDir, [PROJECT_MEMORY_RELATIVE_PATH]),
+			seenPaths,
 		);
-		appendUniqueContextFiles(contextFiles, projectContextFiles, seenPaths);
 	}
 
 	return contextFiles;

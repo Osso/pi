@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Project-memory discovery no longer reads `<agentDir>/docs/local/memory.md` through a project symlink before excluding it; an unreadable global memory file no longer prints a read warning
 - Slash-command completion follows dispatch: it offers suffixed extension commands (`/name:1`, `/name:2`) that share a built-in name, and a prompt template no longer hides the argument completions of a same-name extension command that runs instead
 - An extension command whose arguments start on a new line (`/cmd` Shift+Enter `args`) runs immediately during compaction; before, interactive mode split the name only at a space, so it was queued and then failed delivery as a steer
 - `--refresh-models` drops OpenRouter entries the cache reader rejects (for example an empty model ID); before, it could report success and replace a good cache with one that startup ignored

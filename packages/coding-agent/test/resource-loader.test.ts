@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -670,6 +670,31 @@ Content`,
 			await loader.reload();
 
 			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+		});
+
+		it("should not read global project memory through a project-memory symlink", async () => {
+			const projectMemoryDir = join(cwd, "docs", "local");
+			const globalMemoryDir = join(agentDir, "docs", "local");
+			mkdirSync(projectMemoryDir, { recursive: true });
+			mkdirSync(globalMemoryDir, { recursive: true });
+			const globalMemoryPath = join(globalMemoryDir, "memory.md");
+			writeFileSync(globalMemoryPath, "Global memory must not be read.");
+			chmodSync(globalMemoryPath, 0o000);
+			symlinkSync(globalMemoryPath, join(projectMemoryDir, "memory.md"));
+			const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+			try {
+				const loader = new DefaultResourceLoader({ cwd, agentDir });
+				await loader.reload();
+
+				expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+				expect(consoleError.mock.calls.map((call) => String(call[0]))).not.toContainEqual(
+					expect.stringContaining("memory.md"),
+				);
+			} finally {
+				consoleError.mockRestore();
+				chmodSync(globalMemoryPath, 0o600);
+			}
 		});
 
 		it("should load an instruction file symlinked to global project memory", async () => {
