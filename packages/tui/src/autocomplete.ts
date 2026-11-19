@@ -392,11 +392,11 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		// Slash commands are at the start of the line and don't contain path separators after the first /
 		const isSlashCommand = prefix.startsWith("/") && beforePrefix.trim() === "" && !prefix.slice(1).includes("/");
 		if (isSlashCommand) {
-			// This is a command name completion
-			const newLine = `${beforePrefix}/${item.value} ${adjustedAfterCursor}`;
+			// Command name completion replaces the whole name, including any part after the cursor.
+			const remainder = adjustedAfterCursor.slice(adjustedAfterCursor.search(/\s|$/));
+			const newLine = `${beforePrefix}/${item.value}${remainder.startsWith(" ") ? "" : " "}${remainder}`;
 			const newLines = [...lines];
 			newLines[cursorLine] = newLine;
-
 			return {
 				lines: newLines,
 				cursorLine,

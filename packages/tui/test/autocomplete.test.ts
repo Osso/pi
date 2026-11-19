@@ -78,6 +78,23 @@ describe("CombinedAutocompleteProvider", () => {
 			}
 		});
 
+		it("replaces the whole command name when the cursor is inside it", async () => {
+			const provider = new CombinedAutocompleteProvider([{ name: "model" }], process.cwd());
+			for (const [line, cursorCol, expected] of [
+				["/model sonnet", 4, "/model sonnet"],
+				["/mod sonnet", 4, "/model sonnet"],
+				["/model", 4, "/model "],
+			] as const) {
+				const result = await getSuggestions(provider, [line], 0, cursorCol);
+				assert.ok(result);
+				const item = result.items.find((candidate) => candidate.value === "model");
+				assert.ok(item);
+				const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
+				assert.equal(applied.lines[0], expected);
+				assert.equal(applied.cursorCol, "/model ".length);
+			}
+		});
+
 		it("completes command arguments", async () => {
 			const getArgumentCompletions = (prefix: string) => {
 				assert.equal(prefix, "son");
