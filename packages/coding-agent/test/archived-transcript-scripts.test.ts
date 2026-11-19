@@ -14,7 +14,8 @@ it.each(["cost.ts", "stats.ts", "tool-stats.ts", "session-transcripts.ts"])(
 		roots.push(root);
 		const cwd = join(root, "project");
 		const encoded = `--${cwd.slice(1).replaceAll("/", "-")}--`;
-		const sessionDir = join(root, ".pi", "agent", "sessions", encoded);
+		// Default agent directory with XDG_CONFIG_HOME set and no PI_CODING_AGENT_DIR override.
+		const sessionDir = join(root, "config", "pi", "agent", "sessions", encoded);
 		mkdirSync(sessionDir, { recursive: true });
 		const timestamp = new Date();
 		const file = join(
@@ -61,7 +62,16 @@ it.each(["cost.ts", "stats.ts", "tool-stats.ts", "session-transcripts.ts"])(
 		const text = execFileSync(
 			process.execPath,
 			[resolve(import.meta.dirname, "../../../scripts", script), ...scriptArgs],
-			{ encoding: "utf8", env: { ...process.env, HOME: root, BROWSER: "true" } },
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					HOME: root,
+					XDG_CONFIG_HOME: join(root, "config"),
+					PI_CODING_AGENT_DIR: undefined,
+					BROWSER: "true",
+				},
+			},
 		);
 		if (script === "session-transcripts.ts")
 			expect(readFileSync(join(root, "transcripts", "session-transcripts-000.txt"), "utf8")).toContain(

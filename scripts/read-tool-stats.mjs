@@ -2,11 +2,11 @@
 
 import { createSessionTranscriptReadStream, isSessionTranscriptFile } from "../packages/coding-agent/src/core/session-transcript.ts";
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { getSessionsDir } from "../packages/coding-agent/src/config.ts";
 
-const DEFAULT_SESSIONS_DIR = path.join(homedir(), ".pi/agent/sessions");
+const DEFAULT_SESSIONS_DIR = getSessionsDir();
 const DEFAULT_ACTIVE_READ_TOOL_PATH = path.join(process.cwd(), "packages/coding-agent/src/core/tools/read.ts");
 const DEFAULT_TOP = 20;
 const CHART_WIDTH = 40;
@@ -56,7 +56,7 @@ function printHelp() {
 	console.log(`Usage: node scripts/read-tool-stats.mjs [options]
 
 Options:
-  --sessions-dir <path>  Sessions directory (default: ~/.pi/agent/sessions)
+  --sessions-dir <path>  Sessions directory (default: <agent dir>/sessions)
   --model <substring>    Filter provider/model by substring
   --top <n>              Number of examples to show (default: ${DEFAULT_TOP})
   --since <iso>          Only scan session files created at or after this ISO time

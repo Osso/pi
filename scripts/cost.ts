@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import * as fs from "fs";
-import { homedir } from "os";
 import * as path from "path";
+import { getSessionsDir } from "../packages/coding-agent/src/config.ts";
 import {
 	isSessionTranscriptFile,
 	readSessionTranscriptText,
@@ -40,7 +40,7 @@ function encodeSessionDir(dir: string): string {
 	return `--${normalized.replace(/\//g, "-")}--`;
 }
 
-const sessionsBase = path.join(homedir(), ".pi/agent/sessions");
+const sessionsBase = getSessionsDir();
 const encodedDir = encodeSessionDir(directory);
 const sessionsDir = path.join(sessionsBase, encodedDir);
 
