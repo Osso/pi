@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A cancelled blocking `ask_questions` call now tells the model the answers given before Escape; before, they were kept only in the tool details, which providers do not receive
 - The agents status widget orders finished agents by most recent update as one group; before, an older failed or aborted agent outranked a newer completed one and could push it behind `+N more`
 - Speculative background compaction starts before the next provider request when a tool result pushes context past `compaction.backgroundStartTokens`; before, it started only after that request returned, because the start check used the preceding assistant usage
 - `/scoped-models` keeps each model's thinking level (`provider/id:high`) when toggling, reordering, or saving; before, any change rebuilt the scope from bare IDs, so model cycling and the saved `enabledModels` lost per-model effort

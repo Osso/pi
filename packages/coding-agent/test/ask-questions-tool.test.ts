@@ -289,6 +289,10 @@ describe("ask_questions tool", () => {
 			cancelled: true,
 			answers: { "First?": "First" },
 		});
+		// The model sees only content, so the partial answers must be there too.
+		expect(result.content).toEqual([
+			{ type: "text", text: "Questions cancelled; answers given so far:\n- First? → First" },
+		]);
 	});
 
 	const twoQuestions = {

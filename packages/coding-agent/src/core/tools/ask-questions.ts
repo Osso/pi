@@ -371,8 +371,12 @@ function unavailableResult(params: AskQuestionsToolInput) {
 }
 
 function cancelledResult(params: AskQuestionsToolInput, answers: Record<string, string>) {
+	const answered = Object.keys(answers).length > 0;
+	const text = answered
+		? `Questions cancelled; answers given so far:\n${formatAnswers(answers)}`
+		: "Questions cancelled";
 	return {
-		content: [{ type: "text" as const, text: "Questions cancelled" }],
+		content: [{ type: "text" as const, text }],
 		details: {
 			blocking: params.blocking,
 			questions: params.questions,
