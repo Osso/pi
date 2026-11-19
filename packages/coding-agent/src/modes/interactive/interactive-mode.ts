@@ -5626,13 +5626,9 @@ export class InteractiveMode {
 	}
 
 	private isExtensionCommand(text: string): boolean {
-		if (!text.startsWith("/")) return false;
-
-		const extensionRunner = this.session.extensionRunner;
-
-		const spaceIndex = text.indexOf(" ");
-		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
-		return !!extensionRunner.getCommand(commandName);
+		// The command name ends at any whitespace, as in AgentSession dispatch.
+		const commandName = /^\/(\S*)/.exec(text)?.[1];
+		return commandName !== undefined && !!this.session.extensionRunner.getCommand(commandName);
 	}
 
 	private async deliverCompactionMessage(message: CompactionQueuedMessage): Promise<void> {

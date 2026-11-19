@@ -284,6 +284,29 @@ describe("InteractiveMode compaction events", () => {
 		expect(fakeThis.showError).not.toHaveBeenCalled();
 	});
 
+	test("delivers a queued multiline extension command through prompt, not steer", async () => {
+		const fakeSession = {
+			extensionRunner: { getCommand: (name: string) => (name === "audit-now" ? {} : undefined) },
+			prompt: vi.fn().mockResolvedValue(undefined),
+			steer: vi.fn().mockResolvedValue(undefined),
+			followUp: vi.fn().mockResolvedValue(undefined),
+		};
+		const fakeThis = {
+			session: fakeSession,
+			isExtensionCommand: Reflect.get(InteractiveMode.prototype, "isExtensionCommand"),
+		};
+		const deliverCompactionMessage = Reflect.get(InteractiveMode.prototype, "deliverCompactionMessage") as (
+			this: typeof fakeThis,
+			message: { text: string; mode: "steer" | "followUp" },
+		) => Promise<void>;
+
+		await deliverCompactionMessage.call(fakeThis, { text: "/audit-now\nalpha", mode: "steer" });
+		await deliverCompactionMessage.call(fakeThis, { text: "/audit-nowalpha", mode: "steer" });
+
+		expect(fakeSession.prompt.mock.calls).toEqual([["/audit-now\nalpha"]]);
+		expect(fakeSession.steer.mock.calls).toEqual([["/audit-nowalpha"]]);
+	});
+
 	test("formats compaction timeout failures with actionable context", () => {
 		expect(
 			formatCompactionFailureMessage({
