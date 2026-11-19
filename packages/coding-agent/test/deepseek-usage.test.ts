@@ -185,6 +185,22 @@ describe("DeepSeek usage payload mapping", () => {
 		).toEqual({ week: { percent: 50, resetsAt: null }, balance: "$6.00" });
 	});
 
+	it("places an OpenRouter key limit in the column of its limit_reset period", () => {
+		const key = (limitReset: string | null) => ({
+			data: {
+				limit: 100,
+				limit_remaining: 75,
+				limit_reset: limitReset,
+				effective_budget: { resets_at: "2026-12-01T00:00:00.000Z" },
+			},
+		});
+		const window = { percent: 25, resetsAt: Math.round(Date.parse("2026-12-01T00:00:00.000Z") / 1000) };
+		const credits = openRouterCreditsPayload(10, 4);
+		expect(mapOpenRouterUsage(key("monthly"), credits)).toEqual({ month: window, balance: "$6.00" });
+		expect(mapOpenRouterUsage(key("daily"), credits)).toEqual({ day: window, balance: "$6.00" });
+		expect(mapOpenRouterUsage(key(null), credits)).toEqual({ balance: "$6.00" });
+	});
+
 	it("leaves an epoch-zero OpenRouter reset unreported", () => {
 		const key = {
 			data: { limit: 100, limit_remaining: 50, effective_budget: { resets_at: "1970-01-01T00:00:00.000Z" } },

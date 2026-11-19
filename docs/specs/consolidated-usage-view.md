@@ -61,13 +61,14 @@ current model. It is a report, not an account-switching or quota-fallback operat
 ### DeepSeek pool providers
 
 - [x] Read each provider's own usage API: `opencode-go` (`/v1/usage` rolling, weekly, monthly),
-      `open-grove` (`/v1/usage` daily, weekly), `openrouter` and `openrouter-gc` (`/api/v1/key` weekly
-      limit plus `/api/v1/credits` remaining credits), the official `deepseek` account
+      `open-grove` (`/v1/usage` daily, weekly), `openrouter` and `openrouter-gc` (`/api/v1/key` limit
+      in the day, week or month column named by its `limit_reset`, weekly when absent and no column for
+      a limit that never resets, plus `/api/v1/credits` remaining credits), the official `deepseek` account
       (`/user/balance`), and `commandcode` (`/alpha/billing/credits` five-hour and weekly windows,
       `/alpha/usage/summary` for the billing period, `/alpha/billing/subscriptions` for the period end).
 - [x] Show `commandcode` five-hour, weekly and monthly percentages with the monthly credit balance
       and US Central reset times; show `-` when a window or balance is not reported.
-- [x] Use each OpenRouter key's `effective_budget.resets_at` as its weekly reset time; show `-`
+- [x] Use each OpenRouter key's `effective_budget.resets_at` as its limit's reset time; show `-`
       when the key does not report it.
 - [x] Treat a missing or zero reset timestamp as not reported and render `-`; never render epoch zero.
 - [x] Order columns day %, week %, month %, balance/remaining credits, provider, then US Central

@@ -89,22 +89,30 @@ export function mapOpenGroveUsage(payload: unknown): Pick<DeepseekRow, "day" | "
 	};
 }
 
-export function mapOpenRouterUsage(
-	keyPayload: unknown,
-	creditsPayload: unknown,
-): Pick<DeepseekRow, "week" | "balance"> {
+const OPENROUTER_LIMIT_COLUMNS: Record<string, "day" | "week" | "month"> = {
+	daily: "day",
+	weekly: "week",
+	monthly: "month",
+};
+
+type OpenRouterUsage = Partial<Pick<DeepseekRow, "day" | "week" | "month">> & Pick<DeepseekRow, "balance">;
+
+/** The key limit fills the column named by its `limit_reset`; a key without `limit_reset` reports a weekly limit. */
+export function mapOpenRouterUsage(keyPayload: unknown, creditsPayload: unknown): OpenRouterUsage {
 	const key = asRecord(asRecord(keyPayload)?.data);
 	const limit = readFiniteNumber(key?.limit);
 	const remaining = readFiniteNumber(key?.limit_remaining);
 	const resetsAt = readIsoEpochSeconds(asRecord(key?.effective_budget)?.resets_at);
-	const week =
+	const window =
 		limit !== null && limit > 0 && remaining !== null
 			? deepseekWindow(((limit - remaining) / limit) * 100, resetsAt)
 			: null;
+	const column = key?.limit_reset === undefined ? "week" : OPENROUTER_LIMIT_COLUMNS[String(key.limit_reset)];
 	const credits = asRecord(asRecord(creditsPayload)?.data);
 	const total = readFiniteNumber(credits?.total_credits);
 	const used = readFiniteNumber(credits?.total_usage);
-	return { week, balance: total !== null && used !== null ? formatUsd(total - used) : null };
+	const balance = total !== null && used !== null ? formatUsd(total - used) : null;
+	return column ? { [column]: window, balance } : { balance };
 }
 
 export function mapDeepseekBalance(payload: unknown): Pick<DeepseekRow, "balance"> {
@@ -212,7 +220,7 @@ export async function fetchUsageJson(url: string, apiKey: string, label: string)
 	return text ? (JSON.parse(text) as unknown) : {};
 }
 
-async function readOpenRouterUsage(apiKey: string): Promise<Pick<DeepseekRow, "week" | "balance">> {
+async function readOpenRouterUsage(apiKey: string): Promise<OpenRouterUsage> {
 	const [keyPayload, creditsPayload] = await Promise.all([
 		fetchUsageJson(OPENROUTER_KEY_URL, apiKey, "OpenRouter"),
 		fetchUsageJson(OPENROUTER_CREDITS_URL, apiKey, "OpenRouter"),

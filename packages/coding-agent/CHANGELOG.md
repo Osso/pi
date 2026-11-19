@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/usage deepseek` shows an OpenRouter key limit in the day, week or month column named by its `limit_reset`, instead of always as weekly
 - Periodic checks report a failed Git project-root check (for example a broken `.git/config`) and skip that audit, instead of treating the repository as a non-Git directory and dispatching
 - Editing a compaction summary discards a pending or ready speculative background compaction, which had merged the old summary and could replace the edit
 - `Thought for <duration>` now also appears before a tool row when the assistant streamed text before its first tool call
