@@ -501,6 +501,46 @@ describe("registered /usage openai platform spend", () => {
 		});
 	});
 
+	it("splits today from the month with the clock reading taken before the costs request", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			await useTemporaryAgentDir(async (agentDir) => {
+				const h = registerUsage("openai-codex");
+				h.has.mockImplementation((providerId) => providerId === "openai");
+				writeFileSync(join(agentDir, "openai-admin.key"), "sk-admin-test");
+				vi.setSystemTime(Date.parse("2026-11-30T23:59:59.900Z"));
+				h.fetch.mockImplementation(async (input) => {
+					const url = String(input);
+					if (url === "https://api.openai.com/v1/me") return Response.json({ email: "api-owner@example.com" });
+					if (url.startsWith("https://api.openai.com/v1/organization/costs?")) {
+						// The response arrives after midnight UTC.
+						vi.setSystemTime(Date.parse("2026-12-01T00:00:00.100Z"));
+						return Response.json({
+							data: [
+								{
+									start_time: Date.parse("2026-11-01T00:00:00Z") / 1000,
+									results: [{ amount: { value: 12, currency: "usd" } }],
+								},
+								{
+									start_time: Date.parse("2026-11-30T00:00:00Z") / 1000,
+									results: [{ amount: { value: 3, currency: "usd" } }],
+								},
+							],
+						});
+					}
+					return allUsageResponse();
+				});
+
+				await h.command.handler("openai", h.ctx);
+
+				const content: string = h.sendMessage.mock.calls[0][0].content;
+				expect(content).toMatch(/\$3\.00 +\$15\.00/);
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps the account email on the error row when the costs request fails", async () => {
 		await useTemporaryAgentDir(async (agentDir) => {
 			const h = registerUsage("openai-codex");

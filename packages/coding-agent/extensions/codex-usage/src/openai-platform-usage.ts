@@ -52,8 +52,10 @@ async function readOpenAiPlatformRow(ctx: ExtensionCommandContext, providerId: s
 		const adminKeyPath = openAiAdminKeyPath(providerId);
 		const adminKey = await readOptionalText(adminKeyPath);
 		if (!adminKey) return { ...row, status: `no admin key: ${adminKeyPath}` };
-		const buckets = await readOpenAiCostBuckets(adminKey);
-		const spend = sumOpenAiSpend(buckets, startOfUtcToday());
+		// One clock reading for both periods, so a request that crosses midnight UTC sums one consistent day.
+		const now = new Date();
+		const buckets = await readOpenAiCostBuckets(adminKey, now);
+		const spend = sumOpenAiSpend(buckets, startOfUtcToday(now));
 		return { ...row, today: formatUsd(spend.today), month: formatUsd(spend.month) };
 	} catch (error) {
 		return { ...row, status: `error: ${formatUsageError(error)}` };
@@ -75,9 +77,9 @@ async function readOpenAiAccountEmail(apiKey: string): Promise<string | null> {
 	return typeof email === "string" && email.length > 0 ? email : null;
 }
 
-async function readOpenAiCostBuckets(adminKey: string): Promise<unknown[]> {
+async function readOpenAiCostBuckets(adminKey: string, now: Date): Promise<unknown[]> {
 	const query = new URLSearchParams({
-		start_time: String(Math.floor(startOfUtcMonth() / 1000)),
+		start_time: String(Math.floor(startOfUtcMonth(now) / 1000)),
 		bucket_width: OPENAI_COSTS_BUCKET_WIDTH,
 		limit: OPENAI_COSTS_MONTH_BUCKETS,
 	});
@@ -101,11 +103,11 @@ function sumOpenAiSpend(buckets: unknown[], todayStartMs: number): { today: numb
 	return { today, month };
 }
 
-function startOfUtcMonth(now = new Date()): number {
+function startOfUtcMonth(now: Date): number {
 	return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
 }
 
-function startOfUtcToday(now = new Date()): number {
+function startOfUtcToday(now: Date): number {
 	return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
