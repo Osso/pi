@@ -83,6 +83,10 @@ export function isStdoutTakenOver(): boolean {
 	return stdoutTakeoverState !== undefined;
 }
 
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
+}
+
 function splitRawStdoutText(text: string): string[] {
 	const chunks: string[] = [];
 	let offset = 0;
@@ -90,7 +94,9 @@ function splitRawStdoutText(text: string): string[] {
 	while (offset < text.length) {
 		const maxEnd = Math.min(offset + RAW_STDOUT_MAX_CHUNK_LENGTH, text.length);
 		const newlineIndex = text.indexOf("\n", offset);
-		const end = newlineIndex >= offset && newlineIndex < maxEnd ? newlineIndex + 1 : maxEnd;
+		let end = newlineIndex >= offset && newlineIndex < maxEnd ? newlineIndex + 1 : maxEnd;
+		// Each chunk is encoded separately; a surrogate pair split across two chunks becomes two U+FFFD.
+		if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1))) end -= 1;
 		chunks.push(text.slice(offset, end));
 		offset = end;
 	}

@@ -42,4 +42,14 @@ describe("writeRawStdout", () => {
 
 		expect(chunks).toEqual(["a".repeat(1024), "a".repeat(1024), `${"a".repeat(2)}\n`, ""]);
 	});
+
+	it("keeps a surrogate pair at a chunk boundary intact in the written bytes", async () => {
+		const chunks = captureStdoutChunks();
+		const text = `${"a".repeat(1023)}😀Z\n`;
+
+		writeRawStdout(text);
+		await flushRawStdout();
+
+		expect(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk, "utf8"))).toString("utf8")).toBe(text);
+	});
 });

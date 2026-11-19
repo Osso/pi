@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `pi -p`, `--mode json` and RPC output no longer replace an emoji or other non-BMP character with two `U+FFFD` when it falls on a 1024-character stdout chunk boundary.
 - `agent_viewer` traces no longer show an `end_turn` that an attached session recorded before it was attached as a `child_end_turn` of the new agent.
 - `/run-plan` keeps running after a restart or resume of a compacted session. Previously, the active plan was saved before the latest compaction's kept messages, the reopened session did not see it, and the plan stopped after the current item.
 - Reopening a compacted session keeps `/multi-agent disabled`, `/fast` and Daybreak selections saved before the latest compaction's kept messages. Previously, the restore read only the loaded slice of the branch: multi-agent tools and the delegation policy came back, and fast and Daybreak modes fell back to their defaults.
