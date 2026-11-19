@@ -421,6 +421,33 @@ describe("session selector path/delete interactions", () => {
 		expect(output).not.toContain("active");
 	});
 
+	it("does not delete or resume a row from the previous scope while the next scope loads", async () => {
+		const open = makeSession({ id: "open", firstMessage: "open proposal" });
+		const archivedDeferred = createDeferred<SessionInfo[]>();
+		const selected: string[] = [];
+		const selector = await openSelector(
+			async () => [open],
+			async () => [open],
+			{ archivedSessionsLoader: () => archivedDeferred.promise },
+			(sessionPath) => selected.push(sessionPath),
+		);
+		const list = selector.getSessionList();
+		const confirmations: Array<string | null> = [];
+		list.onDeleteConfirmationChange = (path) => confirmations.push(path);
+		list.handleInput("\t"); // current -> all
+		await flushPromises();
+		list.handleInput("\t"); // all -> archived, still loading
+
+		list.handleInput(CTRL_D);
+		list.handleInput("\r");
+
+		expect(confirmations).toEqual([]);
+		expect(selected).toEqual([]);
+		archivedDeferred.resolve([makeSession({ id: "closed", firstMessage: "closed proposal", isArchived: true })]);
+		await flushPromises();
+		expect(stripAnsi(selector.render(120).join("\n"))).toContain("closed proposal");
+	});
+
 	it("does not switch scope back to All when All load resolves after toggling back to Current", async () => {
 		const currentSessions = [makeSession({ id: "current" })];
 		const allDeferred = createDeferred<SessionInfo[]>();

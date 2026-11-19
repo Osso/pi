@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The session picker clears its rows while a newly selected scope loads, so a quick delete or Enter cannot act on a session from the previous scope
 - A goal completion re-review that says continue no longer starts work on a paused goal, and counts the continuation turn it sends
 - `pi --mode json` keeps writing events while the session shuts down, so entries appended by `session_shutdown` handlers reach stdout
 - `pi -p` warns and exits 1 when the model reaches its output limit before writing any visible text, instead of exiting 0 with empty output

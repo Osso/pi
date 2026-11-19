@@ -1053,7 +1053,6 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		const nextScope: SessionScope = this.scope === "current" ? "all" : this.scope === "all" ? "archived" : "current";
 		this.scope = nextScope;
 		this.header.setScope(nextScope);
-
 		const cachedSessions =
 			nextScope === "current"
 				? this.currentSessions
@@ -1063,9 +1062,10 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		const loading =
 			nextScope === "current" ? this.currentLoading : nextScope === "all" ? this.allLoading : this.archivedLoading;
 
+		// An uncached scope shows no rows while it loads, so no key can act on a row from the previous scope.
+		this.sessionList.setSessions(cachedSessions ?? [], nextScope !== "current");
 		if (cachedSessions !== null) {
 			this.header.setLoading(false);
-			this.sessionList.setSessions(cachedSessions ?? [], nextScope !== "current");
 			this.requestRender();
 			return;
 		}
