@@ -232,17 +232,7 @@ import { UserMessageSelectorComponent } from "./components/user-message-selector
 import { compactCoordinationText, isCoordinationMessage, isCoordinationPreview } from "./coordination-visibility.ts";
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
-import {
-	buildScopeGroups,
-	formatContextPath,
-	formatDiagnostics,
-	formatDisplayPath,
-	formatExtensionDisplayPath,
-	formatScopeGroups,
-	getCompactExtensionLabels,
-	getCompactPathLabel,
-	getShortPath,
-} from "./loaded-resources-format.ts";
+import { type Expandable, ExpandableText, renderLoadedResources } from "./loaded-resources.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
 import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
 import {
@@ -255,7 +245,6 @@ import {
 	setRegisteredThemes,
 	stopThemeWatcher,
 	Theme,
-	type ThemeColor,
 	theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
@@ -278,10 +267,6 @@ const AGENT_SLOT_KEYBINDINGS = [
 	["app.agent.slot8", 7],
 	["app.agent.slot9", 8],
 ] as const satisfies ReadonlyArray<readonly [AppKeybinding, number]>;
-
-interface Expandable {
-	setExpanded(expanded: boolean): void;
-}
 
 type RenderableSessionItem = AgentMessage | CustomEntry<unknown>;
 
@@ -313,27 +298,6 @@ function isMainSessionDisplayEvent(event: AgentSessionEvent): boolean {
 
 function isExpandable(obj: unknown): obj is Expandable {
 	return typeof obj === "object" && obj !== null && "setExpanded" in obj && typeof obj.setExpanded === "function";
-}
-
-class ExpandableText extends Text implements Expandable {
-	private readonly getCollapsedText: () => string;
-	private readonly getExpandedText: () => string;
-
-	constructor(
-		getCollapsedText: () => string,
-		getExpandedText: () => string,
-		expanded = false,
-		paddingX = 0,
-		paddingY = 0,
-	) {
-		super(expanded ? getExpandedText() : getCollapsedText(), paddingX, paddingY);
-		this.getCollapsedText = getCollapsedText;
-		this.getExpandedText = getExpandedText;
-	}
-
-	setExpanded(expanded: boolean): void {
-		this.setText(expanded ? this.getExpandedText() : this.getCollapsedText());
-	}
 }
 
 type CompactionQueuedMessage = {
@@ -1521,211 +1485,16 @@ export class InteractiveMode {
 			return;
 		}
 
-		const sectionHeader = (name: string, color: ThemeColor = "mdHeading") => theme.fg(color, `[${name}]`);
-		const formatCompactList = (items: string[], options?: { sort?: boolean }): string => {
-			const labels = items.map((item) => item.trim()).filter((item) => item.length > 0);
-			if (options?.sort !== false) {
-				labels.sort((a, b) => a.localeCompare(b));
-			}
-			return theme.fg("dim", `  ${labels.join(", ")}`);
-		};
-		const addLoadedSection = (
-			name: string,
-			collapsedBody: string,
-			expandedBody = collapsedBody,
-			color: ThemeColor = "mdHeading",
-		): void => {
-			const section = new ExpandableText(
-				() => `${sectionHeader(name, color)}\n${collapsedBody}`,
-				() => `${sectionHeader(name, color)}\n${expandedBody}`,
-				this.getStartupExpansionState(),
-				0,
-				0,
-			);
-			this.loadedResourcesContainer.addChild(section);
-			this.loadedResourcesContainer.addChild(new Spacer(1));
-		};
-
-		const skillsResult = this.session.resourceLoader.getSkills();
-		const promptsResult = this.session.resourceLoader.getPrompts();
-		const themesResult = this.session.resourceLoader.getThemes();
-		const activeToolNames = this.session.getActiveToolNames();
-		const extensions =
-			options?.extensions ??
-			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
-				path: extension.path,
-				sourceInfo: extension.sourceInfo,
-			}));
-		const sourceInfos = new Map<string, SourceInfo>();
-		for (const extension of extensions) {
-			if (extension.sourceInfo) {
-				sourceInfos.set(extension.path, extension.sourceInfo);
-			}
-		}
-		for (const skill of skillsResult.skills) {
-			if (skill.sourceInfo) {
-				sourceInfos.set(skill.filePath, skill.sourceInfo);
-			}
-		}
-		for (const prompt of promptsResult.prompts) {
-			if (prompt.sourceInfo) {
-				sourceInfos.set(prompt.filePath, prompt.sourceInfo);
-			}
-		}
-		for (const loadedTheme of themesResult.themes) {
-			if (loadedTheme.sourcePath && loadedTheme.sourceInfo) {
-				sourceInfos.set(loadedTheme.sourcePath, loadedTheme.sourceInfo);
-			}
-		}
-
-		if (showListing) {
-			const contextFiles = this.session.resourceLoader.getAgentsFiles().agentsFiles;
-			const rulesFiles = this.session.resourceLoader.getRulesFiles().rulesFiles;
-			if (contextFiles.length > 0 || rulesFiles.length > 0) {
-				this.loadedResourcesContainer.addChild(new Spacer(1));
-			}
-			if (contextFiles.length > 0) {
-				const contextList = contextFiles.map((f) => theme.fg("dim", `  ${formatDisplayPath(f.path)}`)).join("\n");
-				const contextCompactList = formatCompactList(
-					contextFiles.map((contextFile) => formatContextPath(contextFile.path, this.sessionManager.getCwd())),
-					{ sort: false },
-				);
-				addLoadedSection("Context", contextCompactList, contextList);
-			}
-			if (rulesFiles.length > 0) {
-				const rulesList = rulesFiles.map((f) => theme.fg("dim", `  ${formatDisplayPath(f.path)}`)).join("\n");
-				const rulesCompactList = formatCompactList(
-					rulesFiles.map((rulesFile) => formatDisplayPath(rulesFile.path)),
-					{ sort: false },
-				);
-				addLoadedSection("User Rules", rulesCompactList, rulesList);
-			}
-
-			if (activeToolNames.length > 0) {
-				const toolList = formatCompactList(activeToolNames);
-				addLoadedSection("Tools", toolList);
-			}
-
-			const skills = skillsResult.skills;
-			if (skills.length > 0) {
-				const groups = buildScopeGroups(
-					skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })),
-				);
-				const skillList = formatScopeGroups(groups, {
-					formatPath: (item) => formatDisplayPath(item.path),
-					formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
-				});
-				const skillCompactList = formatCompactList(skills.map((skill) => skill.name));
-				addLoadedSection("Skills", skillCompactList, skillList);
-			}
-
-			const templates = this.session.promptTemplates;
-			if (templates.length > 0) {
-				const groups = buildScopeGroups(
-					templates.map((template) => ({ path: template.filePath, sourceInfo: template.sourceInfo })),
-				);
-				const templateByPath = new Map(templates.map((t) => [t.filePath, t]));
-				const templateList = formatScopeGroups(groups, {
-					formatPath: (item) => {
-						const template = templateByPath.get(item.path);
-						return template ? `/${template.name}` : formatDisplayPath(item.path);
-					},
-					formatPackagePath: (item) => {
-						const template = templateByPath.get(item.path);
-						return template ? `/${template.name}` : formatDisplayPath(item.path);
-					},
-				});
-				const promptCompactList = formatCompactList(templates.map((template) => `/${template.name}`));
-				addLoadedSection("Prompts", promptCompactList, templateList);
-			}
-
-			if (extensions.length > 0) {
-				const groups = buildScopeGroups(extensions);
-				const extList = formatScopeGroups(groups, {
-					formatPath: (item) => formatExtensionDisplayPath(item.path),
-					formatPackagePath: (item) => formatExtensionDisplayPath(getShortPath(item.path, item.sourceInfo)),
-				});
-				const extensionCompactList = formatCompactList(getCompactExtensionLabels(extensions));
-				addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading");
-			}
-
-			// Show loaded themes (excluding built-in)
-			const loadedThemes = themesResult.themes;
-			const customThemes = loadedThemes.flatMap((loadedTheme) =>
-				loadedTheme.sourcePath ? [{ loadedTheme, sourcePath: loadedTheme.sourcePath }] : [],
-			);
-			if (customThemes.length > 0) {
-				const groups = buildScopeGroups(
-					customThemes.map(({ loadedTheme, sourcePath }) => ({
-						path: sourcePath,
-						sourceInfo: loadedTheme.sourceInfo,
-					})),
-				);
-				const themeList = formatScopeGroups(groups, {
-					formatPath: (item) => formatDisplayPath(item.path),
-					formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
-				});
-				const themeCompactList = formatCompactList(
-					customThemes.map(
-						({ loadedTheme, sourcePath }) =>
-							loadedTheme.name ?? getCompactPathLabel(sourcePath, loadedTheme.sourceInfo),
-					),
-				);
-				addLoadedSection("Themes", themeCompactList, themeList);
-			}
-		}
-
-		if (showDiagnostics) {
-			const skillDiagnostics = skillsResult.diagnostics;
-			if (skillDiagnostics.length > 0) {
-				const warningLines = formatDiagnostics(skillDiagnostics, sourceInfos);
-				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0),
-				);
-				this.loadedResourcesContainer.addChild(new Spacer(1));
-			}
-
-			const promptDiagnostics = promptsResult.diagnostics;
-			if (promptDiagnostics.length > 0) {
-				const warningLines = formatDiagnostics(promptDiagnostics, sourceInfos);
-				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
-				);
-				this.loadedResourcesContainer.addChild(new Spacer(1));
-			}
-
-			const extensionDiagnostics: ResourceDiagnostic[] = [];
-			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
-			if (extensionErrors.length > 0) {
-				for (const error of extensionErrors) {
-					extensionDiagnostics.push({ type: "error", message: error.error, path: error.path });
-				}
-			}
-
-			const commandDiagnostics = this.session.extensionRunner.getCommandDiagnostics();
-			extensionDiagnostics.push(...commandDiagnostics);
-			extensionDiagnostics.push(...this.getBuiltInCommandConflictDiagnostics(this.session.extensionRunner));
-
-			const shortcutDiagnostics = this.session.extensionRunner.getShortcutDiagnostics();
-			extensionDiagnostics.push(...shortcutDiagnostics);
-
-			if (extensionDiagnostics.length > 0) {
-				const warningLines = formatDiagnostics(extensionDiagnostics, sourceInfos);
-				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Extension issues]")}\n${warningLines}`, 0, 0),
-				);
-				this.loadedResourcesContainer.addChild(new Spacer(1));
-			}
-
-			const themeDiagnostics = themesResult.diagnostics;
-			if (themeDiagnostics.length > 0) {
-				const warningLines = formatDiagnostics(themeDiagnostics, sourceInfos);
-				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Theme conflicts]")}\n${warningLines}`, 0, 0),
-				);
-				this.loadedResourcesContainer.addChild(new Spacer(1));
-			}
-		}
+		renderLoadedResources({
+			container: this.loadedResourcesContainer,
+			session: this.session,
+			cwd: this.sessionManager.getCwd(),
+			expanded: this.getStartupExpansionState(),
+			showListing,
+			showDiagnostics,
+			extensionsOverride: options?.extensions,
+			getBuiltInCommandConflicts: () => this.getBuiltInCommandConflictDiagnostics(this.session.extensionRunner),
+		});
 	}
 
 	/**

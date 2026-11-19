@@ -24,7 +24,7 @@
 	"packages/coding-agent/src/modes/interactive/components/session-selector.ts": 1084,
 	"packages/coding-agent/src/modes/interactive/components/settings-selector.ts": 852,
 	"packages/coding-agent/src/modes/interactive/components/tree-selector.ts": 1417,
-	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 7557,
+	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 7326,
 	"packages/coding-agent/src/modes/interactive/theme/theme.ts": 1281,
 	"packages/coding-agent/src/modes/rpc/rpc-mode.ts": 830,
 	"packages/coding-agent/src/package-manager-cli.ts": 782,
