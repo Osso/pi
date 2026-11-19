@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 interface ThinkingTimerInternals {
+	handleEvent(this: unknown, event: unknown): Promise<void>;
+	handleHiddenMainSessionDisplayEvent(this: unknown, event: unknown): boolean;
+	syncToolExecutionTrackingForHiddenMainEvent(this: unknown, event: unknown): void;
 	getThinkingWorkingMessage(this: unknown): string;
 	setDefaultWorkingMessage(this: unknown, message: string): void;
 	startThinkingTimer(this: unknown): void;
@@ -72,6 +75,28 @@ describe("InteractiveMode thinking timer", () => {
 		thinkingTimer.setDefaultWorkingMessage.call(fixture, "Thinking... 1s");
 
 		expect(setMessage).toHaveBeenCalledWith("Thinking... 1s");
+	});
+
+	test("times a main-session model request that starts while a child view is selected", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+		const fixture = {
+			...createFixture(),
+			handleHiddenMainSessionDisplayEvent: thinkingTimer.handleHiddenMainSessionDisplayEvent,
+			isInitialized: true,
+			isViewingAgentSession: () => true,
+			syncToolExecutionTrackingForHiddenMainEvent: thinkingTimer.syncToolExecutionTrackingForHiddenMainEvent,
+			ui: { requestRender: vi.fn() },
+		};
+
+		await thinkingTimer.handleEvent.call(fixture, { type: "model_request_start" });
+		vi.advanceTimersByTime(2_000);
+		expect(fixture.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking... 2s");
+
+		await thinkingTimer.handleEvent.call(fixture, { type: "model_request_end" });
+		vi.advanceTimersByTime(2_000);
+		expect(fixture.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking... 2s");
+		expect(fixture.thinkingTimer).toBeUndefined();
 	});
 
 	test("leaves tool waiting messages in control of the tool timer", () => {

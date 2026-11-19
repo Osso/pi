@@ -4331,6 +4331,9 @@ export class InteractiveMode {
 			await this.init();
 		}
 
+		// The thinking timer runs for the main session even while a child view hides its events.
+		if (event.type === "model_request_start") this.startThinkingTimer();
+		if (event.type === "model_request_end") this.stopThinkingTimer();
 		if (this.handleHiddenMainSessionDisplayEvent(event)) return;
 
 		switch (event.type) {
@@ -4367,12 +4370,7 @@ export class InteractiveMode {
 				break;
 
 			case "model_request_start":
-				this.startThinkingTimer();
-				this.ui.requestRender();
-				break;
-
 			case "model_request_end":
-				this.stopThinkingTimer();
 				this.ui.requestRender();
 				break;
 
