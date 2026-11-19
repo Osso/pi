@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Bash output (tool and user `!` commands) no longer corrupts a UTF-8 character on stdout into replacement characters when stderr writes between its bytes; each stream is now passed on at character boundaries
 - A Bash command killed by a signal in a session with background jobs now reports `128 + signal number` (143 for SIGTERM) instead of exit code 1, as it already did without background jobs
 - Threshold auto-compaction now runs when the provider reports no token usage, using the message-size estimate; before, a session on such a provider never compacted at the threshold (port of upstream 4495469a5, [#8328](https://github.com/earendil-works/pi/issues/8328))
 - `grep` globs now treat a leading `./` as the search directory (`./src/*.ts` found nothing before), and `!` exclusions with a directory part such as `!src/**` now exclude those files; ripgrep matched them against its own cwd, so they never applied

@@ -974,6 +974,20 @@ describe("Coding Agent Tools", () => {
 			expect(output).toMatch(/\[Showing last 10\.0KB of line 2 \(line is 213\.9KB\)/);
 		});
 
+		it.skipIf(process.platform === "win32")(
+			"keeps a stdout character intact when stderr writes between its bytes",
+			async () => {
+				const result = await bashTool.execute("test-call-utf8-interleaved", {
+					command: "printf '\\342'; sleep 0.2; printf 'notice\\n' >&2; sleep 0.2; printf '\\202\\254\\n'",
+				});
+
+				const output = getTextOutput(result);
+				expect(output).toContain("notice\n");
+				expect(output).toContain("€");
+				expect(output).not.toContain("\uFFFD");
+			},
+		);
+
 		it("should decode UTF-8 characters split across output chunks", async () => {
 			const euro = Buffer.from("€\n", "utf-8");
 			const operations: BashOperations = {

@@ -16,6 +16,7 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
+import { splitAtUtf8Boundaries } from "../../utils/utf8-boundary.ts";
 import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
@@ -187,6 +188,12 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 			};
 			if (detach?.artifacts) outputTail = setInterval(pollDurableOutput, DURABLE_OUTPUT_POLL_MS);
 			let removeDetachListener: (() => void) | undefined;
+			const stdoutChunks = splitAtUtf8Boundaries(onData);
+			const stderrChunks = splitAtUtf8Boundaries(onData);
+			const flushStreams = () => {
+				stdoutChunks.flush();
+				stderrChunks.flush();
+			};
 
 			try {
 				// Set timeout if provided.
@@ -199,8 +206,8 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 					}, timeoutMs);
 				}
 				// Stream stdout and stderr.
-				child.stdout?.on("data", onData);
-				child.stderr?.on("data", onData);
+				child.stdout?.on("data", stdoutChunks.write);
+				child.stderr?.on("data", stderrChunks.write);
 				// Handle abort signal by killing the entire process tree.
 				if (signal) {
 					if (signal.aborted) onAbort();
@@ -215,8 +222,9 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 								pollDurableOutput();
 								if (outputTail) clearInterval(outputTail);
 								outputTail = undefined;
-								child.stdout?.off("data", onData);
-								child.stderr?.off("data", onData);
+								child.stdout?.off("data", stdoutChunks.write);
+								child.stderr?.off("data", stderrChunks.write);
+								flushStreams();
 								Promise.resolve(
 									detach.adopt?.({
 										child,
@@ -255,6 +263,7 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				}
 				return { exitCode };
 			} finally {
+				if (!detached) flushStreams();
 				removeDetachListener?.();
 				if (outputTail) clearInterval(outputTail);
 				if (!detached && detach?.artifacts) rmSync(detach.artifacts.directory, { force: true, recursive: true });
