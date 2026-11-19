@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Speculative background compaction starts before the next provider request when a tool result pushes context past `compaction.backgroundStartTokens`; before, it started only after that request returned, because the start check used the preceding assistant usage
 - `/scoped-models` keeps each model's thinking level (`provider/id:high`) when toggling, reordering, or saving; before, any change rebuilt the scope from bare IDs, so model cycling and the saved `enabledModels` lost per-model effort
 - Print and JSON modes exit nonzero and report the provider error when an extension appends a custom message after a failed turn; before, the trailing message hid the error and the process exited 0
 - Project-memory discovery no longer reads `<agentDir>/docs/local/memory.md` through a project symlink before excluding it; an unreadable global memory file no longer prints a read warning

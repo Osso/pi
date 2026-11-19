@@ -993,10 +993,9 @@ export class AgentSession {
 	private async _compactForNextTurn(turn: PrepareNextTurnContext): Promise<PrepareNextTurnContext> {
 		const settings = this.settingsManager.getCompactionSettings();
 		const usage = this.getContextUsage();
-		const canCheckThreshold = settings.thresholdTokens !== undefined && usage !== undefined;
 		const thresholdReached =
-			canCheckThreshold &&
-			usage.tokens !== null &&
+			settings.thresholdTokens !== undefined &&
+			usage?.tokens != null &&
 			shouldCompact(
 				usage.tokens,
 				usage.contextWindow,
@@ -1008,6 +1007,7 @@ export class AgentSession {
 		} else if (this._hasReadyBackgroundCompaction()) {
 			await this._runAutoCompaction("threshold", false);
 		} else {
+			if (usage?.tokens) this._backgroundCompaction.start(usage.tokens, usage.contextWindow);
 			return turn;
 		}
 		return {
