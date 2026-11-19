@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--refresh-models` drops OpenRouter entries the cache reader rejects (for example an empty model ID); before, it could report success and replace a good cache with one that startup ignored
 - `/tree` re-arms idle compaction for the selected branch; before, the previous branch's timer fired, was rejected as stale, and the selected branch was never compacted
 - `resume_session` rejects a path that is a symlink to the current session's transcript instead of reopening the current session
 - `pi -w <name>` reuses an existing worktree whose path ends in whitespace instead of failing to create it again

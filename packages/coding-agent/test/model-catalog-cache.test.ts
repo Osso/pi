@@ -352,6 +352,18 @@ describe("OpenRouter model catalog cache failures", () => {
 		expect(() => readFileSync(cache.cachePath(), "utf8")).toThrow();
 	});
 
+	it("rejects a refresh whose only model the cache reader would reject, keeping the cache", async () => {
+		cache.writeCache(new Date(NOW.getTime() - 60 * 60 * 1000), [cachedModel("fixture/retained")]);
+		const originalCache = readFileSync(cache.cachePath(), "utf8");
+		const fetchImpl: typeof fetch = async () => responseFor([apiModel("", { name: "No model ID" })]);
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+
+		await expect(ensureModelCatalogFresh({ force: true, fetchImpl, now: () => NOW })).rejects.toThrow(
+			"no tool-capable models",
+		);
+		expect(readFileSync(cache.cachePath(), "utf8")).toBe(originalCache);
+	});
+
 	it("aborts a stale catalog fetch after five seconds", async () => {
 		vi.useFakeTimers();
 		try {

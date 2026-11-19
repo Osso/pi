@@ -182,7 +182,8 @@ async function fetchOpenRouterCatalogWith(fetchImpl: typeof fetch, abortSignal?:
 	if (!isRecord(payload) || !Array.isArray(payload.data)) {
 		throw new Error("OpenRouter model catalog response has no data array");
 	}
-	const models = payload.data.map(mapOpenRouterModel).filter((model): model is Model<Api> => model !== undefined);
+	// Keep only entries the cache reader accepts, so a refresh never writes a cache that startup rejects.
+	const models = payload.data.map(mapOpenRouterModel).filter(isCachedModel);
 	if (models.length === 0) throw new Error("OpenRouter model catalog contains no tool-capable models");
 	return models;
 }
