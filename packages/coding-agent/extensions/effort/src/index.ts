@@ -128,8 +128,9 @@ function setDelegationMode(
 	state: DelegationState,
 	mode: MultiAgentMode,
 ): void {
-	if (mode === "disabled" && ctx.getThinkingLevel() === "ultra") {
-		ctx.setThinkingLevel("max");
+	// Delegation belongs to the owning session; `ctx` thinking accessors target a viewed child instead.
+	if (mode === "disabled" && pi.getThinkingLevel() === "ultra") {
+		pi.setThinkingLevel("max");
 	}
 	applyDelegationMode(pi, ctx, state, mode);
 	ctx.ui.notify(`Multi-agent mode: ${mode === "proactive" ? "active" : "disabled"}`, "info");
@@ -205,11 +206,12 @@ function setEffort(
 	state: DelegationState,
 	effort: AgentThinkingLevel,
 ): void {
-	const activatesProactiveDelegation = effort === "ultra" && !isChildRuntime(ctx);
+	ctx.setThinkingLevel(effort);
+	// `ctx` may target a viewed child; only the owning session's own ultra level enables its delegation.
+	const activatesProactiveDelegation = effort === "ultra" && !isChildRuntime(ctx) && pi.getThinkingLevel() === "ultra";
 	if (activatesProactiveDelegation) {
 		applyDelegationMode(pi, ctx, state, "proactive");
 	}
-	ctx.setThinkingLevel(effort);
 	const label = activatesProactiveDelegation ? "ultra (max + active)" : ctx.getThinkingLevel();
 	ctx.ui.notify(`Effort: ${label}`, "info");
 	clearEditor(ctx);

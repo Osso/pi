@@ -47,6 +47,8 @@ function createCommandHarness(options?: {
 	subagentProvenance?: boolean;
 	selectedEffort?: string | undefined;
 	thinkingLevel?: string;
+	/** The command targets a viewed child whose thinking level is separate from the owning session's. */
+	viewedChildThinkingLevel?: string;
 }) {
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();
@@ -84,8 +86,10 @@ function createCommandHarness(options?: {
 		if (status === undefined) extensionStatuses.delete(key);
 		else extensionStatuses.set(key, status);
 	});
+	let viewedChildThinkingLevel = options?.viewedChildThinkingLevel;
 	const setTargetThinkingLevel = vi.fn((level: string) => {
-		thinkingLevel = level;
+		if (viewedChildThinkingLevel === undefined) thinkingLevel = level;
+		else viewedChildThinkingLevel = level;
 	});
 	const sessionManager = options?.sessionManager ?? {
 		getBranch: () => options?.branch ?? [],
@@ -103,7 +107,7 @@ function createCommandHarness(options?: {
 		multiAgentAgentId: options?.child ? "child-agent" : undefined,
 		sessionManager,
 		ui: { notify, select, setEditorText, setStatus, theme },
-		getThinkingLevel: () => thinkingLevel,
+		getThinkingLevel: () => viewedChildThinkingLevel ?? thinkingLevel,
 		setThinkingLevel: setTargetThinkingLevel,
 	} as unknown as ExtensionCommandContext;
 
@@ -394,11 +398,39 @@ describe("effort extension", () => {
 	});
 
 	it("keeps maximum reasoning when disabled mode disables an ultra preset", async () => {
-		const { ctx, multiAgentCommand, setTargetThinkingLevel } = createCommandHarness({ thinkingLevel: "ultra" });
+		const { ctx, multiAgentCommand, setThinkingLevel } = createCommandHarness({ thinkingLevel: "ultra" });
 
 		await multiAgentCommand.handler("disabled", ctx);
 
-		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
+		expect(setThinkingLevel).toHaveBeenCalledWith("max");
+	});
+
+	it("keeps main delegation disabled when /effort ultra targets a viewed child", async () => {
+		const { appendEntry, command, ctx, handlers, notify, multiAgentCommand, setTargetThinkingLevel } =
+			createCommandHarness({ thinkingLevel: "off", viewedChildThinkingLevel: "high" });
+		await multiAgentCommand.handler("disabled", ctx);
+		appendEntry.mockClear();
+
+		await command.handler("ultra", ctx);
+
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("ultra");
+		expect(appendEntry).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenLastCalledWith("Effort: ultra", "info");
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		expect(requireSystemPrompt(await beforeAgentStart({ systemPrompt: "base" }, ctx))).toBe("base");
+	});
+
+	it("lowers the main ultra level, not a viewed child's, when delegation is disabled", async () => {
+		const { ctx, multiAgentCommand, setTargetThinkingLevel, setThinkingLevel } = createCommandHarness({
+			thinkingLevel: "high",
+			viewedChildThinkingLevel: "ultra",
+		});
+
+		await multiAgentCommand.handler("disabled", ctx);
+
+		expect(setTargetThinkingLevel).not.toHaveBeenCalled();
+		expect(setThinkingLevel).not.toHaveBeenCalled();
 	});
 });
 

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/effort ultra` on a viewed child no longer turns on proactive delegation in the main session, and `/multi-agent disabled` lowers the main session's ultra level instead of a viewed child's
 - The cross-host relay drops a direct message that expired in transit and acknowledges it, instead of closing the connection and holding later mail
 - `attach_session_agent` rejects a `path` with no transcript instead of attaching a new empty session under a fresh ID
 - `/restart` during a turn started by a custom message, such as a `/loop` prompt, now continues that turn after the restart instead of leaving it unanswered
