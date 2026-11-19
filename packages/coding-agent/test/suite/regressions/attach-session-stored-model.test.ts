@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
@@ -53,6 +55,35 @@ describe("attach_session_agent model", () => {
 			agent.respondToLlmRequest(parentWait.id, endTurn("Parent waiting"));
 			agent.respondToLlmRequest(childRequest.id, endTurn("Child resumed on its stored model"));
 			await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
+		});
+	}, 60_000);
+
+	it("rejects a path with no transcript without creating an agent", async () => {
+		await withHeadlessPi(async (agent) => {
+			const missingPath = join(agent.paths.sessionDir, "missing-target.jsonl");
+
+			await agent.send({ type: "prompt", message: "Attach the missing session" });
+			const parent = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				parent.id,
+				fauxAssistantMessage(
+					fauxToolCall("attach_session_agent", { path: missingPath, displayName: "missing target" }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+			);
+			const afterAttach = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== parent.id,
+			);
+
+			const results = afterAttach.messages.filter(
+				(message) => message.role === "toolResult" && message.toolName === "attach_session_agent",
+			);
+			expect(JSON.stringify(results)).toContain(`Could not attach session: no transcript at ${missingPath}.`);
+			expect(existsSync(missingPath)).toBe(false);
+			expect(agent.listAgents().filter((candidate) => candidate.displayName === "missing target")).toEqual([]);
+			agent.respondToLlmRequest(afterAttach.id, endTurn("Attach rejected"));
 		});
 	}, 60_000);
 });

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import type { AgentSnapshot, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
@@ -245,6 +246,9 @@ export async function resolveAttachSessionTarget(
 	}
 	if (path) {
 		const restoredPath = ctx.controlDbPath ? restoreArchivedSession(ctx.controlDbPath, path) : path;
+		// SessionManager.open() starts a new session for a missing file; attaching requires an existing transcript.
+		if (!existsSync(restoredPath))
+			return { ok: false, message: `Could not attach session: no transcript at ${path}.` };
 		const session = SessionManager.open(restoredPath, ctx.sessionManager?.getSessionDir());
 		const sessionPath = session.getSessionFile() ?? restoredPath;
 		const metadata = ctx.controlDbPath ? readSessionMetadata(ctx.controlDbPath, sessionPath) : undefined;

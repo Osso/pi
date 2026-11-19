@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `attach_session_agent` rejects a `path` with no transcript instead of attaching a new empty session under a fresh ID
 - `/restart` during a turn started by a custom message, such as a `/loop` prompt, now continues that turn after the restart instead of leaving it unanswered
 - The session picker refuses to archive the active session; archiving it split the live transcript and a later restore discarded its earlier history
 - Interrupting a turn now closes its blocking `ask_questions` panel as cancelled; the panel kept keyboard focus after the abort
