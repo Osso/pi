@@ -3126,7 +3126,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		skills?: Array<{ filePath: string; name: string }>;
 		activeToolNames?: string[];
 		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
-		useRealScopeGroups?: boolean;
 	}) {
 		const fakeThis = {
 			options: { verbose: options.verbose ?? false },
@@ -3160,46 +3159,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 					getThemes: () => ({ themes: [], diagnostics: [] }),
 				},
 			},
-			formatDisplayPath: (p: string) => interactiveModePrototype.formatDisplayPath.call(fakeThis, p),
-			formatExtensionDisplayPath: (p: string) =>
-				interactiveModePrototype.formatExtensionDisplayPath.call(fakeThis, p),
-			formatContextPath: (p: string) => interactiveModePrototype.formatContextPath.call(fakeThis, p),
 			getStartupExpansionState: () => interactiveModePrototype.getStartupExpansionState.call(fakeThis),
-			buildScopeGroups: () => [],
-			formatScopeGroups: () => "resource-list",
-			isPackageSource: (sourceInfo?: SourceInfo) =>
-				interactiveModePrototype.isPackageSource.call(fakeThis, sourceInfo),
-			getShortPath: (p: string, sourceInfo?: SourceInfo) =>
-				interactiveModePrototype.getShortPath.call(fakeThis, p, sourceInfo),
-			getCompactPathLabel: (p: string, sourceInfo?: SourceInfo) =>
-				interactiveModePrototype.getCompactPathLabel.call(fakeThis, p, sourceInfo),
-			getCompactPackageSourceLabel: (sourceInfo?: SourceInfo) =>
-				interactiveModePrototype.getCompactPackageSourceLabel.call(fakeThis, sourceInfo),
-			getCompactExtensionLabel: (p: string, sourceInfo?: SourceInfo) =>
-				interactiveModePrototype.getCompactExtensionLabel.call(fakeThis, p, sourceInfo),
-			getCompactDisplayPathSegments: (p: string) =>
-				interactiveModePrototype.getCompactDisplayPathSegments.call(fakeThis, p),
-			getCompactNonPackageExtensionLabel: (
-				p: string,
-				index: number,
-				allPaths: Array<{ path: string; segments: string[] }>,
-			) => interactiveModePrototype.getCompactNonPackageExtensionLabel.call(fakeThis, p, index, allPaths),
-			getCompactExtensionLabels: (extensions: ExtensionFixture[]) =>
-				interactiveModePrototype.getCompactExtensionLabels.call(fakeThis, extensions),
-			formatDiagnostics: () => "diagnostics",
 			getBuiltInCommandConflictDiagnostics: () => [],
 		};
-
-		if (options.useRealScopeGroups) {
-			Object.assign(fakeThis, {
-				getScopeGroup: (sourceInfo?: SourceInfo) =>
-					interactiveModePrototype.getScopeGroup.call(fakeThis, sourceInfo),
-				buildScopeGroups: (items: Array<{ path: string; sourceInfo?: SourceInfo }>) =>
-					interactiveModePrototype.buildScopeGroups.call(fakeThis, items),
-				formatScopeGroups: (groups: unknown, formatOptions: unknown) =>
-					interactiveModePrototype.formatScopeGroups.call(fakeThis, groups, formatOptions),
-			});
-		}
 
 		return fakeThis;
 	}
@@ -3320,7 +3282,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
 		expect(output).toContain("commit");
-		expect(output).not.toContain("resource-list");
+		expect(output).not.toContain("/tmp/skill/SKILL.md");
 	});
 
 	test("shows active tools in startup resources", () => {
@@ -3364,7 +3326,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
-		expect(output).toContain("resource-list");
+		expect(output).toContain("/tmp/skill/SKILL.md");
 		expect(output).not.toContain("commit");
 	});
 
@@ -3380,7 +3342,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
-		expect(output).toContain("resource-list");
+		expect(output).toContain("/tmp/skill/SKILL.md");
 		expect(output).not.toContain("commit");
 	});
 
@@ -3402,7 +3364,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions: createExtensionFixtures(),
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3446,7 +3407,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3472,7 +3432,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3498,7 +3457,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3533,7 +3491,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3568,7 +3525,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3603,7 +3559,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3629,7 +3584,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3655,7 +3609,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			extensions,
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);
@@ -3669,7 +3622,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 			quietStartup: false,
 			toolOutputExpanded: true,
 			extensions: createExtensionFixtures(),
-			useRealScopeGroups: true,
 		});
 
 		renderLoadedResources(fakeThis);

@@ -153,7 +153,7 @@ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipb
 import { createClipboardTempFileTracker } from "../../utils/clipboard-temp-files.ts";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../../utils/fs-watch.ts";
 import { parseGitUrl } from "../../utils/git.ts";
-import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
+import { resolvePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
@@ -232,6 +232,17 @@ import { UserMessageSelectorComponent } from "./components/user-message-selector
 import { compactCoordinationText, isCoordinationMessage, isCoordinationPreview } from "./coordination-visibility.ts";
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
+import {
+	buildScopeGroups,
+	formatContextPath,
+	formatDiagnostics,
+	formatDisplayPath,
+	formatExtensionDisplayPath,
+	formatScopeGroups,
+	getCompactExtensionLabels,
+	getCompactPathLabel,
+	getShortPath,
+} from "./loaded-resources-format.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
 import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
 import {
@@ -1492,370 +1503,8 @@ export class InteractiveMode {
 	// Extension System
 	// =========================================================================
 
-	private formatDisplayPath(p: string): string {
-		const home = os.homedir();
-		let result = p;
-
-		// Replace home directory with ~
-		if (result.startsWith(home)) {
-			result = `~${result.slice(home.length)}`;
-		}
-
-		return result;
-	}
-
-	private formatExtensionDisplayPath(path: string): string {
-		let result = this.formatDisplayPath(path);
-		result = result.replace(/\/index\.ts$/, "").replace(/\/index\.js$/, "");
-		return result;
-	}
-
-	private formatContextPath(p: string): string {
-		const cwd = path.resolve(this.sessionManager.getCwd());
-		const absolutePath = path.isAbsolute(p) ? path.resolve(p) : path.resolve(cwd, p);
-		const relativePath = getCwdRelativePath(absolutePath, cwd);
-		if (relativePath !== undefined) {
-			return relativePath;
-		}
-
-		return this.formatDisplayPath(absolutePath);
-	}
-
 	private getStartupExpansionState(): boolean {
 		return this.options.verbose || this.toolOutputExpanded;
-	}
-
-	/**
-	 * Get a short path relative to the package root for display.
-	 */
-	private getShortPath(fullPath: string, sourceInfo?: SourceInfo): string {
-		const baseDir = sourceInfo?.baseDir;
-		if (baseDir && this.isPackageSource(sourceInfo)) {
-			const relativePath = path.relative(path.resolve(baseDir), path.resolve(fullPath));
-			if (
-				relativePath &&
-				relativePath !== "." &&
-				!relativePath.startsWith("..") &&
-				!relativePath.startsWith(`..${path.sep}`) &&
-				!path.isAbsolute(relativePath)
-			) {
-				return relativePath.replace(/\\/g, "/");
-			}
-		}
-
-		const source = sourceInfo?.source ?? "";
-		const npmMatch = fullPath.match(/node_modules\/(@?[^/]+(?:\/[^/]+)?)\/(.*)/);
-		if (npmMatch && source.startsWith("npm:")) {
-			return npmMatch[2] ?? "";
-		}
-
-		const gitMatch = fullPath.match(/git\/[^/]+\/[^/]+\/(.*)/);
-		if (gitMatch && source.startsWith("git:")) {
-			return gitMatch[1] ?? "";
-		}
-
-		return this.formatDisplayPath(fullPath);
-	}
-
-	private getCompactPathLabel(resourcePath: string, sourceInfo?: SourceInfo): string {
-		const shortPath = this.getShortPath(resourcePath, sourceInfo);
-		const normalizedPath = shortPath.replace(/\\/g, "/");
-		const segments = normalizedPath.split("/").filter((segment) => segment.length > 0 && segment !== "~");
-		const lastSegment = segments[segments.length - 1];
-		if (lastSegment !== undefined) {
-			return lastSegment;
-		}
-		return shortPath;
-	}
-
-	private getCompactPackageSourceLabel(sourceInfo?: SourceInfo): string {
-		const source = sourceInfo?.source ?? "";
-		if (source.startsWith("npm:")) {
-			return source.slice("npm:".length) || source;
-		}
-
-		const gitSource = parseGitUrl(source);
-		if (gitSource) {
-			return gitSource.path || source;
-		}
-
-		return source;
-	}
-
-	private getCompactExtensionLabel(resourcePath: string, sourceInfo?: SourceInfo): string {
-		if (!this.isPackageSource(sourceInfo)) {
-			return this.getCompactPathLabel(resourcePath, sourceInfo);
-		}
-
-		const sourceLabel = this.getCompactPackageSourceLabel(sourceInfo);
-		if (!sourceLabel) {
-			return this.getCompactPathLabel(resourcePath, sourceInfo);
-		}
-
-		const shortPath = this.getShortPath(resourcePath, sourceInfo).replace(/\\/g, "/");
-		const packagePath = shortPath.startsWith("extensions/") ? shortPath.slice("extensions/".length) : shortPath;
-		const parsedPath = path.posix.parse(packagePath);
-
-		if (parsedPath.name === "index") {
-			return !parsedPath.dir || parsedPath.dir === "." ? sourceLabel : `${sourceLabel}:${parsedPath.dir}`;
-		}
-
-		return `${sourceLabel}:${packagePath}`;
-	}
-
-	private getCompactDisplayPathSegments(resourcePath: string): string[] {
-		return this.formatDisplayPath(resourcePath)
-			.replace(/\\/g, "/")
-			.split("/")
-			.filter((segment) => segment.length > 0 && segment !== "~");
-	}
-
-	private getCompactNonPackageExtensionLabel(
-		resourcePath: string,
-		index: number,
-		allPaths: Array<{ path: string; segments: string[] }>,
-	): string {
-		const segments = allPaths[index]?.segments;
-		if (!segments || segments.length === 0) {
-			return this.getCompactPathLabel(resourcePath);
-		}
-
-		for (let segmentCount = 1; segmentCount <= segments.length; segmentCount += 1) {
-			const candidate = segments.slice(-segmentCount).join("/");
-			const isUnique = allPaths.every((item, itemIndex) => {
-				if (itemIndex === index) {
-					return true;
-				}
-				return item.segments.slice(-segmentCount).join("/") !== candidate;
-			});
-
-			if (isUnique) {
-				return candidate;
-			}
-		}
-
-		return segments.join("/");
-	}
-
-	private getCompactExtensionLabels(extensions: Array<{ path: string; sourceInfo?: SourceInfo }>): string[] {
-		const nonPackageExtensions = extensions
-			.map((extension) => {
-				const segments = this.getCompactDisplayPathSegments(extension.path);
-				const lastSegment = segments[segments.length - 1];
-				if (segments.length > 1 && (lastSegment === "index.ts" || lastSegment === "index.js")) {
-					segments.pop();
-				}
-				return {
-					path: extension.path,
-					sourceInfo: extension.sourceInfo,
-					segments,
-				};
-			})
-			.filter((extension) => !this.isPackageSource(extension.sourceInfo));
-
-		return extensions.map((extension) => {
-			if (this.isPackageSource(extension.sourceInfo)) {
-				return this.getCompactExtensionLabel(extension.path, extension.sourceInfo);
-			}
-
-			const nonPackageIndex = nonPackageExtensions.findIndex((item) => item.path === extension.path);
-			if (nonPackageIndex === -1) {
-				return this.getCompactPathLabel(extension.path, extension.sourceInfo);
-			}
-
-			return this.getCompactNonPackageExtensionLabel(extension.path, nonPackageIndex, nonPackageExtensions);
-		});
-	}
-
-	private getDisplaySourceInfo(sourceInfo?: SourceInfo): {
-		label: string;
-		scopeLabel?: string;
-		color: "accent" | "muted";
-	} {
-		const source = sourceInfo?.source ?? "local";
-		const scope = sourceInfo?.scope ?? "project";
-		if (source === "local") {
-			if (scope === "user") {
-				return { label: "user", color: "muted" };
-			}
-			if (scope === "project") {
-				return { label: "project", color: "muted" };
-			}
-			if (scope === "temporary") {
-				return { label: "path", scopeLabel: "temp", color: "muted" };
-			}
-			return { label: "path", color: "muted" };
-		}
-
-		if (source === "cli") {
-			return { label: "path", scopeLabel: scope === "temporary" ? "temp" : undefined, color: "muted" };
-		}
-
-		const scopeLabel =
-			scope === "user" ? "user" : scope === "project" ? "project" : scope === "temporary" ? "temp" : undefined;
-		return { label: source, scopeLabel, color: "accent" };
-	}
-
-	private getScopeGroup(sourceInfo?: SourceInfo): "user" | "project" | "path" {
-		const source = sourceInfo?.source ?? "local";
-		const scope = sourceInfo?.scope ?? "project";
-		if (source === "cli" || scope === "temporary") return "path";
-		if (scope === "user") return "user";
-		if (scope === "project") return "project";
-		return "path";
-	}
-
-	private isPackageSource(sourceInfo?: SourceInfo): boolean {
-		const source = sourceInfo?.source ?? "";
-		return source.startsWith("npm:") || source.startsWith("git:");
-	}
-
-	private buildScopeGroups(items: Array<{ path: string; sourceInfo?: SourceInfo }>): Array<{
-		scope: "user" | "project" | "path";
-		paths: Array<{ path: string; sourceInfo?: SourceInfo }>;
-		packages: Map<string, Array<{ path: string; sourceInfo?: SourceInfo }>>;
-	}> {
-		const groups: Record<
-			"user" | "project" | "path",
-			{
-				scope: "user" | "project" | "path";
-				paths: Array<{ path: string; sourceInfo?: SourceInfo }>;
-				packages: Map<string, Array<{ path: string; sourceInfo?: SourceInfo }>>;
-			}
-		> = {
-			user: { scope: "user", paths: [], packages: new Map() },
-			project: { scope: "project", paths: [], packages: new Map() },
-			path: { scope: "path", paths: [], packages: new Map() },
-		};
-
-		for (const item of items) {
-			const groupKey = this.getScopeGroup(item.sourceInfo);
-			const group = groups[groupKey];
-			const source = item.sourceInfo?.source ?? "local";
-
-			if (this.isPackageSource(item.sourceInfo)) {
-				const list = group.packages.get(source) ?? [];
-				list.push(item);
-				group.packages.set(source, list);
-			} else {
-				group.paths.push(item);
-			}
-		}
-
-		return [groups.project, groups.user, groups.path].filter(
-			(group) => group.paths.length > 0 || group.packages.size > 0,
-		);
-	}
-
-	private formatScopeGroups(
-		groups: Array<{
-			scope: "user" | "project" | "path";
-			paths: Array<{ path: string; sourceInfo?: SourceInfo }>;
-			packages: Map<string, Array<{ path: string; sourceInfo?: SourceInfo }>>;
-		}>,
-		options: {
-			formatPath: (item: { path: string; sourceInfo?: SourceInfo }) => string;
-			formatPackagePath: (item: { path: string; sourceInfo?: SourceInfo }, source: string) => string;
-		},
-	): string {
-		const lines: string[] = [];
-
-		for (const group of groups) {
-			lines.push(`  ${theme.fg("accent", group.scope)}`);
-
-			const sortedPaths = [...group.paths].sort((a, b) => a.path.localeCompare(b.path));
-			for (const item of sortedPaths) {
-				lines.push(theme.fg("dim", `    ${options.formatPath(item)}`));
-			}
-
-			const sortedPackages = Array.from(group.packages.entries()).sort(([a], [b]) => a.localeCompare(b));
-			for (const [source, items] of sortedPackages) {
-				lines.push(`    ${theme.fg("mdLink", source)}`);
-				const sortedPackagePaths = [...items].sort((a, b) => a.path.localeCompare(b.path));
-				for (const item of sortedPackagePaths) {
-					lines.push(theme.fg("dim", `      ${options.formatPackagePath(item, source)}`));
-				}
-			}
-		}
-
-		return lines.join("\n");
-	}
-
-	private findSourceInfoForPath(p: string, sourceInfos: Map<string, SourceInfo>): SourceInfo | undefined {
-		const exact = sourceInfos.get(p);
-		if (exact) return exact;
-
-		let current = p;
-		while (current.includes("/")) {
-			current = current.substring(0, current.lastIndexOf("/"));
-			const parent = sourceInfos.get(current);
-			if (parent) return parent;
-		}
-
-		return undefined;
-	}
-
-	private formatPathWithSource(p: string, sourceInfo?: SourceInfo): string {
-		if (sourceInfo) {
-			const shortPath = this.getShortPath(p, sourceInfo);
-			const { label, scopeLabel } = this.getDisplaySourceInfo(sourceInfo);
-			const labelText = scopeLabel ? `${label} (${scopeLabel})` : label;
-			return `${labelText} ${shortPath}`;
-		}
-		return this.formatDisplayPath(p);
-	}
-
-	private formatDiagnostics(diagnostics: readonly ResourceDiagnostic[], sourceInfos: Map<string, SourceInfo>): string {
-		const lines: string[] = [];
-
-		// Group collision diagnostics by name
-		const collisions = new Map<string, ResourceDiagnostic[]>();
-		const otherDiagnostics: ResourceDiagnostic[] = [];
-
-		for (const d of diagnostics) {
-			if (d.type === "collision" && d.collision) {
-				const list = collisions.get(d.collision.name) ?? [];
-				list.push(d);
-				collisions.set(d.collision.name, list);
-			} else {
-				otherDiagnostics.push(d);
-			}
-		}
-
-		// Format collision diagnostics grouped by name
-		for (const [name, collisionList] of collisions) {
-			const first = collisionList[0]?.collision;
-			if (!first) continue;
-			lines.push(theme.fg("warning", `  "${name}" collision:`));
-			lines.push(
-				theme.fg(
-					"dim",
-					`    ${theme.fg("success", "✓")} ${this.formatPathWithSource(first.winnerPath, this.findSourceInfoForPath(first.winnerPath, sourceInfos))}`,
-				),
-			);
-			for (const d of collisionList) {
-				if (d.collision) {
-					lines.push(
-						theme.fg(
-							"dim",
-							`    ${theme.fg("warning", "✗")} ${this.formatPathWithSource(d.collision.loserPath, this.findSourceInfoForPath(d.collision.loserPath, sourceInfos))} (skipped)`,
-						),
-					);
-				}
-			}
-		}
-
-		for (const d of otherDiagnostics) {
-			if (d.path) {
-				const formattedPath = this.formatPathWithSource(d.path, this.findSourceInfoForPath(d.path, sourceInfos));
-				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `  ${formattedPath}`));
-				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `    ${d.message}`));
-			} else {
-				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `  ${d.message}`));
-			}
-		}
-
-		return lines.join("\n");
 	}
 
 	private showLoadedResources(options?: {
@@ -1936,19 +1585,17 @@ export class InteractiveMode {
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
 			if (contextFiles.length > 0) {
-				const contextList = contextFiles
-					.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`))
-					.join("\n");
+				const contextList = contextFiles.map((f) => theme.fg("dim", `  ${formatDisplayPath(f.path)}`)).join("\n");
 				const contextCompactList = formatCompactList(
-					contextFiles.map((contextFile) => this.formatContextPath(contextFile.path)),
+					contextFiles.map((contextFile) => formatContextPath(contextFile.path, this.sessionManager.getCwd())),
 					{ sort: false },
 				);
 				addLoadedSection("Context", contextCompactList, contextList);
 			}
 			if (rulesFiles.length > 0) {
-				const rulesList = rulesFiles.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`)).join("\n");
+				const rulesList = rulesFiles.map((f) => theme.fg("dim", `  ${formatDisplayPath(f.path)}`)).join("\n");
 				const rulesCompactList = formatCompactList(
-					rulesFiles.map((rulesFile) => this.formatDisplayPath(rulesFile.path)),
+					rulesFiles.map((rulesFile) => formatDisplayPath(rulesFile.path)),
 					{ sort: false },
 				);
 				addLoadedSection("User Rules", rulesCompactList, rulesList);
@@ -1961,12 +1608,12 @@ export class InteractiveMode {
 
 			const skills = skillsResult.skills;
 			if (skills.length > 0) {
-				const groups = this.buildScopeGroups(
+				const groups = buildScopeGroups(
 					skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })),
 				);
-				const skillList = this.formatScopeGroups(groups, {
-					formatPath: (item) => this.formatDisplayPath(item.path),
-					formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),
+				const skillList = formatScopeGroups(groups, {
+					formatPath: (item) => formatDisplayPath(item.path),
+					formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
 				});
 				const skillCompactList = formatCompactList(skills.map((skill) => skill.name));
 				addLoadedSection("Skills", skillCompactList, skillList);
@@ -1974,18 +1621,18 @@ export class InteractiveMode {
 
 			const templates = this.session.promptTemplates;
 			if (templates.length > 0) {
-				const groups = this.buildScopeGroups(
+				const groups = buildScopeGroups(
 					templates.map((template) => ({ path: template.filePath, sourceInfo: template.sourceInfo })),
 				);
 				const templateByPath = new Map(templates.map((t) => [t.filePath, t]));
-				const templateList = this.formatScopeGroups(groups, {
+				const templateList = formatScopeGroups(groups, {
 					formatPath: (item) => {
 						const template = templateByPath.get(item.path);
-						return template ? `/${template.name}` : this.formatDisplayPath(item.path);
+						return template ? `/${template.name}` : formatDisplayPath(item.path);
 					},
 					formatPackagePath: (item) => {
 						const template = templateByPath.get(item.path);
-						return template ? `/${template.name}` : this.formatDisplayPath(item.path);
+						return template ? `/${template.name}` : formatDisplayPath(item.path);
 					},
 				});
 				const promptCompactList = formatCompactList(templates.map((template) => `/${template.name}`));
@@ -1993,13 +1640,12 @@ export class InteractiveMode {
 			}
 
 			if (extensions.length > 0) {
-				const groups = this.buildScopeGroups(extensions);
-				const extList = this.formatScopeGroups(groups, {
-					formatPath: (item) => this.formatExtensionDisplayPath(item.path),
-					formatPackagePath: (item) =>
-						this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),
+				const groups = buildScopeGroups(extensions);
+				const extList = formatScopeGroups(groups, {
+					formatPath: (item) => formatExtensionDisplayPath(item.path),
+					formatPackagePath: (item) => formatExtensionDisplayPath(getShortPath(item.path, item.sourceInfo)),
 				});
-				const extensionCompactList = formatCompactList(this.getCompactExtensionLabels(extensions));
+				const extensionCompactList = formatCompactList(getCompactExtensionLabels(extensions));
 				addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading");
 			}
 
@@ -2009,20 +1655,20 @@ export class InteractiveMode {
 				loadedTheme.sourcePath ? [{ loadedTheme, sourcePath: loadedTheme.sourcePath }] : [],
 			);
 			if (customThemes.length > 0) {
-				const groups = this.buildScopeGroups(
+				const groups = buildScopeGroups(
 					customThemes.map(({ loadedTheme, sourcePath }) => ({
 						path: sourcePath,
 						sourceInfo: loadedTheme.sourceInfo,
 					})),
 				);
-				const themeList = this.formatScopeGroups(groups, {
-					formatPath: (item) => this.formatDisplayPath(item.path),
-					formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),
+				const themeList = formatScopeGroups(groups, {
+					formatPath: (item) => formatDisplayPath(item.path),
+					formatPackagePath: (item) => getShortPath(item.path, item.sourceInfo),
 				});
 				const themeCompactList = formatCompactList(
 					customThemes.map(
 						({ loadedTheme, sourcePath }) =>
-							loadedTheme.name ?? this.getCompactPathLabel(sourcePath, loadedTheme.sourceInfo),
+							loadedTheme.name ?? getCompactPathLabel(sourcePath, loadedTheme.sourceInfo),
 					),
 				);
 				addLoadedSection("Themes", themeCompactList, themeList);
@@ -2032,7 +1678,7 @@ export class InteractiveMode {
 		if (showDiagnostics) {
 			const skillDiagnostics = skillsResult.diagnostics;
 			if (skillDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos);
+				const warningLines = formatDiagnostics(skillDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0),
 				);
@@ -2041,7 +1687,7 @@ export class InteractiveMode {
 
 			const promptDiagnostics = promptsResult.diagnostics;
 			if (promptDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos);
+				const warningLines = formatDiagnostics(promptDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
 				);
@@ -2064,7 +1710,7 @@ export class InteractiveMode {
 			extensionDiagnostics.push(...shortcutDiagnostics);
 
 			if (extensionDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(extensionDiagnostics, sourceInfos);
+				const warningLines = formatDiagnostics(extensionDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Extension issues]")}\n${warningLines}`, 0, 0),
 				);
@@ -2073,7 +1719,7 @@ export class InteractiveMode {
 
 			const themeDiagnostics = themesResult.diagnostics;
 			if (themeDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(themeDiagnostics, sourceInfos);
+				const warningLines = formatDiagnostics(themeDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Theme conflicts]")}\n${warningLines}`, 0, 0),
 				);
