@@ -5,7 +5,7 @@ Pi has removed the optional `openai-remote-compact` extension and its OpenAI `/r
 ## What it must do
 
 - [x] Pi must not ship the removed endpoint-calling extension or its endpoint-only tests.
-- [x] Selecting an existing OpenAI-native compaction in `/tree` must materialize a complete plaintext continuation summary through one call using the active model only when its provider/API exactly matches the saved checkpoint; no provider/model fallback is allowed. Materialization is non-persistent until save, and Escape or failure leaves the entry unchanged.
+- [x] Selecting an existing OpenAI-native compaction in `/tree` must materialize a complete plaintext continuation summary through one summarization request (transient provider failures repeat like other summary requests) using the active model only when its provider/API exactly matches the saved checkpoint; no provider/model fallback is allowed. Materialization is non-persistent until save, and Escape or failure leaves the entry unchanged.
 - [x] Saving an edited native summary must atomically replace the summary and remove the provider-native checkpoint plus OpenAI remote-compaction details while preserving entry identity, tree position, leaf, and token/duration metadata.
 - [x] Later matching OpenAI provider payloads must use saved native replacement history instead of Pi's synthetic compaction-summary text. A newer plaintext compaction must prevent reuse of older native replacement history.
 - [x] Removing the endpoint integration must preserve normal plaintext compaction and generic compaction hooks.
