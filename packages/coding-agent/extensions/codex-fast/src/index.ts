@@ -1,5 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 
 const FAST_MODE_ENTRY = "codex-fast-mode";
 const FAST_STATUS_KEY = "codex-fast";
@@ -66,11 +67,10 @@ function parsePersistedServiceTier(data: unknown): FastServiceTier | null | unde
 	return undefined;
 }
 
-function readPersistedFastMode(ctx: ExtensionContext): FastServiceTier | null | undefined {
-	const branch = ctx.sessionManager.getBranch();
-	for (let index = branch.length - 1; index >= 0; index--) {
-		const entry = branch[index];
-		if (entry?.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
+/** Newest saved tier on the branch, including entries before a compacted session's loaded slice. */
+async function readPersistedFastMode(ctx: ExtensionContext): Promise<FastServiceTier | null | undefined> {
+	for await (const entry of readSessionHistoryReverse(ctx.sessionManager)) {
+		if (entry.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
 		const persistedTier = parsePersistedServiceTier(entry.data);
 		if (persistedTier !== undefined) return persistedTier;
 	}
@@ -125,9 +125,9 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 		description: "Toggle Codex priority or ultrafast processing from the main thread",
 		handler: (args, ctx) => handleFastCommand(args, ctx, pi, authority),
 	});
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
 		if (!isChildRuntime(ctx)) {
-			const persistedMode = readPersistedFastMode(ctx);
+			const persistedMode = await readPersistedFastMode(ctx);
 			authority.serviceTier =
 				persistedMode === undefined ? readConfiguredFastMode(ctx) : (persistedMode ?? undefined);
 		}

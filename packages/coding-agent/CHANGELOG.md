@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Reopening a compacted session keeps `/multi-agent disabled`, `/fast` and Daybreak selections saved before the latest compaction's kept messages. Previously, the restore read only the loaded slice of the branch: multi-agent tools and the delegation policy came back, and fast and Daybreak modes fell back to their defaults.
 - A shared-channel post older than 24 hours is no longer delivered to an idle session in the window before the periodic cleanup deletes it.
 - Resume lists and `--session <id>` lookup no longer miss sessions written before the control-DB session index had any rows. Previously, once any session was indexed (for example a new session in one project), sessions from other projects were not found until their transcripts were opened again. The first list for a session directory now indexes every transcript under it once.
 - An `auth.json` credential that resolves to no API key (for example `$VAR` with `VAR` unset) is now an auth error; before, the request was sent without a key, and a model pool tried that member instead of failing over to the next

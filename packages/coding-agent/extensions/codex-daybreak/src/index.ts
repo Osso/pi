@@ -1,5 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 
 const DAYBREAK_ENTRY = "codex-daybreak";
 const DAYBREAK_STATUS_KEY = "codex-daybreak";
@@ -45,11 +46,10 @@ function updateStatus(ctx: ExtensionContext, state: DaybreakState, model = ctx.m
 	ctx.ui.setStatus(DAYBREAK_STATUS_KEY, appliesTo(model) ? "daybreak blue" : "daybreak blue inactive");
 }
 
-function readPersistedProgram(ctx: ExtensionContext): DaybreakProgram | undefined {
-	const branch = ctx.sessionManager.getBranch();
-	for (let index = branch.length - 1; index >= 0; index--) {
-		const entry = branch[index];
-		if (entry?.type !== "custom" || entry.customType !== DAYBREAK_ENTRY || !isPlainObject(entry.data)) continue;
+/** Newest saved program on the branch, including entries before a compacted session's loaded slice. */
+async function readPersistedProgram(ctx: ExtensionContext): Promise<DaybreakProgram | undefined> {
+	for await (const entry of readSessionHistoryReverse(ctx.sessionManager)) {
+		if (entry.type !== "custom" || entry.customType !== DAYBREAK_ENTRY || !isPlainObject(entry.data)) continue;
 		const { cyber } = entry.data;
 		if (cyber === null) return undefined;
 		if (cyber === DAYBREAK_BLUE) return cyber;
@@ -115,9 +115,9 @@ export default function codexDaybreakExtension(pi: ExtensionAPI): void {
 			ctx.ui.setEditorText("");
 		},
 	});
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
 		if (isChildRuntime(ctx)) return;
-		state.cyber = readPersistedProgram(ctx);
+		state.cyber = await readPersistedProgram(ctx);
 		updateStatus(ctx, state);
 	});
 	pi.on("model_select", (event, ctx) => {

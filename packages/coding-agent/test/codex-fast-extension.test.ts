@@ -41,6 +41,7 @@ interface FastHarnessOptions {
 function createSessionManagerFixture(options: FastHarnessOptions) {
 	return {
 		getBranch: () => options.branch ?? [],
+		getSessionFile: () => undefined,
 		getCwd: () => "/tmp/pi-codex-fast-footer-test",
 		getEntries: () => [],
 		getEntry: () => undefined,
@@ -279,12 +280,12 @@ describe("Codex fast mode extension", () => {
 describe("Codex fast mode selected-agent footer", () => {
 	it.each(["priority", "ultrafast"] as const)(
 		"shows effective %s processing for a Codex child under an Opus main",
-		(serviceTier) => {
+		async (serviceTier) => {
 			initTheme(undefined, false);
 			const main = createHarness({ provider: "anthropic", defaultCodexFastMode: serviceTier });
 			const child = createHarness({ authority: main.authority, child: true });
 			if (!main.sessionStart) throw new Error("session_start handler was not registered");
-			main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+			await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 			const footer = createDefaultFooterComponent({ ctx: main.ctx, footerData: main.footerData, theme });
 			const output = () => footer.render(160).map(stripAnsi).slice(2);
 			const childView: FooterSessionOverride = {
@@ -353,7 +354,7 @@ describe("Codex fast mode selected-agent footer", () => {
 });
 
 describe("Codex fast mode session startup", () => {
-	it("restores the latest persisted fast mode on main session startup", () => {
+	it("restores the latest persisted fast mode on main session startup", async () => {
 		const authority: FastModeAuthority = { serviceTier: undefined };
 		const branch: FastStateEntry[] = [
 			{ type: "custom", customType: "codex-fast-mode", data: { serviceTier: "priority" } },
@@ -364,19 +365,19 @@ describe("Codex fast mode session startup", () => {
 		const child = createHarness({ authority, branch: [], child: true });
 		if (!main.sessionStart || !child.sessionStart) throw new Error("session_start handler was not registered");
 
-		child.sessionStart({ reason: "startup", type: "session_start" }, child.ctx);
+		await child.sessionStart({ reason: "startup", type: "session_start" }, child.ctx);
 		expect(authority.serviceTier).toBeUndefined();
-		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+		await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 		expect(authority.serviceTier).toBe("ultrafast");
 		expect(main.footerData.getExtensionStatuses().get("codex-fast")).toBe("fast ultra");
 	});
 
 	it.each(["priority", "ultrafast"] as const)(
 		"applies configured %s default on main session startup without persisted fast mode",
-		(serviceTier) => {
+		async (serviceTier) => {
 			const main = createHarness({ branch: [], defaultCodexFastMode: serviceTier });
 			if (!main.sessionStart) throw new Error("session_start handler was not registered");
-			main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+			await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 			const event = {
 				payload: { model: "test-model" },
 				type: "before_provider_request",
@@ -390,13 +391,13 @@ describe("Codex fast mode session startup", () => {
 		},
 	);
 
-	it("lets a persisted explicit-off entry override a configured enabled default", () => {
+	it("lets a persisted explicit-off entry override a configured enabled default", async () => {
 		const main = createHarness({
 			branch: [{ type: "custom", customType: "codex-fast-mode", data: { serviceTier: null } }],
 			defaultCodexFastMode: "priority",
 		});
 		if (!main.sessionStart) throw new Error("session_start handler was not registered");
-		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+		await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
 		expect(main.authority.serviceTier).toBeUndefined();
@@ -408,7 +409,7 @@ describe("Codex fast mode session startup", () => {
 		await first.command.handler("on", first.ctx);
 		const second = createHarness();
 		if (!second.sessionStart) throw new Error("session_start handler was not registered");
-		second.sessionStart({ reason: "startup", type: "session_start" }, second.ctx);
+		await second.sessionStart({ reason: "startup", type: "session_start" }, second.ctx);
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
 		expect(second.authority.serviceTier).toBeUndefined();

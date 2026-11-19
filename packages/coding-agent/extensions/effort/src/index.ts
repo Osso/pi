@@ -1,6 +1,7 @@
 import type { ThinkingLevel as AgentThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 
 type MultiAgentMode = "proactive" | "disabled";
 
@@ -60,14 +61,14 @@ function parseMultiAgentMode(value: unknown): MultiAgentMode | undefined {
 	return undefined;
 }
 
-function restoreDelegationMode(state: DelegationState, ctx: ExtensionContext): void {
-	state.mode = "proactive";
-	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+/** Newest saved mode on the branch, including entries before a compacted session's loaded slice. */
+async function readPersistedDelegationMode(ctx: ExtensionContext): Promise<MultiAgentMode> {
+	for await (const entry of readSessionHistoryReverse(ctx.sessionManager)) {
 		if (entry.type !== "custom" || entry.customType !== DELEGATION_MODE_ENTRY) continue;
-		const data = entry.data as DelegationModeEntry | undefined;
-		const mode = parseMultiAgentMode(data?.mode);
-		if (mode) state.mode = mode;
+		const mode = parseMultiAgentMode((entry.data as DelegationModeEntry | undefined)?.mode);
+		if (mode) return mode;
 	}
+	return "proactive";
 }
 
 function persistDelegationMode(pi: ExtensionAPI, state: DelegationState): void {
@@ -167,9 +168,13 @@ async function handleDelegationCommand(
 	setDelegationMode(pi, ctx, state, mode);
 }
 
-function restoreAndUpdateDelegationMode(pi: ExtensionAPI, state: DelegationState, ctx: ExtensionContext): void {
+async function restoreAndUpdateDelegationMode(
+	pi: ExtensionAPI,
+	state: DelegationState,
+	ctx: ExtensionContext,
+): Promise<void> {
 	if (isChildRuntime(ctx)) return;
-	restoreDelegationMode(state, ctx);
+	state.mode = await readPersistedDelegationMode(ctx);
 	// `ultra` implies proactive delegation; restored disabled mode keeps maximum reasoning as `max`.
 	if (state.mode === "disabled" && pi.getThinkingLevel() === "ultra") pi.setThinkingLevel("max");
 	updateDelegationTools(pi, state);

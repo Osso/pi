@@ -60,7 +60,7 @@ function createHarness(options: DaybreakHarnessOptions = {}) {
 			provider,
 		},
 		multiAgentAgentId: options.child ? "child-agent" : undefined,
-		sessionManager: { getBranch: () => options.branch ?? [] },
+		sessionManager: { getBranch: () => options.branch ?? [], getSessionFile: () => undefined },
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
 	if (!command) throw new Error("/daybreak command was not registered");
@@ -215,7 +215,7 @@ describe("Codex Daybreak extension", () => {
 		expect(beforeProviderRequest(requestFor("gpt-6-sol"), ctx)).toBeUndefined();
 	});
 
-	it("restores the latest valid persisted selection on session start", () => {
+	it("restores the latest valid persisted selection on session start", async () => {
 		const restored = createHarness({
 			branch: [
 				{ customType: "codex-daybreak", data: { cyber: null }, type: "custom" },
@@ -223,7 +223,7 @@ describe("Codex Daybreak extension", () => {
 				{ customType: "codex-daybreak", data: { cyber: "daybreak_red" }, type: "custom" },
 			],
 		});
-		restored.sessionStart({ type: "session_start" } as SessionStartEvent, restored.ctx);
+		await restored.sessionStart({ type: "session_start" } as SessionStartEvent, restored.ctx);
 		expect(restored.beforeProviderRequest(requestFor("gpt-6-sol"), restored.ctx)).toEqual({
 			access_programs: { cyber: "daybreak_blue" },
 			model: "gpt-6-sol",
@@ -236,7 +236,7 @@ describe("Codex Daybreak extension", () => {
 				{ customType: "codex-daybreak", data: { cyber: null }, type: "custom" },
 			],
 		});
-		cleared.sessionStart({ type: "session_start" } as SessionStartEvent, cleared.ctx);
+		await cleared.sessionStart({ type: "session_start" } as SessionStartEvent, cleared.ctx);
 		expect(cleared.beforeProviderRequest(requestFor("gpt-6-sol"), cleared.ctx)).toBeUndefined();
 	});
 
@@ -259,7 +259,7 @@ describe("Codex Daybreak extension", () => {
 			child: true,
 		});
 
-		child.sessionStart({ type: "session_start" } as SessionStartEvent, child.ctx);
+		await child.sessionStart({ type: "session_start" } as SessionStartEvent, child.ctx);
 		await child.command.handler("blue", child.ctx);
 
 		expect(child.notify).toHaveBeenLastCalledWith("Daybreak applies only to the main thread", "warning");

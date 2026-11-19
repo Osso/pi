@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import effortExtension from "../extensions/effort/src/index.ts";
 import type {
@@ -6,6 +9,7 @@ import type {
 	ExtensionContext,
 	RegisteredCommand,
 } from "../src/core/extensions/types.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -37,6 +41,7 @@ const SUBAGENT_TOOLS = [
 function createCommandHarness(options?: {
 	activeTools?: string[];
 	branch?: unknown[];
+	sessionManager?: SessionManager;
 	child?: boolean;
 	reasoning?: boolean;
 	subagentProvenance?: boolean;
@@ -82,8 +87,9 @@ function createCommandHarness(options?: {
 	const setTargetThinkingLevel = vi.fn((level: string) => {
 		thinkingLevel = level;
 	});
-	const sessionManager = {
+	const sessionManager = options?.sessionManager ?? {
 		getBranch: () => options?.branch ?? [],
+		getSessionFile: () => undefined,
 		isSubagentSession: () => options?.child === true || options?.subagentProvenance === true,
 	};
 	const ctx = {
@@ -248,6 +254,32 @@ describe("effort extension", () => {
 		if (!restoredBeforeAgentStart) throw new Error("expected before_agent_start handler");
 		const restoredResult = await restoredBeforeAgentStart({ systemPrompt: "base" }, restored.ctx);
 		expect(requireSystemPrompt(restoredResult)).toBe("base");
+	});
+
+	it("restores disabled delegation saved before the loaded slice of a reopened compacted session", async () => {
+		const sessionDir = mkdtempSync(join(tmpdir(), "pi-effort-slice-"));
+		try {
+			const session = SessionManager.create(sessionDir, sessionDir);
+			session.appendMessage({ role: "user", content: "before", timestamp: 1 });
+			session.appendCustomEntry("multi-agent-mode", { mode: "disabled" });
+			const firstKeptId = session.appendMessage({ role: "user", content: "kept", timestamp: 2 });
+			session.appendCompaction("summary", firstKeptId, 100);
+			session.appendMessage({ role: "user", content: "after", timestamp: 3 });
+			const sessionFile = session.getSessionFile();
+			if (!sessionFile) throw new Error("expected persisted session file");
+			const reopened = SessionManager.open(sessionFile, sessionDir);
+			expect(reopened.getBranch().some((entry) => entry.type === "custom")).toBe(false);
+
+			const restored = createCommandHarness({ sessionManager: reopened });
+			const sessionStart = restored.handlers.get("session_start")?.[0];
+			if (!sessionStart) throw new Error("expected session_start handler");
+			await sessionStart({ type: "session_start", reason: "resume" }, restored.ctx);
+
+			expect(restored.getActiveTools()).not.toContain("spawn_agent");
+			expect(restored.extensionStatuses.get("multi-agent-mode")).toContain("disabled");
+		} finally {
+			rmSync(sessionDir, { recursive: true, force: true });
+		}
 	});
 
 	it("hides subagent tools while preserving unrelated tools and disabled status", async () => {
