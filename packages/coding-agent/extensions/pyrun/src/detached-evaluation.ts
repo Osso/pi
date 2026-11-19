@@ -490,7 +490,7 @@ function formatCompletedPyrunObservation(
 }
 
 async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Promise<AgentToolResult<unknown>> {
-	const bridgeRequestCursor = createJsonLineReadCursor();
+	const bridgeRequests: ForegroundBridgeRequests = { cursor: createJsonLineReadCursor(), failure: undefined };
 	let nextLivenessCheckAt = 0;
 	const outputCursor = createJsonLineReadCursor();
 	let result: CanonicalPyrunEvalResult | undefined;
@@ -511,11 +511,8 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	input.signal?.addEventListener("abort", cancel, { once: true });
 	try {
 		for (;;) {
-			await respondToPendingForegroundBridgeRequests(
-				input,
-				bridgeRequestCursor,
-				control.getOwnership() !== undefined,
-			);
+			respondToPendingForegroundBridgeRequests(input, bridgeRequests, control.getOwnership() !== undefined);
+			if (bridgeRequests.failure !== undefined) throw bridgeRequests.failure;
 			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
 			result = progressAccumulator.consume(artifactRead.values) ?? result;
 			const ownership = control.getOwnership();
@@ -543,14 +540,26 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	}
 }
 
-async function respondToPendingForegroundBridgeRequests(
+interface ForegroundBridgeRequests {
+	cursor: JsonLineReadCursor;
+	failure: unknown;
+}
+
+/**
+ * Starts each new bridge request without awaiting it, so a request that waits on the user (a blocking
+ * ask_questions) cannot keep a detached job in the foreground. The runner reads the response when it lands.
+ */
+function respondToPendingForegroundBridgeRequests(
 	input: DetachablePyrunInput,
-	cursor: JsonLineReadCursor,
+	requests: ForegroundBridgeRequests,
 	detached: boolean,
-): Promise<void> {
+): void {
 	if (detached) return;
-	const requests = readNewJsonLines<ForegroundBridgeRequest>(input.runner.bridgeRequestPath, cursor);
-	for (const request of requests) await respondToForegroundBridgeRequest(input, request);
+	for (const request of readNewJsonLines<ForegroundBridgeRequest>(input.runner.bridgeRequestPath, requests.cursor)) {
+		respondToForegroundBridgeRequest(input, request).catch((error: unknown) => {
+			requests.failure ??= error;
+		});
+	}
 }
 
 interface ForegroundBridgeRequest {

@@ -295,6 +295,68 @@ describe("durable detached Pyrun evaluation", () => {
 		).toBe(0);
 		expect(store.listMailboxMessages()).toHaveLength(1);
 	});
+
+	it("detaches while a Pi bridge request still waits for an answer", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-pyrun-pending-bridge-"));
+		temporaryDirectories.push(root);
+		const runnerPath = join(root, "fake-pyrun.mjs");
+		writeFileSync(
+			runnerPath,
+			[
+				"#!/usr/bin/env node",
+				"import { createInterface } from 'node:readline';",
+				"const iterator = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
+				"const request = JSON.parse((await iterator.next()).value);",
+				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'tools.call', params: { name: 'ask_questions' } }) + '\\n');",
+				"const response = JSON.parse((await iterator.next()).value);",
+				"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: response.result }) + '\\n');",
+			].join("\n"),
+		);
+		chmodSync(runnerPath, 0o700);
+		const sessionManager = SessionManager.create(root, join(root, "sessions"));
+		const controlDbPath = getControlDbPath(root);
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore();
+		store.setPersistenceSessionManager(sessionManager);
+		const sessionPath = sessionManager.getSessionFile();
+		if (!sessionPath) throw new Error("Expected persisted Pyrun test session");
+		let answer: ((value: unknown) => void) | undefined;
+		const detachRegistry = new ToolDetachRegistry();
+		const evaluation = runDurableDetachablePyrunEvaluation({
+			agentId: "pyrun_1",
+			ctx: {
+				controlDbPath,
+				cwd: root,
+				footerData: undefined,
+				getContextUsage: () => undefined,
+				model: undefined,
+				sessionManager,
+				toolExecutionStartedAt: Date.now(),
+			} as unknown as ExtensionContext,
+			detachRegistry,
+			dispatchPiRequest: () =>
+				new Promise((resolve) => {
+					answer = resolve;
+				}),
+			params: { code: "ask" },
+			piBridgeEnabled: true,
+			runnerOptions: { command: runnerPath },
+			store,
+			toolCallId: "pending-bridge-call",
+		});
+		await waitFor(() => answer !== undefined);
+		expect(detachRegistry.detachRunning()).toBe(true);
+
+		const result = await evaluation;
+		expect(result.details).toMatchObject({ backgroundJobId: "pyrun_1" });
+		answer?.({ answers: { Proceed: "yes" } });
+		await waitFor(() => {
+			const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as
+				| { lifecycle?: unknown }
+				| undefined;
+			return agent?.lifecycle === "completed";
+		});
+	});
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

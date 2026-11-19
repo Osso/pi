@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A durable `pyrun_eval` moved to the background now returns its job handle at once, even while a Pi bridge request inside it (such as a blocking `ask_questions`) waits for an answer
 - The agents status widget keeps the right-aligned elapsed time in a narrow terminal by shortening the name and kind columns
 - `/effort ultra` on a viewed child no longer turns on proactive delegation in the main session, and `/multi-agent disabled` lowers the main session's ultra level instead of a viewed child's
 - The cross-host relay drops a direct message that expired in transit and acknowledges it, instead of closing the connection and holding later mail
