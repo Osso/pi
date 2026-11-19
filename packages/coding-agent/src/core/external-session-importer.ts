@@ -7,6 +7,7 @@ import type { AssistantMessage, TextContent, UserMessage } from "@earendil-works
 import { resolvePath } from "../utils/paths.ts";
 import { CURRENT_SESSION_VERSION, type FileEntry, getDefaultSessionDir } from "./session-manager.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
+import { readSessionTranscriptPath } from "./session-transcript.ts";
 
 const EXTERNAL_SESSION_PROVIDERS = ["codex", "claude"] as const;
 type ExternalSessionProvider = (typeof EXTERNAL_SESSION_PROVIDERS)[number];
@@ -83,7 +84,8 @@ export async function importExternalSessionAlias(
 	const sessionId = `${alias.provider}-${source.id}`;
 	const destinationDir = options.sessionDir ? resolvePath(options.sessionDir) : getDefaultSessionDir(source.cwd);
 	const destinationPath = join(destinationDir, `${sanitizeFileName(sessionId)}.jsonl`);
-	if (!existsSync(destinationPath)) {
+	// An earlier import may be archived as `.jsonl.zst`; its Pi-only entries must survive, so never reimport over it.
+	if (!existsSync(readSessionTranscriptPath(destinationPath))) {
 		writeImportedSession(destinationPath, sessionId, source);
 	}
 

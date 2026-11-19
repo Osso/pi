@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { importExternalSessionAlias } from "../src/core/external-session-importer.ts";
+import { archiveSessionFile } from "../src/core/session-archive-storage.ts";
 import { getDefaultSessionDir, SessionManager } from "../src/core/session-manager.ts";
+import { readSessionTranscriptBytes } from "../src/core/session-transcript.ts";
 import { assertDefined } from "./utilities.ts";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
@@ -145,6 +147,32 @@ describe("importExternalSessionAlias", () => {
 		const second = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
 
 		expect(second?.path).toBe(first?.path);
+	});
+
+	it("reuses an archived imported session instead of importing over its Pi-only entries", async () => {
+		const homeDir = createTempDir();
+		const projectDir = join(homeDir, "project");
+		const sessionDir = join(homeDir, "sessions");
+		const sessionId = "reuse-archived";
+		const codexDir = join(homeDir, ".codex", "sessions");
+		mkdirSync(codexDir, { recursive: true });
+		mkdirSync(projectDir, { recursive: true });
+		writeJsonl(join(codexDir, `rollout-2026-04-30T22-46-58-${sessionId}.jsonl`), [
+			{ type: "session_meta", payload: { id: sessionId, cwd: projectDir } },
+		]);
+		const first = assertDefined(await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir }));
+		appendFileSync(
+			first.path,
+			`${JSON.stringify({ type: "custom", customType: "pi-only", id: "pi-only-entry", parentId: null, timestamp: "2026-05-01T00:00:00.000Z" })}\n`,
+		);
+		const archivedPath = archiveSessionFile(first.path);
+		rmSync(first.path, { force: true });
+
+		const second = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
+
+		expect(second?.path).toBe(first.path);
+		expect(existsSync(first.path)).toBe(false);
+		expect(readSessionTranscriptBytes(archivedPath).toString("utf8")).toContain("pi-only-entry");
 	});
 
 	it("resolves Codex aliases through the --session flag", async () => {
