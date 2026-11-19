@@ -6604,17 +6604,12 @@ export class InteractiveMode {
 					showRenameHint: true,
 					keybindings: this.keybindings,
 					controlDbPath: this.options.controlDbPath,
+					// Archived keeps recent ordering; named sessions are not promoted there (session-archive spec).
 					archivedSessionsLoader: (onProgress) =>
-						loadWithNames(
-							(progress) =>
-								SessionManager.listArchived(
-									this.sessionManager.usesDefaultSessionDir()
-										? undefined
-										: this.sessionManager.getSessionDir(),
-									progress,
-									this.options.controlDbPath,
-								),
+						SessionManager.listArchived(
+							this.sessionManager.usesDefaultSessionDir() ? undefined : this.sessionManager.getSessionDir(),
 							onProgress,
+							this.options.controlDbPath,
 						),
 				},
 

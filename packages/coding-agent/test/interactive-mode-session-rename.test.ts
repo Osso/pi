@@ -88,6 +88,41 @@ describe("InteractiveMode session selector rename", () => {
 		initTheme("dark");
 	});
 
+	it("keeps recent ordering in the Archived scope instead of promoting named sessions", async () => {
+		const harness = await createHarness({ persistedSession: true });
+		try {
+			const archived = (id: string, modified: string, name?: string): SessionInfo => ({
+				path: `${harness.tempDir}/${id}.jsonl`,
+				id,
+				cwd: harness.tempDir,
+				name,
+				created: new Date(modified),
+				modified: new Date(modified),
+				messageCount: 1,
+				firstMessage: id,
+				isArchived: true,
+			});
+			const newer = archived("newer", "2026-08-23T02:00:00.000Z");
+			const older = archived("older", "2026-08-23T01:00:00.000Z", "Older named");
+			vi.spyOn(SessionManager, "list").mockResolvedValue([]);
+			vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+			// listArchived returns newest first.
+			vi.spyOn(SessionManager, "listArchived").mockResolvedValue([newer, older]);
+
+			const selector = await openSessionSelector(harness);
+			selector.handleInput("\t");
+			await flushPromises();
+			selector.handleInput("\t");
+			await flushPromises();
+			await flushPromises();
+
+			expect(selector.getSessionList().getSelectedSessionPath()).toBe(newer.path);
+		} finally {
+			vi.restoreAllMocks();
+			harness.cleanup();
+		}
+	});
+
 	it("synchronizes active-session rename and clear with runtime state and events", async () => {
 		const harness = await createHarness({ persistedSession: true });
 		try {

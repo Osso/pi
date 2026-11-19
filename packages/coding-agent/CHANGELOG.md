@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `/resume` Archived scope keeps recent ordering instead of moving named sessions first, as the startup picker already did
 - Bash output (tool and user `!` commands) no longer corrupts a UTF-8 character on stdout into replacement characters when stderr writes between its bytes; each stream is now passed on at character boundaries
 - A Bash command killed by a signal in a session with background jobs now reports `128 + signal number` (143 for SIGTERM) instead of exit code 1, as it already did without background jobs
 - Threshold auto-compaction now runs when the provider reports no token usage, using the message-size estimate; before, a session on such a provider never compacted at the threshold (port of upstream 4495469a5, [#8328](https://github.com/earendil-works/pi/issues/8328))
