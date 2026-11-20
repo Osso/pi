@@ -26,6 +26,7 @@ describe("config selector search cursor", () => {
 			() => {},
 			() => {},
 			() => {},
+			() => 24,
 		);
 		const list = selector.getResourceList();
 		for (const char of "alpha") list.handleInput(char);

@@ -201,7 +201,12 @@ class ResourceList implements Component, Focusable {
 	private filteredItems: FlatEntry[] = [];
 	private selectedIndex = 0;
 	private searchInput: Input;
-	private maxVisible: number;
+	private getTerminalRows: () => number;
+
+	private get maxVisible(): number {
+		const reservedRows = 11; // Eight outer rows, two search rows, and one scroll indicator.
+		return Math.max(1, this.getTerminalRows() - reservedRows);
+	}
 	private settingsManager: SettingsManager;
 	private cwd: string;
 	private agentDir: string;
@@ -224,16 +229,14 @@ class ResourceList implements Component, Focusable {
 		settingsManager: SettingsManager,
 		cwd: string,
 		agentDir: string,
-		terminalHeight?: number,
+		getTerminalRows: () => number,
 	) {
 		this.groups = groups;
 		this.settingsManager = settingsManager;
 		this.cwd = cwd;
 		this.agentDir = agentDir;
 		this.searchInput = new Input();
-		// 8 lines of chrome: top spacer + top border + spacer + header (2 lines) + spacer + bottom spacer + bottom border
-		const chrome = 8;
-		this.maxVisible = Math.max(5, (terminalHeight ?? 24) - chrome);
+		this.getTerminalRows = getTerminalRows;
 		this.buildFlatList();
 		this.filteredItems = [...this.flatItems];
 	}
@@ -351,12 +354,12 @@ class ResourceList implements Component, Focusable {
 			return lines;
 		}
 
-		// Calculate visible range
+		const maxVisible = this.maxVisible;
 		const startIndex = Math.max(
 			0,
-			Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), this.filteredItems.length - this.maxVisible),
+			Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredItems.length - maxVisible),
 		);
-		const endIndex = Math.min(startIndex + this.maxVisible, this.filteredItems.length);
+		const endIndex = Math.min(startIndex + maxVisible, this.filteredItems.length);
 
 		for (let i = startIndex; i < endIndex; i++) {
 			const entry = this.filteredItems[i];
@@ -608,7 +611,7 @@ export class ConfigSelectorComponent extends Container implements Focusable {
 		onClose: () => void,
 		onExit: () => void,
 		requestRender: () => void,
-		terminalHeight?: number,
+		getTerminalRows: () => number,
 	) {
 		super();
 
@@ -622,7 +625,7 @@ export class ConfigSelectorComponent extends Container implements Focusable {
 		this.addChild(new Spacer(1));
 
 		// Resource list
-		this.resourceList = new ResourceList(groups, settingsManager, cwd, agentDir, terminalHeight);
+		this.resourceList = new ResourceList(groups, settingsManager, cwd, agentDir, getTerminalRows);
 		this.resourceList.onCancel = onClose;
 		this.resourceList.onExit = onExit;
 		this.resourceList.onToggle = () => requestRender();

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `pi config` resizes its resource list to keep the highlighted item visible when the terminal height changes.
 - Bash detach tests use the default auto-detach interval for foreground cases and wait for confirmed detachment before writing post-detach output.
 - `/reload` completion help includes context files.
 - `pi tools` and `/tools` align columns by terminal width and limit descriptions to 54 cells without splitting characters.
