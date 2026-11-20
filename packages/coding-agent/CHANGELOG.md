@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A message `tools`, `extensions` or `login` after an `@file` argument (for example `pi -p @notes.md tools`) is now sent as a prompt instead of running the command.
 - `--export-terminal` passed as the value of another option (for example `--system-prompt --export-terminal`) no longer starts a terminal export.
 - `--worktree` now resolves relative `@file` arguments in the selected worktree instead of the launch directory.
 - The `ask_questions` tab bar keeps the active tab (including Submit) visible in a narrow terminal by hiding earlier tabs behind `…`.

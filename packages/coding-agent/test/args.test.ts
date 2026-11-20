@@ -75,6 +75,17 @@ describe("parseArgs", () => {
 			expect(result.loginProvider).toBeUndefined();
 			expect(result.diagnostics).toEqual([]);
 		});
+
+		test("keeps tools, extensions and login as messages after an @file argument", () => {
+			for (const word of ["tools", "extensions", "login"]) {
+				const result = parseArgs(["-p", "@context.txt", word]);
+				expect(result.fileArgs).toEqual(["@context.txt"]);
+				expect(result.messages).toEqual([word]);
+				expect(result.listTools).toBeUndefined();
+				expect(result.listExtensions).toBeUndefined();
+				expect(result.loginProvider).toBeUndefined();
+			}
+		});
 	});
 
 	describe("--help flag", () => {
