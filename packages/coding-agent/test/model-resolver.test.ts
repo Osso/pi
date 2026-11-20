@@ -391,6 +391,30 @@ describe("resolveCliModel", () => {
 		expect(result.error).toContain("No models available");
 	});
 
+	test("applies provider ambiguity rules to a raw model id that starts with a known provider name", () => {
+		const shared = (provider: string): Model<"anthropic-messages"> => ({
+			...mockModels[1],
+			id: "openai/gpt-4o:extended",
+			provider,
+		});
+		const resolve = (authenticated: string[]) =>
+			resolveCliModel({
+				cliModel: "openai/gpt-4o:extended",
+				modelRegistry: {
+					getAll: () => [mockModels[1], shared("openrouter"), shared("custom-gateway")],
+					hasConfiguredAuth: (model: { provider: string }) => authenticated.includes(model.provider),
+				} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"],
+			});
+
+		const sole = resolve(["custom-gateway"]);
+		expect(sole.error).toBeUndefined();
+		expect(sole.model?.provider).toBe("custom-gateway");
+
+		const both = resolve(["openrouter", "custom-gateway"]);
+		expect(both.model).toBeUndefined();
+		expect(both.error).toContain('Model "openai/gpt-4o:extended" is ambiguous across providers');
+	});
+
 	test("prefers the sole authenticated provider for an ambiguous bare exact model id", () => {
 		const azureModel: Model<"anthropic-messages"> = {
 			...mockModels[1],

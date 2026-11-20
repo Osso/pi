@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--model` with a raw model ID that starts with a known provider name (for example `openai/gpt-4o:extended`) applies the same provider ambiguity rules as other exact IDs: it picks the only authenticated provider or reports the ambiguity instead of taking the first catalog match.
 - Model scope globs such as `ollama/qwen*:high` first match the full pattern, so a literal `:high` tag in a model ID is no longer taken as a thinking level for every matching model.
 - `SessionManager.forkFrom()` with a fork point that a later compaction retains copies the whole path, including the entries before the compaction cutoff, instead of starting at the first kept entry.
 - `/scoped-models` no longer closes on a hard-coded Ctrl+C: `app.clear` empties a non-empty search and only the configured `tui.select.cancel` keys close the selector.

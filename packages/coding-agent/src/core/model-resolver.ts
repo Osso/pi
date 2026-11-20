@@ -362,6 +362,31 @@ export interface ResolveCliModelResult {
 }
 
 /**
+ * Choose among models whose ID matches the input exactly: the only one, else the only authenticated one.
+ * Several matches without one authenticated provider are ambiguous and need an explicit provider.
+ */
+function chooseExactModel(
+	cliModel: string,
+	exactMatches: Model<Api>[],
+	modelRegistry: ModelRegistry,
+): { model?: Model<Api>; error?: string } {
+	if (exactMatches.length <= 1) return { model: exactMatches[0] };
+	const authenticated = exactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
+	if (authenticated.length === 1) return { model: authenticated[0] };
+	const matches = exactMatches
+		.map((m) => `${m.provider}/${m.id}`)
+		.sort((a, b) => a.localeCompare(b))
+		.join(", ");
+	const authHint =
+		authenticated.length === 0
+			? "No matching provider is authenticated."
+			: "More than one matching provider is authenticated.";
+	return {
+		error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model.`,
+	};
+}
+
+/**
  * Resolve a single model from CLI flags.
  *
  * Supports:
@@ -446,29 +471,13 @@ export function resolveCliModel(options: {
 		let exactMatches = findExact(lower);
 		const byBaseId = exactMatches.length === 0 && colon !== -1 && isValidThinkingLevel(lower.slice(colon + 1));
 		if (byBaseId) exactMatches = findExact(lower.slice(0, colon));
-		const authenticated = exactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
-		const chosen = exactMatches.length === 1 ? exactMatches[0] : undefined;
-		const chosenModel = chosen ?? (authenticated.length === 1 ? authenticated[0] : undefined);
-		if (chosenModel && !byBaseId) {
-			return { model: chosenModel, warning: undefined, thinkingLevel: undefined, error: undefined };
+		const choice = chooseExactModel(cliModel, exactMatches, modelRegistry);
+		if (choice.model && !byBaseId) {
+			return { model: choice.model, warning: undefined, thinkingLevel: undefined, error: undefined };
 		}
-		if (chosenModel) provider = chosenModel.provider;
-		else if (exactMatches.length > 1) {
-			const matches = exactMatches
-				.map((m) => `${m.provider}/${m.id}`)
-				.sort((a, b) => a.localeCompare(b))
-				.join(", ");
-			const authHint =
-				authenticated.length === 0
-					? "No matching provider is authenticated."
-					: "More than one matching provider is authenticated.";
-			return {
-				model: undefined,
-				warning: undefined,
-				thinkingLevel: undefined,
-				error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model.`,
-			};
-		}
+		if (choice.model) provider = choice.model.provider;
+		else if (choice.error)
+			return { model: undefined, warning: undefined, thinkingLevel: undefined, error: choice.error };
 	}
 
 	if (cliProvider && provider) {
@@ -518,11 +527,12 @@ export function resolveCliModel(options: {
 	// looks like a provider but the full string is actually a model id on openrouter.
 	if (inferredProvider) {
 		const lower = cliModel.toLowerCase();
-		const exact = availableModels.find(
+		const exactMatches = availableModels.filter(
 			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
 		);
-		if (exact) {
-			return { model: exact, warning: undefined, thinkingLevel: undefined, error: undefined };
+		const choice = chooseExactModel(cliModel, exactMatches, modelRegistry);
+		if (choice.model || choice.error) {
+			return { model: choice.model, warning: undefined, thinkingLevel: undefined, error: choice.error };
 		}
 		// Also try parseModelPattern on the full input against all models
 		const fallback = parseModelPattern(cliModel, availableModels, {
