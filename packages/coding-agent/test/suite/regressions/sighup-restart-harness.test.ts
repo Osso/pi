@@ -66,7 +66,10 @@ describe("InteractiveMode SIGHUP restart harness", () => {
 		await Promise.resolve();
 
 		expect(context.restartProcess).toHaveBeenCalledTimes(1);
-		expect(context.restartProcess).toHaveBeenCalledWith({ fromSignal: true });
+		expect(context.restartProcess).toHaveBeenCalledWith({
+			fromSignal: true,
+			notice: "Pi restarted on SIGHUP. Continue the session.",
+		});
 		expect(context.shutdown).toHaveBeenCalledWith({ fromSignal: true });
 	});
 });

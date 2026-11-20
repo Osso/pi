@@ -108,6 +108,7 @@ import {
 	applySelfRestartRequest,
 	consumeSelfRestartRequest,
 	resolveRestartInterruptedToolCalls,
+	selfRestartSessionStartEvent,
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
 import { restoreArchivedSession } from "./core/session-archive-storage.ts";
@@ -1231,7 +1232,7 @@ export async function main(args: string[], options?: MainOptions) {
 			resourceLoader: services.resourceLoader,
 			...createMainSessionExecutionOptions(parsed.noSupervisor),
 			sessionManager,
-			sessionStartEvent,
+			sessionStartEvent: sessionStartEvent ?? selfRestartSessionStartEvent(selfRestartHandoff),
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
 			scopedModels: sessionOptions.scopedModels,
@@ -1413,9 +1414,7 @@ export async function main(args: string[], options?: MainOptions) {
 		});
 		stopThemeWatcher();
 		restoreStdout();
-		if (exitCode !== 0) {
-			process.exitCode = exitCode;
-		}
+		if (exitCode !== 0) process.exitCode = exitCode;
 		return;
 	}
 }

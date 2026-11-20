@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { restoredPendingToolMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { Args } from "../cli/args.ts";
+import type { SessionStartEvent } from "./extensions/types.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
 import { readMultiAgentState } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
@@ -269,6 +270,11 @@ export function appendSelfRestartNotice(sessionManager: SessionManager, handoff:
 	}
 
 	appendRestartNotice(sessionManager, formatRestartNotice(handoff), handoff.interruptedRun === true);
+}
+
+/** A process restart starts its runtime as `restart` of the same session file, not as a fresh `startup`. */
+export function selfRestartSessionStartEvent(handoff: SelfRestartHandoff | undefined): SessionStartEvent | undefined {
+	return handoff && { type: "session_start", reason: "restart", previousSessionFile: handoff.sessionFile };
 }
 
 /** `interruptedRun` on the notice tells startup to continue the run the restart cut off. */

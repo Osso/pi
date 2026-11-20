@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A `SIGHUP` restart (including `pi control restart`) now persists a `self_restart` notice so an interrupted turn continues, and every process restart emits `session_start` with reason `restart` and `previousSessionFile` instead of `startup`.
 - Edit diffs highlight a spacing change between words and a tab replaced by spaces; only a change at the start of the text keeps its leading whitespace unhighlighted.
 - The `edit` tool's `details.patch` is generated from the stored and written file bytes, so it applies to files with CRLF or mixed line endings.
 - Resuming an interrupted bridge-enabled `pyrun_eval` call no longer fails with an artifact collision when the context usage, branch or model changed since launch.

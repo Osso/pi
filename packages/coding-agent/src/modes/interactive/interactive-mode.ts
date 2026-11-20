@@ -4570,7 +4570,7 @@ export class InteractiveMode {
 			const handler = () => {
 				killTrackedDetachedChildren();
 				if (signal === "SIGHUP") {
-					void this.restartProcess({ fromSignal: true });
+					void this.restartProcess({ fromSignal: true, notice: "Pi restarted on SIGHUP. Continue the session." });
 					return;
 				}
 
