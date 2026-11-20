@@ -362,6 +362,27 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
+	it("updates the cached branch when a linked worktree's own reftable changes", async () => {
+		const { worktreeDir } = createReftableWorktree(tempDir);
+		const worktreeReftableDir = join(tempDir, "repo", ".git", "worktrees", "src", "reftable");
+		mkdirSync(worktreeReftableDir);
+		writeFileSync(join(worktreeReftableDir, "tables.list"), "0\n");
+		process.chdir(worktreeDir);
+
+		const provider = new FooterDataProvider(worktreeDir);
+		try {
+			expect(provider.getGitBranch()).toBe("main");
+			resolvedBranch = "next";
+
+			writeFileSync(join(worktreeReftableDir, "tables.list"), "1\n");
+			await waitFor(() => provider.getGitBranch() === "next");
+
+			expect(provider.getGitBranch()).toBe("next");
+		} finally {
+			provider.dispose();
+		}
+	});
+
 	it("retries git watchers 5 seconds after an async fs.watch error on HEAD", async () => {
 		vi.useFakeTimers();
 		const repoDir = createPlainRepo(tempDir);
@@ -398,24 +419,20 @@ describe("FooterDataProvider reftable branch detection", () => {
 
 		const provider = new FooterDataProvider(worktreeDir);
 		try {
-			const providerWithInternals = provider as unknown as {
-				reftableWatcher: FSWatcher | null;
-				reftableTablesListWatcher: FSWatcher | null;
-			};
-			const originalWatcher = providerWithInternals.reftableWatcher;
+			const providerWithInternals = provider as unknown as { reftableWatchers: FSWatcher[] };
+			const originalWatcher = providerWithInternals.reftableWatchers[0];
 			expect(originalWatcher).not.toBeNull();
 			expect(originalWatcher?.listenerCount("error")).toBeGreaterThan(0);
 
 			originalWatcher?.emit("error", new Error("simulated EMFILE"));
-			expect(providerWithInternals.reftableWatcher).toBeNull();
-			expect(providerWithInternals.reftableTablesListWatcher).toBeNull();
+			expect(providerWithInternals.reftableWatchers).toEqual([]);
 
 			await vi.advanceTimersByTimeAsync(4999);
-			expect(providerWithInternals.reftableWatcher).toBeNull();
+			expect(providerWithInternals.reftableWatchers).toEqual([]);
 
 			await vi.advanceTimersByTimeAsync(1);
-			expect(providerWithInternals.reftableWatcher).not.toBeNull();
-			expect(providerWithInternals.reftableWatcher).not.toBe(originalWatcher);
+			expect(providerWithInternals.reftableWatchers.length).toBeGreaterThan(0);
+			expect(providerWithInternals.reftableWatchers).not.toContain(originalWatcher);
 		} finally {
 			provider.dispose();
 			vi.useRealTimers();

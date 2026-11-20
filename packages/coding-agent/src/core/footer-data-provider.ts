@@ -141,8 +141,7 @@ export class FooterDataProvider {
 	private headWatcher: FSWatcher | null = null;
 	private headWatchFilePath: string | null = null;
 	private headWatchFileListener: ((current: Stats, previous: Stats) => void) | null = null;
-	private reftableWatcher: FSWatcher | null = null;
-	private reftableTablesListWatcher: FSWatcher | null = null;
+	private reftableWatchers: FSWatcher[] = [];
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
 	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -336,10 +335,8 @@ export class FooterDataProvider {
 			this.headWatchFilePath = null;
 			this.headWatchFileListener = null;
 		}
-		closeWatcher(this.reftableWatcher);
-		this.reftableWatcher = null;
-		closeWatcher(this.reftableTablesListWatcher);
-		this.reftableTablesListWatcher = null;
+		for (const watcher of this.reftableWatchers) closeWatcher(watcher);
+		this.reftableWatchers = [];
 		if (this.gitWatcherRetryTimer) {
 			clearTimeout(this.gitWatcherRetryTimer);
 			this.gitWatcherRetryTimer = null;
@@ -417,29 +414,24 @@ export class FooterDataProvider {
 	private setupReftableWatcher(): void {
 		if (!this.gitPaths) return;
 
-		// In reftable repos, branch switches update files in the reftable directory
-		// instead of HEAD. Watch it separately so the footer picks up those changes.
-		const reftableDir = join(this.gitPaths.commonGitDir, "reftable");
-		if (!existsSync(reftableDir)) {
-			return;
-		}
-
-		this.reftableWatcher = watchWithErrorHandler(
-			reftableDir,
-			() => this.scheduleRefresh(),
-			() => this.handleGitWatcherError(),
-		);
-		if (!this.reftableWatcher) {
-			return;
-		}
-
-		const tablesListPath = join(reftableDir, "tables.list");
-		if (existsSync(tablesListPath)) {
-			this.reftableTablesListWatcher = watchWithErrorHandler(
-				tablesListPath,
-				() => this.scheduleRefresh(),
-				() => this.handleGitWatcherError(),
-			);
+		// In reftable repos, branch switches update files in the reftable directory instead of HEAD. A linked
+		// worktree keeps its HEAD in its own reftable directory next to HEAD; the main worktree uses the common one.
+		const reftableDirs = new Set([
+			join(this.gitPaths.commonGitDir, "reftable"),
+			join(dirname(this.gitPaths.headPath), "reftable"),
+		]);
+		for (const reftableDir of reftableDirs) {
+			if (!existsSync(reftableDir)) continue;
+			const tablesListPath = join(reftableDir, "tables.list");
+			for (const watchPath of existsSync(tablesListPath) ? [reftableDir, tablesListPath] : [reftableDir]) {
+				const watcher = watchWithErrorHandler(
+					watchPath,
+					() => this.scheduleRefresh(),
+					() => this.handleGitWatcherError(),
+				);
+				if (!watcher) return;
+				this.reftableWatchers.push(watcher);
+			}
 		}
 	}
 }
