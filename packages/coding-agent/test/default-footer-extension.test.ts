@@ -492,6 +492,49 @@ describe("default footer extension", () => {
 		expect(stats()).toContain("cost $201.50");
 	});
 
+	it("shows the same session cost with or without a render between replies", () => {
+		initTheme(undefined, false);
+		const session = SessionManager.inMemory("/tmp/project");
+		const appendAssistant = (input: number) => {
+			const cost = input / 1_000_000;
+			session.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "Done" }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-test",
+				usage: {
+					input,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: input,
+					cost: { input: cost, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+		};
+		const newFooter = () =>
+			createDefaultFooterComponent({
+				ctx: {
+					...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+					sessionManager: createReadonlySessionManager(session),
+				},
+				footerData: createFooterData(),
+				theme,
+			});
+		const footer = newFooter();
+		appendAssistant(1000);
+		expect(stripAnsi(footer.render(160)[1] ?? "")).toContain("cost $0.00");
+		appendAssistant(501);
+		appendAssistant(3499);
+
+		const fromScratch = stripAnsi(newFooter().render(160)[1] ?? "");
+		expect(fromScratch).toContain("cost $0.01");
+		expect(stripAnsi(footer.render(160)[1] ?? "")).toBe(fromScratch);
+	});
+
 	it("counts replies left on another branch after tree navigation", async () => {
 		initTheme(undefined, false);
 		const session = SessionManager.inMemory("/tmp/project");

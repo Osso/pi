@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The default footer shows the same rounded session cost no matter when it renders between replies.
 - Startup honors `--offline` when it is an option, without mistaking a system prompt value for an offline flag or an option separator.
 - Markdown text such as a plain heading between two `---` rules is no longer stripped as YAML metadata.
 - `--print` treats `tools`, `extensions`, and `login` as prompt text even when another option comes between `--print` and the prompt.

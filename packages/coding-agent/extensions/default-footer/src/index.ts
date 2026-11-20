@@ -154,12 +154,13 @@ function usageSinceLeaf(
 	usage: SessionUsage,
 ): SessionUsage | undefined {
 	let id = sessionManager.getLeafId();
-	let total = usage;
+	const pending: (SessionEntry | undefined)[] = [];
 	for (let walked = 0; walked < MAX_INCREMENTAL_USAGE_ENTRIES; walked += 1) {
-		if (id === fromLeafId) return total;
+		// Sum in the same append order as a full recount to keep rounding consistent.
+		if (id === fromLeafId) return pending.reduceRight(addEntryUsage, usage);
 		if (id === null) return undefined;
 		const entry = sessionManager.getEntry(id);
-		total = addEntryUsage(total, entry);
+		pending.push(entry);
 		id = entry?.parentId ?? null;
 	}
 	return undefined;
