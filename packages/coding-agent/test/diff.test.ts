@@ -13,6 +13,11 @@ describe("renderDiff", () => {
 			expected: ["-83   await commitRecordingChunk({", "+83   const result = await commitRecordingChunk({"],
 		},
 		{
+			name: "only the spacing between words changes",
+			diff: "-1 a  b\n+1 a b",
+			expected: ["-1 a  b", "+1 a b"],
+		},
+		{
 			name: "indented text is replaced",
 			diff: "-12     const value = oldValue\n+12     const value = newValue",
 			expected: ["-12     const value = oldValue", "+12     const value = newValue"],
