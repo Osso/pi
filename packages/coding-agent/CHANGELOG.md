@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The modal editor extension example tests now resolve the workspace’s public source entry point without a prebuilt coding-agent `dist` directory.
 - Context files and project memory in a directory Pi cannot search now produce a warning instead of being skipped silently; only missing candidates stay silent.
 - `/compact` no longer summarizes an empty conversation when the only history before the kept messages is a hidden `!!` command; it reports nothing to compact.
 - The first launch that migrates a legacy `prompt-history.json` shows the trimmed, deduplicated entries it stored, instead of the raw legacy list with duplicates.
