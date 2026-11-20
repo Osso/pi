@@ -30,7 +30,7 @@ function runDtachScenario(root: string, scenario: string): Capture {
 	const result = spawnSync(
 		"python3",
 		[path.join(fixtures, "dtach-focus.py"), root, dtach, runtime, path.join(fixtures, "dtach-focus.ts"), scenario],
-		{ encoding: "utf8", timeout: 15_000, maxBuffer: 4 * 1024 * 1024 },
+		{ encoding: "utf8", timeout: 20_000, maxBuffer: 4 * 1024 * 1024 },
 	);
 	fs.writeFileSync(path.join(root, "driver.stdout.log"), result.stdout ?? "");
 	fs.writeFileSync(path.join(root, "driver.stderr.log"), result.stderr ?? "");
@@ -115,7 +115,7 @@ function assertForegroundQuestionAndFooter(snapshots: Record<string, string>, ro
 for (const scenario of ["focused-control", "other-client-blur"]) {
 	it(
 		`native detach foreground keeps pending question and footer visible through resize: ${scenario}`,
-		{ skip: !hasDtach && "requires native detach (set DTACH)", timeout: 20_000 },
+		{ skip: !hasDtach && "requires native detach (set DTACH)", timeout: 25_000 },
 		async () => {
 			const root = fs.mkdtempSync(path.join(os.tmpdir(), `pi-dtach-focus-${scenario}-`));
 			console.log(`dtach focus artifacts: ${root}`);

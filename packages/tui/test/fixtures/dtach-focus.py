@@ -10,6 +10,7 @@ import select
 import shutil
 import signal
 import struct
+import subprocess
 import sys
 import termios
 import time
@@ -22,16 +23,18 @@ if dtach is None:
 events_path = root / "events.jsonl"
 socket = root / "dtach.sock"
 clients = []
-child_pid = None
+server = None
 captures = {}
+# No provider, global Pi config, or auth discovery is involved in this fixture.
+fixture_env = {"TERM": "xterm-256color", "HOME": str(root), "PATH": "/usr/bin:/bin"}
 
 
 def events():
     return [json.loads(line) for line in events_path.read_text().splitlines()]
 
 
-def wait_event(name, after=0):
-    deadline = time.monotonic() + 5
+def wait_event(name, after=0, timeout=5):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         matches = [event for event in events()[after:] if event["event"] == name]
         if matches:
@@ -40,17 +43,11 @@ def wait_event(name, after=0):
     raise AssertionError(f"Missing {name}: {events()}")
 
 
-def attach(create=False):
+def attach():
     pid, master = pty.fork()
     if pid == 0:
         fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 61, 299, 0, 0))
-        # No provider, global Pi config, or auth discovery is involved in this fixture.
-        os.environ.clear()
-        os.environ.update({"TERM": "xterm-256color", "HOME": str(root), "PATH": "/usr/bin:/bin"})
-        args = [dtach, "-c" if create else "-a", str(socket), "-r", "winch"]
-        if create:
-            args += [runtime, fixture, str(events_path)]
-        os.execv(dtach, args)
+        os.execve(dtach, [dtach, "-a", str(socket), "-r", "winch"], fixture_env)
     client = (pid, master)
     clients.append(client)
     return client
@@ -81,8 +78,17 @@ def capture(foreground, name):
 
 try:
     events_path.write_text("")
-    foreground = attach(create=True)
-    child_pid = wait_event("ready")["pid"]
+    # Own the master before the runtime imports the fixture or can report its PID.
+    server = subprocess.Popen(
+        [dtach, "-N", str(socket), "-r", "winch", runtime, fixture, str(events_path)],
+        env=fixture_env,
+        stdin=subprocess.DEVNULL,
+        stdout=sys.stderr,
+    )
+    child_pid = wait_event("ready", timeout=10)["pid"]
+    before = len(events())
+    foreground = attach()
+    wait_event("winch", before)
     capture(foreground, "initial")
     before = len(events())
     background = attach()
@@ -128,11 +134,6 @@ try:
     (root / "result.json").write_text(json.dumps(result))
     print(json.dumps(result), flush=True)
 finally:
-    if child_pid:
-        try:
-            os.kill(child_pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
     for pid, master in clients:
         os.close(master)
         try:
@@ -140,8 +141,13 @@ finally:
         except ProcessLookupError:
             pass
         os.waitpid(pid, 0)
-    deadline = time.monotonic() + 3
-    while socket.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
+    if server is not None:
+        server.terminate()
+        try:
+            server.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait()
+            raise
     assert not socket.exists(), "owned detach master did not clean up"
     (root / "cleanup.json").write_text(json.dumps({"socketRemoved": not socket.exists(), "reapedClients": [pid for pid, _ in clients]}))

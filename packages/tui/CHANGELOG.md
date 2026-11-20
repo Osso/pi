@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- The native detach focus fixture allows more time for runtime startup and cleans up its owned detach master even when the runtime does not report ready.
 - Overlays without `maxHeight` clip to the available terminal rows within their margins instead of pushing base content into scrollback.
 - Static and paused loaders refresh their colors when the active theme changes.
 - Fuzzy search scores consecutive matches even when unrelated earlier characters also match the query.
