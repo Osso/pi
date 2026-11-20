@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A `models.json` model header override no longer fails the request when the provider header it replaces references an unset environment variable.
 - `models.json` model overrides of OpenRouter routing now merge object-valued preferences (`sort`, `preferred_min_throughput`, `preferred_max_latency`) with the provider's values field by field, as `max_price` already did, instead of replacing them.
 - RPC mode no longer hangs when stdin closes while a `session_start` dialog waits for a reply; the dialog is cancelled and the orderly shutdown runs.
 - Branch summaries (`/tree`) keep their file lists when no message fits the history budget, and order a compaction's file lists before the reads it kept verbatim, so a newer read no longer drops out of the 100-path cap.

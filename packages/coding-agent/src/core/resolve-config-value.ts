@@ -256,10 +256,13 @@ export function resolveHeadersOrThrow(
 	headers: Record<string, string> | undefined,
 	description: string,
 	env?: Record<string, string>,
+	/** Headers overridden elsewhere: they are never sent, so they need not resolve. */
+	skip?: Record<string, string>,
 ): Record<string, string> | undefined {
 	if (!headers) return undefined;
 	const resolved: Record<string, string> = {};
 	for (const [key, value] of Object.entries(headers)) {
+		if (skip && key in skip) continue;
 		resolved[key] = resolveConfigValueOrThrow(value, `${description} header "${key}"`, env);
 	}
 	return Object.keys(resolved).length > 0 ? resolved : undefined;

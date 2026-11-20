@@ -812,17 +812,17 @@ export class ModelRegistry {
 				apiKeyFromAuthStorage ??
 				(configuredKey ? resolveConfigValueOrThrow(configuredKey, keyName, providerEnv) : undefined);
 
-			const providerHeaders = resolveHeadersOrThrow(
-				providerConfig?.headers,
-				`provider "${model.provider}"`,
-				providerEnv,
-			);
 			const modelHeaders = resolveHeadersOrThrow(
 				this.modelRequestHeaders.get(this.getModelRequestKey(model.provider, model.id)),
 				`model "${model.provider}/${model.id}"`,
 				providerEnv,
 			);
-
+			const providerHeaders = resolveHeadersOrThrow(
+				providerConfig?.headers,
+				`provider "${model.provider}"`,
+				providerEnv,
+				modelHeaders,
+			);
 			let headers =
 				model.headers || providerHeaders || modelHeaders
 					? { ...model.headers, ...providerHeaders, ...modelHeaders }

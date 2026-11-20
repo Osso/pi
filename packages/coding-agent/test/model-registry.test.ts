@@ -949,6 +949,23 @@ describe("ModelRegistry", () => {
 			}
 		});
 
+		test("model override header replaces a provider header whose variable is unset", async () => {
+			delete process.env.PI_TEST_UNSET_PROXY_TOKEN;
+			writeRawModelsJson({
+				openrouter: {
+					apiKey: "demo-key",
+					headers: { "X-Proxy-Token": "$PI_TEST_UNSET_PROXY_TOKEN" },
+					modelOverrides: { "anthropic/claude-sonnet-4": { headers: { "X-Proxy-Token": "model-token" } } },
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const sonnet = getModelsForProvider(registry, "openrouter").find((m) => m.id === "anthropic/claude-sonnet-4");
+			const auth = await registry.getApiKeyAndHeaders(requireValue(sonnet));
+
+			expect(auth).toMatchObject({ ok: true, headers: { "X-Proxy-Token": "model-token" } });
+		});
+
 		test("refresh() picks up model override changes", () => {
 			writeRawModelsJson({
 				openrouter: {
