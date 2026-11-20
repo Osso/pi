@@ -573,6 +573,21 @@ describe("active slice session loading", () => {
 		const forked = SessionManager.forkFrom(file, tempDir, join(tempDir, "forks"), { id: "forked-kept" }, "kept-2");
 
 		expect(forked.getEntries().map((entry) => entry.id)).toEqual(["old-1", "kept-1", "kept-2"]);
+
+		// A fork point after the compaction still copies only the active slice.
+		const afterCompaction = SessionManager.forkFrom(
+			file,
+			tempDir,
+			join(tempDir, "forks"),
+			{ id: "forked-after" },
+			"after-1",
+		);
+		expect(afterCompaction.getEntries().map((entry) => entry.id)).toEqual([
+			"kept-1",
+			"kept-2",
+			"compaction-1",
+			"after-1",
+		]);
 	});
 
 	it("uses the latest compaction on the active branch", () => {

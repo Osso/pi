@@ -2014,9 +2014,10 @@ export class SessionManager {
 		const resolvedTargetCwd = resolvePath(targetCwd);
 		const isEntry = (entry: FileEntry): entry is SessionEntry => entry.type !== "session";
 		let sourceEntries = loadSessionFileEntries(resolvedSourcePath).fileEntries;
-		// The loaded active slice starts at the compaction cutoff; load everything when the fork path leaves it.
+		// Load the full transcript when the fork point, or its path without crossing a compaction, leaves the active slice.
 		const slicePath = fromEntryId ? buildSessionPath(sourceEntries.filter(isEntry), fromEntryId) : [];
-		if (fromEntryId && slicePath[0]?.parentId !== null)
+		const sliceHasPath = slicePath[0]?.parentId === null || slicePath.some((entry) => entry.type === "compaction");
+		if (fromEntryId && (slicePath.at(-1)?.id !== fromEntryId || !sliceHasPath))
 			sourceEntries = withSeekableSessionTranscript(resolvedSourcePath, loadEntriesFromFile);
 		if (sourceEntries.length === 0)
 			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
@@ -2030,8 +2031,7 @@ export class SessionManager {
 		if (options?.id !== undefined) assertValidSessionId(options.id);
 		const newSessionId = options?.id ?? createSessionId();
 		const timestamp = new Date().toISOString();
-		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-		const newSessionFile = join(dir, `${fileTimestamp}_${newSessionId}.jsonl`);
+		const newSessionFile = join(dir, `${timestamp.replace(/[:.]/g, "-")}_${newSessionId}.jsonl`);
 
 		// Write new header pointing to source as parent, with updated cwd
 		const newHeader: SessionHeader = {
