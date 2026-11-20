@@ -186,7 +186,10 @@ export function createAgentsStatusComponent(
 		},
 		invalidate() {},
 		render(width: number): string[] {
-			return renderAgentsStatus(store.listAgents(), width, Date.now(), theme);
+			const lines = renderAgentsStatus(store.listAgents(), width, Date.now(), theme);
+			// A row drawn now must be cleared later even if it expires before the next tick sees it.
+			hadRows = lines.length > 0;
+			return lines;
 		},
 	};
 	const requestRenderWhileVisible = () => {

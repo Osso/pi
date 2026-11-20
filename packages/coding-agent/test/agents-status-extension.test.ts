@@ -1,8 +1,13 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, it } from "vitest";
-import { collectAgentRows, describeAgentKind, renderAgentsStatus } from "../extensions/agents-status/src/index.ts";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	collectAgentRows,
+	createAgentsStatusComponent,
+	describeAgentKind,
+	renderAgentsStatus,
+} from "../extensions/agents-status/src/index.ts";
 import { summarizeToolArguments } from "../src/core/agent-activity-detail.ts";
-import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
+import type { AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -181,5 +186,36 @@ describe("agents status widget", () => {
 			expect(visibleWidth(lines[index])).toBeLessThanOrEqual(80);
 		}
 		expect(lines[10]).toBe(" +3 more");
+	});
+});
+
+describe("createAgentsStatusComponent", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("clears a finished row that expires before the first refresh tick", () => {
+		vi.useFakeTimers({ now: NOW_MS });
+		const finished = agent({
+			id: "sleep-check",
+			lifecycle: "completed",
+			updatedAt: new Date(NOW_MS - 9_500).toISOString(),
+		});
+		const store = {
+			listAgents: () => [finished],
+			subscribeAgentUpdates: () => () => {},
+		} as unknown as MultiAgentStore;
+		const requestComponentRender = vi.fn();
+		const component = createAgentsStatusComponent(store, { requestComponentRender }, theme);
+		try {
+			expect(component.render(80).map(stripAnsi)[0]).toContain("sleep-check");
+
+			vi.advanceTimersByTime(3_000);
+
+			expect(requestComponentRender).toHaveBeenCalledWith(component);
+			expect(component.render(80)).toEqual([]);
+		} finally {
+			component.dispose();
+		}
 	});
 });
