@@ -337,6 +337,48 @@ describe("default footer extension", () => {
 		expect(line).toContain("selected #2 Second waiting for input");
 	});
 
+	it("redraws the footer when an agent lifecycle change alters the counts", () => {
+		initTheme(undefined, false);
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const worker = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;
+		const pi = {
+			on: (eventName: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				if (eventName !== "session_start") return;
+				void handler(undefined, {
+					...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+					ui: {
+						requestRender: vi.fn(),
+						setDefaultFooter: (factory: NonNullable<typeof footerFactory>) => {
+							footerFactory = factory;
+						},
+						setStatus: vi.fn(),
+					},
+				} as unknown as ExtensionContext);
+			},
+		} as ExtensionAPI;
+		defaultFooterExtension(pi, { multiAgentStore: store });
+		const requestRender = vi.fn();
+		const component = footerFactory?.(
+			{ requestRender } as unknown as Parameters<NonNullable<typeof footerFactory>>[0],
+			theme,
+			createFooterData(),
+		);
+		expect(stripAnsi(component?.render(160).join("\n") ?? "")).toContain("agents 1");
+
+		const cancelling = legacyMultiAgentStore(store).transitionAgent(worker.id, worker.revision, "cancelling");
+		expect(cancelling.ok).toBe(true);
+
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		expect(stripAnsi(component?.render(160).join("\n") ?? "")).not.toContain("agents 1");
+		component?.dispose?.();
+	});
+
 	it("renders selected child session data and restores the main session", () => {
 		initTheme(undefined, false);
 		let override: ReturnType<ReadonlyFooterDataProvider["getSessionOverride"]>;

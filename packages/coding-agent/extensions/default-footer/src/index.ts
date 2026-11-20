@@ -332,6 +332,14 @@ export default function defaultFooterExtension(pi: ExtensionAPI, options: Defaul
 				void pullRequestStatus.refresh();
 				tui.requestRender();
 			});
+			// The agents widget redraws only its own lines, so a lifecycle change that alters the counts redraws here.
+			let agentCounts = store && JSON.stringify(countDefaultFooterAgents(store));
+			const unsubscribeAgents = store?.subscribeAgentUpdates(() => {
+				const counts = JSON.stringify(countDefaultFooterAgents(store));
+				if (counts === agentCounts) return;
+				agentCounts = counts;
+				tui.requestRender();
+			});
 			const component = createDefaultFooterComponent({
 				ctx,
 				footerData,
@@ -347,6 +355,7 @@ export default function defaultFooterExtension(pi: ExtensionAPI, options: Defaul
 					pullRequestStatus.dispose();
 					component.dispose?.();
 					unsubscribe();
+					unsubscribeAgents?.();
 				},
 				invalidate: () => component.invalidate(),
 				render: (width) => component.render(width),
