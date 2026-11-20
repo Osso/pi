@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Cancelling the `/tree` summary prompt reopens the tree with the filter selected in the picker, so the chosen entry stays selected.
 - `/share` says the GitHub CLI is not installed when `gh` is missing, instead of telling the user to run `gh auth login`.
 - The expanded `read` card counts a retained empty line in its truncation footer, matching the `Showing lines` notice.
 - The `bash` tool shows a retained trailing blank line with its truncation notice instead of `(no output)`.

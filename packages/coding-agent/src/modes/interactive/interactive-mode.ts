@@ -5791,13 +5791,14 @@ export class InteractiveMode {
 				realLeafId,
 				this.ui.terminal.rows,
 				async (entryId) => {
+					const currentFilterMode = selector.getTreeList().filterMode;
 					if (
 						await InteractiveMode.prototype.handleTreeSelectionWithoutNavigation.call(
 							this,
 							entryId,
 							realLeafId,
 							done,
-							initialFilterMode,
+							currentFilterMode,
 						)
 					) {
 						return;
@@ -5817,8 +5818,7 @@ export class InteractiveMode {
 							]);
 
 							if (summaryChoice === undefined) {
-								// User pressed escape - re-show tree selector with same selection
-								this.showTreeSelector(entryId, initialFilterMode);
+								this.showTreeSelector(entryId, currentFilterMode);
 								return;
 							}
 
@@ -5870,7 +5870,7 @@ export class InteractiveMode {
 						if (result.aborted) {
 							// Summarization aborted - re-show tree selector with same selection
 							this.showStatus("Branch summarization cancelled");
-							this.showTreeSelector(entryId, initialFilterMode);
+							this.showTreeSelector(entryId, currentFilterMode);
 							return;
 						}
 						if (result.cancelled) {

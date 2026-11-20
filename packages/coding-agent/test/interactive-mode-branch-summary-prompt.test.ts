@@ -1,5 +1,6 @@
-import { Container, type EditorComponent, type LoaderIndicatorOptions } from "@earendil-works/pi-tui";
+import { Container, type EditorComponent, type LoaderIndicatorOptions, setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { SessionMessageEntry, SessionTreeNode } from "../src/core/session-manager.ts";
 import type { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -206,5 +207,63 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 		await selection;
 
 		expect(editor.working).toBe(false);
+	});
+
+	it("reopens the tree with the filter the user selected when the summary prompt is cancelled", async () => {
+		initTheme("dark");
+		setKeybindings(new KeybindingsManager());
+		const selectors: TreeSelectorComponent[] = [];
+		const navigateTree = vi.fn();
+		const editor = new WorkingEditor();
+		const context = Object.assign(Object.create(InteractiveMode.prototype) as BranchContext, {
+			chatContainer: new Container(),
+			defaultEditor: {},
+			editor,
+			editorContainer: { children: [editor] },
+			flushCompactionQueue: vi.fn(async () => {}),
+			isSelectedChildWorking: () => false,
+			isViewingAgentSession: () => false,
+			promptActivitySources: new Set<string>(),
+			renderInitialMessages: vi.fn(),
+			runtimeHost: {
+				session: {
+					abortBranchSummary: vi.fn(),
+					isStreaming: false,
+					navigateTree,
+					sessionManager: {
+						appendLabelChange: vi.fn(),
+						getEntry: () => undefined,
+						getLeafId: () => "leaf",
+						getTree: createTree,
+					},
+					settingsManager: {
+						getBranchSummarySkipPrompt: () => false,
+						getTreeFilterMode: () => "default" as const,
+					},
+				},
+			},
+			showError: vi.fn(),
+			showExtensionSelector: vi.fn(async () => undefined),
+			showSelector: (factory: SelectorFactory) => {
+				selectors.push(factory(() => {}).component);
+			},
+			showStatus: vi.fn(),
+			statusContainer: new Container(),
+			ui: { requestRender: vi.fn(), requestComponentRender: () => false, terminal: { rows: 24 } },
+			workingIndicatorOptions: undefined,
+			workingVisible: false,
+		});
+
+		showTreeSelector.call(context);
+		const treeList = selectors[0]?.getTreeList();
+		if (!treeList) throw new Error("Tree selector was not shown");
+		treeList.handleInput("\x01");
+		expect(treeList.filterMode).toBe("all");
+		await (treeList.onSelect as AsyncSelect)("root");
+
+		expect(navigateTree).not.toHaveBeenCalled();
+		expect(selectors).toHaveLength(2);
+		expect(selectors[1]?.getTreeList().filterMode).toBe("all");
+		expect(selectors[1]?.getTreeList().getSelectedNode()?.entry.id).toBe("root");
 	});
 });

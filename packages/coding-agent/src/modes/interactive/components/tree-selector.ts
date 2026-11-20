@@ -111,7 +111,7 @@ class TreeList implements Component {
 	private selectedIndex = 0;
 	private currentLeafId: string | null;
 	private maxVisibleLines: number;
-	private filterMode: FilterMode = "default";
+	filterMode: FilterMode = "default";
 	private searchQuery = "";
 	private toolCallMap: Map<string, ToolCallInfo> = new Map();
 	private multipleRoots = false;
