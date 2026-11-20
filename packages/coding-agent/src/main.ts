@@ -897,7 +897,7 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 	resetTimings();
-	const offlineMode = optionArgs(args).includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = initialArgs.offline === true || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (args.length === 1 && args[0] === "architect") {
 		await loadOpenRouterCatalogAtStartup();
 		await runArchitectService();
