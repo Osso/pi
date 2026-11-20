@@ -12,14 +12,15 @@ const RETRY_AFTER_TEXT_PATTERN = /\btry again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m
 export function getRetryAfterMs(headers: Headers | null | undefined): number | undefined {
 	if (!headers) return undefined;
 
-	const retryAfterMs = headers.get("retry-after-ms");
-	if (retryAfterMs !== null) {
+	// Number("") is 0, so blank values must be rejected before numeric parsing.
+	const retryAfterMs = headers.get("retry-after-ms")?.trim();
+	if (retryAfterMs) {
 		const millis = Number(retryAfterMs);
 		if (Number.isFinite(millis)) return Math.max(0, millis);
 	}
 
-	const retryAfter = headers.get("retry-after");
-	if (retryAfter === null) return undefined;
+	const retryAfter = headers.get("retry-after")?.trim();
+	if (!retryAfter) return undefined;
 
 	const seconds = Number(retryAfter);
 	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);

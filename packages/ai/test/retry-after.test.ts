@@ -74,6 +74,15 @@ describe("retry-after parsing", () => {
 		expect(getRetryAfterMs(new Headers({ "retry-after": "not-a-delay" }))).toBeUndefined();
 	});
 
+	it("ignores blank retry-after values instead of treating them as zero", () => {
+		expect(getRetryAfterMs(new Headers({ "retry-after-ms": "", "retry-after": "120" }))).toBe(120_000);
+		expect(getRetryAfterMs(new Headers({ "retry-after": " " }))).toBeUndefined();
+		const error = Object.assign(new Error("Rate limit reached. Please try again in 2m4s."), {
+			headers: new Headers({ "retry-after": "" }),
+		});
+		expect(getErrorRetryAfterMs(error)).toBe(124_000);
+	});
+
 	it("reads retry-after from an SDK error", () => {
 		expect(getErrorRetryAfterMs(openAIError)).toBe(520_526_000);
 		expect(getErrorRetryAfterMs(new Error("plain error"))).toBeUndefined();
