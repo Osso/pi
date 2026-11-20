@@ -77,7 +77,7 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			}
 			const mistralStream = await mistral.chat.stream(payload, buildRequestOptions(model, options));
 			stream.push({ type: "start", partial: output });
-			await consumeChatStream(model, output, stream, mistralStream);
+			const finished = await consumeChatStream(model, output, stream, mistralStream);
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -86,6 +86,7 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error("An unknown error occurred");
 			}
+			if (!finished) throw new Error("Mistral stream ended without finish_reason");
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
@@ -297,7 +298,8 @@ async function consumeChatStream(
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 	mistralStream: AsyncIterable<CompletionEvent>,
-): Promise<void> {
+): Promise<boolean> {
+	let finished = false;
 	let currentBlock: TextContent | ThinkingContent | null = null;
 	const blocks = output.content;
 	const blockIndex = () => blocks.length - 1;
@@ -350,6 +352,7 @@ async function consumeChatStream(
 
 		if (choice.finishReason) {
 			output.stopReason = mapChatStopReason(choice.finishReason);
+			finished = true;
 		}
 
 		const delta = choice.delta;
@@ -489,6 +492,7 @@ async function consumeChatStream(
 			partial: output,
 		});
 	}
+	return finished;
 }
 
 function toFunctionTools(tools: Tool[]): Array<FunctionTool & { type: "function" }> {
