@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Bedrock tool calls finished by `messageStop` without a `contentBlockStop` get strict argument parsing: malformed JSON yields `argumentsError` instead of a repaired partial object.
 - OpenAI Responses prices usage at the service tier actually sent after `onPayload` changes it, instead of the original `serviceTier` option, when the response omits `service_tier`.
 - Google Generative AI and Vertex streams that close before a `finishReason` fail with an error instead of reporting the partial answer as complete.
 - Bedrock `ThrottlingException` errors (`Throttling error: ...`) are classified as rate limits, so they retry and rotate model pools instead of ending the turn.

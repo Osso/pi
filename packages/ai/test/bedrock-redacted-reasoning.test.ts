@@ -185,6 +185,26 @@ describe("Bedrock redacted reasoning", () => {
 		expect(Object.hasOwn(thinking ?? {}, "index")).toBe(false);
 	});
 
+	it("rejects incomplete tool arguments when the stream never sends contentBlockStop", async () => {
+		bedrockMock.streamEvents = [
+			{ messageStart: { role: "assistant" } },
+			{ contentBlockStart: { contentBlockIndex: 0, start: { toolUse: { toolUseId: "tool-1", name: "weather" } } } },
+			{ contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: '{"city":' } } } },
+			{ contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: '"Paris"' } } } },
+			{ messageStop: { stopReason: "tool_use" } },
+		];
+
+		const response = await streamBedrock(gptModel, {
+			messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
+		}).result();
+
+		const toolCall = response.content.find((c) => c.type === "toolCall");
+		expect(response.stopReason).toBe("toolUse");
+		expect(toolCall?.arguments).toEqual({});
+		expect(toolCall?.argumentsError).toContain('{"city":"Paris"');
+		expect(Object.hasOwn(toolCall ?? {}, "partialJson")).toBe(false);
+	});
+
 	it("reports an error that keeps partial text when the stream ends without messageStop", async () => {
 		bedrockMock.streamEvents = [
 			{ messageStart: { role: "assistant" } },

@@ -289,8 +289,12 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			}
 			if (!messageStopped) throw new Error("Bedrock stream ended before messageStop");
 
-			// A stream can settle without stopping every block, so finalize here too.
-			for (const block of output.content) finalizeStreamingBlock(block as Block);
+			// A stream can settle without stopping every block: finalize here too, with the block stop's strict parsing.
+			for (const block of output.content as Block[]) {
+				if (block.type === "toolCall" && block.partialJson !== undefined)
+					Object.assign(block, parseToolCallArguments(block.partialJson));
+				finalizeStreamingBlock(block);
+			}
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
@@ -611,9 +615,8 @@ function handleContentBlockStop(
 }
 
 /**
- * Check if the model supports adaptive thinking (Opus 4.6+, Sonnet 4.6).
- * Checks both model ID and model name to support application inference profiles
- * whose ARNs don't contain the model name.
+ * Check if the model supports adaptive thinking (Opus 4.6+, Sonnet 4.6). Checks both model ID and model name to
+ * support application inference profiles whose ARNs don't contain the model name.
  */
 function getModelMatchCandidates(modelId: string, modelName?: string): string[] {
 	const values = modelName ? [modelId, modelName] : [modelId];
@@ -663,10 +666,7 @@ function mapThinkingLevelToEffort(
 	}
 }
 
-/**
- * Resolve cache retention preference.
- * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
- */
+/** Resolve cache retention: defaults to "short"; PI_CACHE_RETENTION is kept for backward compatibility. */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
 	if (cacheRetention) {
 		return cacheRetention;
