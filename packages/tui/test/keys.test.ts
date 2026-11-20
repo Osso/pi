@@ -352,6 +352,15 @@ describe("matchesKey", () => {
 			assert.strictEqual(parseKey("\x1b[27;1;27~"), "escape");
 		});
 
+		it("should match modified Escape only against the same modifiers", () => {
+			setKittyProtocolActive(true);
+			assert.strictEqual(matchesKey("\x1b[27;2u", "shift+escape"), true);
+			assert.strictEqual(matchesKey("\x1b[27;2u", "escape"), false);
+			assert.strictEqual(matchesKey("\x1b", "shift+escape"), false);
+			setKittyProtocolActive(false);
+			assert.strictEqual(matchesKey("\x1b[27;5;27~", "ctrl+escape"), true);
+		});
+
 		it("should match xterm modifyOtherKeys Space variants", () => {
 			setKittyProtocolActive(false);
 			assert.strictEqual(matchesKey("\x1b[27;1;32~", "space"), true);
@@ -647,6 +656,13 @@ describe("decodeKittyPrintable", () => {
 		assert.strictEqual(decodeKittyPrintable("\x1b[57428u"), undefined); // media play
 		assert.strictEqual(decodePrintableKey("\x1b[57376;2u"), undefined);
 	});
+
+	it("should not decode Backspace (DEL) or C1 controls as text", () => {
+		assert.strictEqual(decodePrintableKey("\x1b[127u"), undefined);
+		assert.strictEqual(decodePrintableKey("\x1b[133u"), undefined);
+		assert.strictEqual(decodePrintableKey("\x1b[27;1;127~"), undefined);
+		assert.strictEqual(decodePrintableKey("\x1b[160u"), "\u00a0");
+	});
 });
 
 describe("decodePrintableKey", () => {
@@ -738,6 +754,11 @@ describe("parseKey", () => {
 			assert.strictEqual(parseKey("\x1bOD"), "left");
 			assert.strictEqual(parseKey("\x1bOH"), "home");
 			assert.strictEqual(parseKey("\x1bOF"), "end");
+		});
+
+		it("should parse the VT and rxvt home/end sequences that matchesKey accepts", () => {
+			for (const data of ["\x1b[1~", "\x1b[7~"]) assert.strictEqual(parseKey(data), "home");
+			for (const data of ["\x1b[4~", "\x1b[8~"]) assert.strictEqual(parseKey(data), "end");
 		});
 
 		it("should parse legacy function and modifier sequences", () => {

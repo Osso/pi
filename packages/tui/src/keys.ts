@@ -814,11 +814,10 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 	switch (key) {
 		case "escape":
 		case "esc":
-			if (modifier !== 0) return false;
 			return (
-				data === "\x1b" ||
-				matchesKittySequence(data, CODEPOINTS.escape, 0) ||
-				matchesModifyOtherKeys(data, CODEPOINTS.escape, 0)
+				(modifier === 0 && data === "\x1b") ||
+				matchesKittySequence(data, CODEPOINTS.escape, modifier) ||
+				matchesModifyOtherKeys(data, CODEPOINTS.escape, modifier)
 			);
 
 		case "space":
@@ -1289,8 +1288,8 @@ export function parseKey(data: string): string | undefined {
 	if (data === "\x1b[B") return "down";
 	if (data === "\x1b[C") return "right";
 	if (data === "\x1b[D") return "left";
-	if (data === "\x1b[H" || data === "\x1bOH") return "home";
-	if (data === "\x1b[F" || data === "\x1bOF") return "end";
+	if (matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.home)) return "home";
+	if (matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.end)) return "end";
 	if (data === "\x1b[3~") return "delete";
 	if (data === "\x1b[5~") return "pageUp";
 	if (data === "\x1b[6~") return "pageDown";
@@ -1355,9 +1354,9 @@ export function decodeKittyPrintable(data: string): string | undefined {
 		effectiveCodepoint = shiftedKey;
 	}
 	effectiveCodepoint = normalizeKittyFunctionalCodepoint(effectiveCodepoint);
-	// Drop control characters, invalid codepoints, and kitty functional keys (F13-F35, media, modifiers).
-	const isKittyFunctionalKey = effectiveCodepoint >= 57344 && effectiveCodepoint <= 63743;
-	if (!Number.isFinite(effectiveCodepoint) || effectiveCodepoint < 32 || isKittyFunctionalKey) return undefined;
+	// Drop C0/DEL/C1 controls (Kitty Backspace is 127), invalid codepoints, and kitty functional keys (F13-F35, media, modifiers).
+	const cp = effectiveCodepoint;
+	if (!Number.isFinite(cp) || cp < 32 || (cp >= 127 && cp <= 159) || (cp >= 57344 && cp <= 63743)) return undefined;
 	try {
 		return String.fromCodePoint(effectiveCodepoint);
 	} catch {
@@ -1370,7 +1369,8 @@ function decodeModifyOtherKeysPrintable(data: string): string | undefined {
 	if (!parsed) return undefined;
 	const modifier = parsed.modifier & ~LOCK_MASK;
 	if ((modifier & ~MODIFIERS.shift) !== 0) return undefined;
-	if (!Number.isFinite(parsed.codepoint) || parsed.codepoint < 32) return undefined;
+	const cp = parsed.codepoint;
+	if (!Number.isFinite(cp) || cp < 32 || (cp >= 127 && cp <= 159)) return undefined;
 
 	try {
 		return String.fromCodePoint(parsed.codepoint);
