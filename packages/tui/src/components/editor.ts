@@ -107,10 +107,7 @@ function segmentWithMarkers(
 	return result;
 }
 
-/**
- * Represents a chunk of text for word-wrap layout.
- * Tracks both the text content and its position in the original line.
- */
+/** A chunk of text for word-wrap layout, with its position in the original line. */
 export interface TextChunk {
 	text: string;
 	startIndex: number;
@@ -510,10 +507,7 @@ export class Editor implements Component, Focusable {
 		this.promptCell.update(this.getPromptText());
 	}
 
-	/**
-	 * Add a prompt to history for up/down arrow navigation.
-	 * Called after successful submission.
-	 */
+	/** Add a submitted prompt to history for up/down arrow navigation. */
 	addToHistory(text: string): void {
 		const trimmed = text.trim();
 		if (!trimmed) return;
@@ -1280,10 +1274,7 @@ export class Editor implements Component, Focusable {
 		});
 	}
 
-	/**
-	 * Get text with paste markers expanded to their actual content.
-	 * Use this when you need the full content (e.g., for external editor).
-	 */
+	/** Get text with paste markers expanded to their full content (e.g. for the external editor). */
 	getExpandedText(): string {
 		return this.expandPasteMarkers(this.state.lines.join("\n"));
 	}
@@ -1610,10 +1601,7 @@ export class Editor implements Component, Focusable {
 		this.snappedFromCursorCol = null;
 	}
 
-	/**
-	 * Move cursor to a target visual line, applying sticky column logic.
-	 * Shared by moveCursor() and pageScroll().
-	 */
+	/** Move the cursor to a target visual line with sticky column logic (moveCursor() and pageScroll()). */
 	private moveToVisualLine(
 		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
 		currentVisualLine: number,
@@ -1631,7 +1619,14 @@ export class Editor implements Component, Focusable {
 		const sourceVL = visualLines[vlIndex];
 		if (!sourceVL) throw new Error(`Missing visual line at index ${vlIndex}`);
 		const sourceLine = this.state.lines[currentVL.logicalLine] || "";
-		const currentVisualCol = visibleWidth(sourceLine.slice(sourceVL.startCol, cursorCol));
+		let currentVisualCol = visibleWidth(sourceLine.slice(sourceVL.startCol, cursorCol));
+		// A sticky column inside the wide grapheme under the cursor is where the last vertical move aimed.
+		const cursorGraphemeWidth = visibleWidth(
+			[...this.segment(sourceLine.slice(cursorCol), "grapheme")][0]?.segment ?? "",
+		);
+		const aimedCol = this.preferredVisualCol;
+		if (aimedCol !== null && aimedCol > currentVisualCol && aimedCol < currentVisualCol + cursorGraphemeWidth)
+			currentVisualCol = aimedCol;
 
 		// For non-last segments, clamp to the last grapheme start to stay within the segment
 		const isLastSourceSegment =
@@ -1652,6 +1647,9 @@ export class Editor implements Component, Focusable {
 		this.state.cursorLine = targetVL.logicalLine;
 		const targetCol = targetVL.startCol + sliceByColumn(targetText, 0, moveToVisualCol, true).length;
 		this.state.cursorCol = Math.min(targetCol, logicalLine.length);
+		// Landing inside a wide grapheme selects its start; keep the aimed column sticky for the next vertical move.
+		if (visibleWidth(targetText.slice(0, targetCol - targetVL.startCol)) < moveToVisualCol)
+			this.preferredVisualCol = moveToVisualCol;
 
 		// Snap cursor to atomic segment boundary (e.g. paste markers)
 		// so the cursor never lands in the middle of a multi-grapheme unit.
@@ -1987,9 +1985,7 @@ export class Editor implements Component, Focusable {
 		return visualLines;
 	}
 
-	/**
-	 * Find the visual line index that contains the given logical position.
-	 */
+	/** Find the visual line index that contains the given logical position. */
 	private findVisualLineAt(
 		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
 		line: number,
@@ -2009,9 +2005,7 @@ export class Editor implements Component, Focusable {
 		return visualLines.length - 1;
 	}
 
-	/**
-	 * Find the visual line index for the current cursor position.
-	 */
+	/** Find the visual line index for the current cursor position. */
 	private findCurrentVisualLine(
 		visualLines: Array<{ logicalLine: number; startCol: number; length: number }>,
 	): number {

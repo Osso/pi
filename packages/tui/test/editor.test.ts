@@ -3350,13 +3350,20 @@ describe("Editor component", () => {
 		] as const) {
 			it(`lands at the start of ${grapheme} when the terminal-cell column falls inside it`, () => {
 				const editor = new Editor(createTestTUI(), defaultEditorTheme);
-				editor.setText(`abcdX\n${target}`);
+				editor.setText(`abcdX\n${target}\nabcde`);
 				editor.render(80);
 				positionCursor(editor, 0, column);
 
 				editor.handleInput("\x1b[B");
 				assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 1 });
 				assert.ok(editor.render(80)[2]?.includes(`\x1b[7m${grapheme}\x1b[0m`));
+
+				// The next vertical moves keep aiming at the original terminal-cell column.
+				editor.handleInput("\x1b[B");
+				assert.deepStrictEqual(editor.getCursor(), { line: 2, col: column });
+				editor.handleInput("\x1b[A");
+				editor.handleInput("\x1b[A");
+				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: column });
 			});
 		}
 
