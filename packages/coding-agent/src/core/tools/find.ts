@@ -309,7 +309,7 @@ export function createFindToolDefinition(
 								// Only the line ending is framing: spaces belong to the file name.
 								const line = rawLine.replace(/\r$/, "");
 								if (!line) continue;
-								const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
+								const hadTrailingSlash = line.endsWith(path.sep) || line.endsWith("/");
 								let relativePath = path.relative(searchPath, line);
 								if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
 								relativized.push(toPosixPath(relativePath));
