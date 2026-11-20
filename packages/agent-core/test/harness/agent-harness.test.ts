@@ -161,6 +161,44 @@ describe("AgentHarness", () => {
 		expect(persistedText).toEqual(["hello", "hook"]);
 	});
 
+	it("persists a write queued by a failing before_agent_start hook when the prompt settles", async () => {
+		const registration = newFaux();
+		registration.setResponses([fauxAssistantMessage("ack")]);
+		const session = new Session(new InMemorySessionStorage());
+		const harness = new AgentHarness({
+			models,
+			env: new NodeExecutionEnv({ cwd: process.cwd() }),
+			session,
+			model: registration.getModel(),
+		});
+		let failHook = true;
+		harness.on("before_agent_start", async () => {
+			if (!failHook) return undefined;
+			await harness.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "checkpoint" }],
+				timestamp: Date.now(),
+			});
+			throw new Error("preflight failed");
+		});
+		const persistedText = async () =>
+			(await session.getEntries()).flatMap((entry) => {
+				if (entry.type !== "message" || (entry.message.role !== "user" && entry.message.role !== "assistant"))
+					return [];
+				const content = entry.message.content;
+				if (typeof content === "string") return [content];
+				return content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+			});
+
+		await expect(harness.prompt("first")).rejects.toThrow("preflight failed");
+		await harness.waitForIdle();
+		expect(await persistedText()).toEqual(["checkpoint"]);
+
+		failHook = false;
+		await harness.prompt("retry");
+		expect(await persistedText()).toEqual(["checkpoint", "retry", "ack"]);
+	});
+
 	it("labels the navigation target when navigating without a summary", async () => {
 		const registration = newFaux();
 		registration.setResponses([fauxAssistantMessage("first reply"), fauxAssistantMessage("second reply")]);

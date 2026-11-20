@@ -555,59 +555,59 @@ export class AgentHarness<
 	): Promise<AssistantMessage> {
 		let activeTurnState = turnState;
 		let messages: AgentMessage[] = [createUserMessage(text, options?.images)];
-		if (this.nextTurnQueue.length > 0) {
-			const queuedMessages = this.nextTurnQueue.splice(0);
-			try {
-				await this.emitQueueUpdate();
-			} catch (error) {
-				this.nextTurnQueue.unshift(...queuedMessages);
-				throw normalizeHookError(error);
-			}
-			messages = [...queuedMessages, ...messages];
-		}
-		const beforeResult = await this.emitHook({
-			type: "before_agent_start",
-			prompt: text,
-			images: options?.images,
-			systemPrompt: turnState.systemPrompt,
-			resources: turnState.resources,
-		});
-		if (beforeResult?.messages) messages = [...messages, ...beforeResult.messages];
-
-		const abortController = new AbortController();
-		const getTurnState = () => activeTurnState;
-		const setTurnState = (nextTurnState: AgentHarnessTurnState<TSkill, TPromptTemplate, TTool>) => {
-			activeTurnState = nextTurnState;
-		};
-		this.runAbortController = abortController;
-		const runResultPromise = (async () => {
-			try {
-				return await runAgentLoop(
-					messages,
-					this.createContext(turnState, beforeResult?.systemPrompt),
-					this.createLoopConfig(getTurnState, setTurnState),
-					(event) => this.handleAgentEvent(event, abortController.signal),
-					abortController.signal,
-					this.createStreamFn(getTurnState),
-				);
-			} catch (error) {
-				try {
-					return await this.emitRunFailure(
-						activeTurnState.model,
-						error,
-						abortController.signal.aborted,
-						abortController.signal,
-					);
-				} catch (failureError) {
-					const cause = new AggregateError(
-						[toError(error), toError(failureError)],
-						"Agent run failed and failure reporting failed",
-					);
-					throw new AgentHarnessError("unknown", cause.message, cause);
-				}
-			}
-		})();
 		try {
+			if (this.nextTurnQueue.length > 0) {
+				const queuedMessages = this.nextTurnQueue.splice(0);
+				try {
+					await this.emitQueueUpdate();
+				} catch (error) {
+					this.nextTurnQueue.unshift(...queuedMessages);
+					throw normalizeHookError(error);
+				}
+				messages = [...queuedMessages, ...messages];
+			}
+			const beforeResult = await this.emitHook({
+				type: "before_agent_start",
+				prompt: text,
+				images: options?.images,
+				systemPrompt: turnState.systemPrompt,
+				resources: turnState.resources,
+			});
+			if (beforeResult?.messages) messages = [...messages, ...beforeResult.messages];
+
+			const abortController = new AbortController();
+			const getTurnState = () => activeTurnState;
+			const setTurnState = (nextTurnState: AgentHarnessTurnState<TSkill, TPromptTemplate, TTool>) => {
+				activeTurnState = nextTurnState;
+			};
+			this.runAbortController = abortController;
+			const runResultPromise = (async () => {
+				try {
+					return await runAgentLoop(
+						messages,
+						this.createContext(turnState, beforeResult?.systemPrompt),
+						this.createLoopConfig(getTurnState, setTurnState),
+						(event) => this.handleAgentEvent(event, abortController.signal),
+						abortController.signal,
+						this.createStreamFn(getTurnState),
+					);
+				} catch (error) {
+					try {
+						return await this.emitRunFailure(
+							activeTurnState.model,
+							error,
+							abortController.signal.aborted,
+							abortController.signal,
+						);
+					} catch (failureError) {
+						const cause = new AggregateError(
+							[toError(error), toError(failureError)],
+							"Agent run failed and failure reporting failed",
+						);
+						throw new AgentHarnessError("unknown", cause.message, cause);
+					}
+				}
+			})();
 			const newMessages = await runResultPromise;
 			for (let i = newMessages.length - 1; i >= 0; i--) {
 				const message = newMessages[i];
