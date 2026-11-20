@@ -1676,10 +1676,10 @@ export class Editor implements Component, Focusable {
 						if (nextVisualLine.logicalLine !== targetVL.logicalLine || nextVisualLine.startCol >= segEnd) break;
 						next++;
 					}
-					if (next < visualLines.length) {
-						this.moveToVisualLine(visualLines, currentVisualLine, next);
-						return;
-					}
+					// With no visual line past the segment, land just after it instead of snapping back to its start.
+					if (next < visualLines.length) this.moveToVisualLine(visualLines, currentVisualLine, next);
+					else this.setCursorCol(segEnd);
+					return;
 				}
 
 				// Snap to the start of the segment so it gets highlighted.

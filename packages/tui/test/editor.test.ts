@@ -4286,6 +4286,18 @@ describe("Editor component", () => {
 			assert.deepStrictEqual(editor.getCursor(), { line: 4, col: 10 });
 		});
 
+		it("moves down past a wrapped paste marker that ends the text", () => {
+			const editor = new Editor(createTestTUI(20, 24), defaultEditorTheme);
+			editor.handleInput(`\x1b[200~${"line\n".repeat(100).trimEnd()}\x1b[201~`);
+			editor.render(20);
+			assert.strictEqual(editor.getText(), "[paste #1 +100 lines]");
+			editor.handleInput("\x01"); // Ctrl+A
+
+			editor.handleInput("\x1b[B");
+
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 21 });
+		});
+
 		it("does not get stuck moving down from a multi-visual-line paste marker", () => {
 			const tui = createTestTUI(20, 24);
 			const editor = new Editor(tui, defaultEditorTheme);
