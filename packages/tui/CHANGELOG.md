@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Static and paused loaders refresh their colors when the active theme changes.
 - Fuzzy search scores consecutive matches even when unrelated earlier characters also match the query.
 - `SettingsList` keeps the highlighted setting when the search caret moves without changing the query.
 - The native detach focus test fixture now resolves the selected executable using the caller's `PATH` before it isolates the PTY environment. An absolute path in `DTACH` is no longer required.

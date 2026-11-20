@@ -63,6 +63,10 @@ export class Loader extends Text {
 		this.updateDisplay();
 	}
 
+	override invalidate(): void {
+		this.refreshStyledText();
+	}
+
 	setIndicator(indicator?: LoaderIndicatorOptions): void {
 		this.renderIndicatorVerbatim = indicator !== undefined;
 		this.frames = indicator?.frames !== undefined ? [...indicator.frames] : [...DEFAULT_FRAMES];
@@ -83,12 +87,14 @@ export class Loader extends Text {
 	}
 
 	private updateDisplay(): void {
+		this.refreshStyledText();
+		this.ui?.requestComponentRender(this);
+	}
+
+	private refreshStyledText(): void {
 		const frame = this.frames[this.currentFrame] ?? "";
 		const renderedFrame = this.renderIndicatorVerbatim ? frame : this.spinnerColorFn(frame);
 		const indicator = frame.length > 0 ? `${renderedFrame} ` : "";
 		this.setText(`${indicator}${this.messageColorFn(this.message)}`);
-		if (this.ui) {
-			this.ui.requestComponentRender(this);
-		}
 	}
 }

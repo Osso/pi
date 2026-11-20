@@ -51,6 +51,26 @@ describe("Loader", () => {
 		}
 	});
 
+	it("refreshes a static label's color on invalidation without scheduling another render", () => {
+		const { tui, getRenderCount } = createRenderCounter();
+		let color = 31;
+		const loader = new Loader(
+			tui,
+			(value) => value,
+			(value) => `\x1b[${color}m${value}\x1b[39m`,
+			"Working...",
+			{ frames: [] },
+		);
+		assert.ok(loader.render(20).join("\n").includes("\x1b[31mWorking..."));
+		const requestsBeforeInvalidation = getRenderCount();
+
+		color = 34;
+		loader.invalidate();
+
+		assert.ok(loader.render(20).join("\n").includes("\x1b[34mWorking..."));
+		assert.equal(getRenderCount(), requestsBeforeInvalidation);
+	});
+
 	it("falls back to a normal root render when no region is registered", async () => {
 		const terminal = new VirtualTerminal(30, 6);
 		const tui = new TUI(terminal);
