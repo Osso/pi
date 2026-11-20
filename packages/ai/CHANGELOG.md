@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Google and Vertex streams dropping a signed part that carries no `text` field (such as a signed empty thought before a function call); its signature is now kept and replayed
 - Fixed OpenAI Responses and Codex streams cut off by the output limit returning a finished tool call with empty arguments when the call item ended as `incomplete`, or `stopReason: "toolUse"` when the incomplete response omitted its status; both now end with `stopReason: "length"` without the cut-off call
 - A failed Responses `image_generation_call` no longer returns its streamed partial preview as `imageGenerationResult`
 - `isContextOverflow` counts cache-write tokens in the prompt size. A silent or length-stop overflow whose prompt was mostly newly cached (for example OpenRouter `cache_write_tokens`) was not detected, so overflow compaction and retry did not run.

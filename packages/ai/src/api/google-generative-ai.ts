@@ -100,7 +100,9 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 				const candidate = chunk.candidates?.[0];
 				if (candidate?.content?.parts) {
 					for (const [partIndex, part] of candidate.content.parts.entries()) {
-						if (part.text !== undefined) {
+						// A signature-only part (no text) still signs the thought or text it ends.
+						const text = part.text ?? (part.thoughtSignature && !part.functionCall ? "" : undefined);
+						if (text !== undefined) {
 							const isThinking = isThinkingPart(part);
 							// Distinct parts of one chunk keep their boundaries (and signatures); deltas across chunks merge.
 							const startsNewPart = partIndex > 0;
@@ -138,7 +140,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 								}
 							}
 							if (currentBlock.type === "thinking") {
-								currentBlock.thinking += part.text;
+								currentBlock.thinking += text;
 								currentBlock.thinkingSignature = retainThoughtSignature(
 									currentBlock.thinkingSignature,
 									part.thoughtSignature,
@@ -146,11 +148,11 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 								stream.push({
 									type: "thinking_delta",
 									contentIndex: blockIndex(),
-									delta: part.text,
+									delta: text,
 									partial: output,
 								});
 							} else {
-								currentBlock.text += part.text;
+								currentBlock.text += text;
 								currentBlock.textSignature = retainThoughtSignature(
 									currentBlock.textSignature,
 									part.thoughtSignature,
@@ -158,7 +160,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 								stream.push({
 									type: "text_delta",
 									contentIndex: blockIndex(),
-									delta: part.text,
+									delta: text,
 									partial: output,
 								});
 							}

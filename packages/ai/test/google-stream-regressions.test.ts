@@ -153,6 +153,22 @@ describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 		expect(convertMessages(makeModel(api), { messages: [message] })).toEqual([{ role: "model", parts }]);
 	});
 
+	it("keeps a signed thought part that has no text", async () => {
+		const parts: Part[] = [
+			{ thought: true, thoughtSignature: "QUFB" },
+			{ functionCall: { name: "read", args: { path: "a.txt" } }, thoughtSignature: "QkJC" },
+		];
+		sdkStream.chunks = [{ candidates: [{ content: { parts }, finishReason: FinishReason.STOP }] }];
+		const message = await stream().result();
+
+		expect(message.content[0]).toEqual({ type: "thinking", thinking: "", thinkingSignature: "QUFB" });
+		expect(convertMessages(makeModel(api), { messages: [message] })[0]?.parts?.[0]).toEqual({
+			thought: true,
+			text: "",
+			thoughtSignature: "QUFB",
+		});
+	});
+
 	it("merges a signature-bearing delta from a later chunk into the current text part", async () => {
 		sdkStream.chunks = [
 			{ candidates: [{ content: { parts: [{ text: "First" }] } }] },
