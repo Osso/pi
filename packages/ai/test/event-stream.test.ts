@@ -1,6 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { EventStream } from "../src/utils/event-stream.ts";
 
+describe("EventStream completion", () => {
+	it("finishes other pending iterators after a terminal event and end()", async () => {
+		type Event = { type: "value" | "terminal"; value: number };
+		const stream = new EventStream<Event, number>(
+			(event) => event.type === "terminal",
+			(event) => event.value,
+		);
+		const firstIterator = stream[Symbol.asyncIterator]();
+		const secondIterator = stream[Symbol.asyncIterator]();
+		const firstNext = firstIterator.next();
+		const secondNext = secondIterator.next();
+		const terminalEvent: Event = { type: "terminal", value: 42 };
+
+		stream.push(terminalEvent);
+
+		const [firstResult, finalResult] = await Promise.all([firstNext, stream.result()]);
+		stream.end(finalResult);
+		expect(firstResult).toEqual({ value: terminalEvent, done: false });
+
+		let secondResult: IteratorResult<Event> | undefined;
+		void secondNext.then((result) => {
+			secondResult = result;
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(secondResult).toEqual({ value: undefined, done: true });
+	});
+});
+
 describe("EventStream failures", () => {
 	it("rejects the final result", async () => {
 		const stream = new EventStream<number, number>(

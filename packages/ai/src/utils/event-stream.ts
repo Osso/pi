@@ -51,7 +51,8 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 	push(event: T): void {
 		if (this.done) return;
 
-		if (this.isComplete(event)) {
+		const isComplete = this.isComplete(event);
+		if (isComplete) {
 			this.done = true;
 			this.resolveFinalResult(this.extractResult(event));
 		}
@@ -63,6 +64,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 		} else {
 			this.queue.enqueue(event);
 		}
+		if (isComplete) this.resolveWaitingIterators();
 	}
 
 	end(result?: R): void {
@@ -71,6 +73,10 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 		if (result !== undefined) {
 			this.resolveFinalResult(result);
 		}
+		this.resolveWaitingIterators();
+	}
+
+	private resolveWaitingIterators(): void {
 		while (true) {
 			const waiter = this.waiting.shift();
 			if (!waiter) break;

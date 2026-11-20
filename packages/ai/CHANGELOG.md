@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- A terminal stream event completes the other pending iterators after delivering the event to one reader.
 - Tool argument validation preserves values that already satisfy a plain JSON Schema `oneOf` instead of coercing them into overlapping branches.
 - OpenAI Codex SSE parsing accepts CRLF and CR line endings, including a CRLF split across stream chunks, instead of failing with `Invalid Codex SSE JSON`.
 - Bedrock tool calls finished by `messageStop` without a `contentBlockStop` get strict argument parsing: malformed JSON yields `argumentsError` instead of a repaired partial object.

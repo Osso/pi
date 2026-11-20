@@ -576,6 +576,8 @@ for await (const event of s) {
 
 All streaming events emitted during assistant message generation:
 
+Each `EventStream` event goes to one reader. The stream does not broadcast events to multiple iterators. When a terminal event is delivered, the other pending reads finish without receiving it.
+
 | Event Type | Description | Key Properties |
 |------------|-------------|----------------|
 | `start` | Stream begins | `partial`: Initial assistant message structure |
