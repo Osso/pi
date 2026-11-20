@@ -97,7 +97,7 @@ async function observeForegroundBashRunner(
 		toolCallId?: string;
 	},
 ): Promise<BashRunnerResult> {
-	let outputOffset = 0;
+	const forwardOutput = createBashOutputForwarder(runner.artifacts.outputPath, options.onData);
 	let aborted = false;
 	let activation: ReturnType<typeof activateDetachedBashRunner>;
 	let lifecycleError: unknown;
@@ -108,7 +108,7 @@ async function observeForegroundBashRunner(
 	// Activate synchronously so an abort right after detach (restart teardown) finds a detached job, not a foreground runner.
 	const activateOnDetach = () => {
 		if (activation || aborted || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
-		outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
+		forwardOutput();
 		if (aborted) return;
 		try {
 			activation = activateDetachedBashRunner(runner, cwd, options);
@@ -127,8 +127,8 @@ async function observeForegroundBashRunner(
 		for (;;) {
 			if (lifecycleError) throw lifecycleError;
 			if (activation) return activation.result;
-			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
-			const completion = settleForegroundBashRunner(runner, aborted, options.timeout);
+			forwardOutput();
+			const completion = drainAndSettleForegroundBashRunner(runner, aborted, forwardOutput, options.timeout);
 			if (completion) return completion;
 			if (options.detach.signal.aborted) activateOnDetach();
 			await new Promise((resolve) => setTimeout(resolve, 25));
@@ -139,25 +139,27 @@ async function observeForegroundBashRunner(
 	}
 }
 
-function forwardBashRunnerOutput(
-	runner: LaunchedBashRunner,
-	outputOffset: number,
-	onData: (data: Buffer) => void,
-): number {
-	if (!existsSync(runner.artifacts.outputPath)) return outputOffset;
-	const output = readFileSync(runner.artifacts.outputPath);
-	if (output.length <= outputOffset) return outputOffset;
-	onData(output.subarray(outputOffset));
-	return output.length;
+function createBashOutputForwarder(path: string, onData: (data: Buffer) => void): () => void {
+	let outputOffset = 0;
+	return () => {
+		if (!existsSync(path)) return;
+		const output = readFileSync(path);
+		if (output.length <= outputOffset) return;
+		const unread = output.subarray(outputOffset);
+		outputOffset = output.length;
+		onData(unread);
+	};
 }
 
-function settleForegroundBashRunner(
+function drainAndSettleForegroundBashRunner(
 	runner: LaunchedBashRunner,
 	aborted: boolean,
+	forwardOutput: () => void,
 	timeout?: number,
 ): BashRunnerResult | undefined {
 	const completion = readForegroundBashCompletion(runner.foregroundCompletionPath);
 	if (completion) {
+		forwardOutput();
 		if (completion.timedOut) throw new Error(`timeout:${timeout}`);
 		if (aborted || completion.cancelReason) throw new Error("aborted");
 		// A signal-killed shell has no exit code; use the shell convention 128 + signal number, as bash.ts does.

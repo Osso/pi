@@ -51,6 +51,17 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
 	throw new Error(`Timed out waiting for ${label}`);
 }
 
+function waitForBashCompletionMarker(path: string): void {
+	const waitState = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+	const timeoutMs = 5_000;
+	const pollIntervalMs = 5;
+	const deadline = performance.now() + timeoutMs;
+	while (!existsSync(path)) {
+		if (performance.now() >= deadline) throw new Error("Foreground Bash runner did not finish");
+		Atomics.wait(waitState, 0, 0, pollIntervalMs);
+	}
+}
+
 async function createTempDir(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-bash-detach-test-"));
 	tempDirs.push(dir);
@@ -191,6 +202,41 @@ describe("bash tool background detach", () => {
 		} finally {
 			writeFileSync(releasePath, "release");
 			await settled;
+		}
+	});
+
+	it.skipIf(process.platform === "win32")("keeps output written just before foreground Bash completes", async () => {
+		const cwd = await createTempDir();
+		const jobs = join(cwd, "detached-jobs", "session");
+		const releasePath = join(cwd, "release");
+		const command = [
+			"printf 'start-of-output\\n'",
+			`while [ ! -f ${quotePath(releasePath)} ]; do sleep 0.02; done`,
+			"printf 'end-of-output\\n'",
+		].join("\n");
+		const tool = createBashToolDefinition(cwd, {
+			backgroundJobs: createBackgroundJobs(cwd, new MultiAgentStore()),
+			detachRegistry: new BashToolDetachRegistry(),
+		});
+		try {
+			const result = await tool.execute(
+				"tool-bash-last-output",
+				{ command, timeout: 10 },
+				undefined,
+				(update) => {
+					if (!textFrom(update).includes("start-of-output") || existsSync(releasePath)) return;
+					const [job] = readdirSync(jobs);
+					if (!job) throw new Error("Foreground Bash runner has no job directory");
+					const completionPath = join(jobs, job, "foreground-completed");
+					writeFileSync(releasePath, "release");
+					// Let the separate runner finish between the observer's output read and its completion check.
+					waitForBashCompletionMarker(completionPath);
+				},
+				{} as never,
+			);
+			expect(textFrom(result).trimEnd()).toBe("start-of-output\nend-of-output");
+		} finally {
+			writeFileSync(releasePath, "release");
 		}
 	});
 

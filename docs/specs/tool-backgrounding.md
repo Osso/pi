@@ -25,6 +25,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       retain normal notifications.
 - [x] Linux detached Pyrun cancellation terminates the durable wrapper, nested Pyrun runner, and descendants in
       their inherited process group so child processes cannot survive as orphans.
+- [x] A foreground runner-owned Bash call must include the final bytes written before process completion, subject to existing output limits. After the completion marker appears, the call must read any remaining output before it reports the exit status (`bash-tool-detach.test.ts`).
 - [x] Unfinished foreground Bash recovery with a matching persisted live detached runner waits for that runner and reuses its output instead of launching a duplicate (`packages/coding-agent/test/bash-tool-detach.test.ts`, `packages/coding-agent/test/suite/headless-pi.test.ts`).
 - [x] Unfinished foreground Bash recovery permits one replacement execution only when the matching persisted job is terminal `failed` with `lost_runtime`; completed, aborted, ordinary failed, and cancelling jobs replay their persisted terminal result without rerun.
 - [x] Unfinished foreground Pyrun recovery replays complete terminal result/error records; a dead runner without one returns explicit `lost_runtime`, preserves `launch.json`, `script.py`, and `output.log`, and never reruns submitted code. Incomplete trailing JSONL is ignored; malformed complete JSONL fails explicitly.
@@ -88,6 +89,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/bash-tool-detach.test.ts`
+  - Pending regression coverage: write final bytes immediately before process exit and verify that the foreground result includes them.
 - `packages/agent-core/test/agent-loop.test.ts` — prepared agent identity persistence and execution propagation.
 - `packages/coding-agent/test/tool-definition-wrapper.test.ts` — extension preparation and execution-context propagation.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — foreground Bash/Pyrun calls survive `/restart` as background jobs; interrupted Pyrun replay uses the original agent identity, ignores an unrelated historical manifest, and settles a child after a foreground wrapper fails following progress.

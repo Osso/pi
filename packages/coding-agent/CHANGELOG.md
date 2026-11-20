@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Fixed foreground runner-owned Bash calls sometimes omitting the final bytes written before process completion. The call now reads any remaining output after the completion marker before it reports the exit status.
 - Aborting a foreground Bash tool call now stops the shell and its process group instead of stopping only the supervising runner. Foreground teardown leaves already detached Bash jobs running.
 - Fixed `/delete` so a late child agent notification no longer recreates the parent transcript after deletion.
 - Offline relay tests keep simulated remote identities distinct from the test runner's hostname so the same tests pass on `agent-server`. Production routing behavior is unchanged.
