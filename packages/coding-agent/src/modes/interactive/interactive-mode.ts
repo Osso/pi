@@ -52,11 +52,8 @@ import {
 } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { isServerNarrationSignature } from "../../core/assistant-narration.ts";
-import {
-	type CompactionResult,
-	type CompactionSourceInfo,
-	estimateContextTokens,
-} from "../../core/compaction/index.ts";
+import type { CompactionResult, CompactionSourceInfo } from "../../core/compaction/index.ts";
+import { estimateBranchContextTokens } from "../../core/context-usage-estimate.ts";
 import {
 	type DesktopNotificationHandle,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -2899,15 +2896,9 @@ export class InteractiveMode {
 		const thinkingLevel =
 			persistedSettings?.thinkingLevel ?? selectedAgent?.model?.thinkingLevel ?? sessionContext.thinkingLevel;
 		const contextWindow = model?.contextWindow ?? 0;
-		const contextEstimate = estimateContextTokens(sessionContext.messages);
+		const tokens = estimateBranchContextTokens(this.childViewSessionManager.getBranch(), sessionContext.messages);
 		const contextUsage =
-			contextWindow > 0
-				? {
-						tokens: contextEstimate.tokens,
-						contextWindow,
-						percent: (contextEstimate.tokens / contextWindow) * 100,
-					}
-				: undefined;
+			contextWindow > 0 ? { tokens, contextWindow, percent: (tokens / contextWindow) * 100 } : undefined;
 		return {
 			cwd: this.childViewSessionManager.getCwd(),
 			sessionManager: this.childViewSessionManager,

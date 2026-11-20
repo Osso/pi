@@ -2908,6 +2908,7 @@ describe("InteractiveMode selected-session model routing", () => {
 			childViewAgentId: "agent_1",
 			childViewSessionManager: {
 				buildSessionContext: () => ({ messages: [], model: undefined, thinkingLevel: "off" }),
+				getBranch: () => [],
 				readPersistedSessionSettings: () => ({
 					model: { provider: liveModel.provider, modelId: liveModel.id },
 					thinkingLevel: childSession.thinkingLevel,

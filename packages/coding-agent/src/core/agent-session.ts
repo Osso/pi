@@ -111,6 +111,7 @@ import {
 	shouldCompact,
 } from "./compaction/index.ts";
 import { compactionRetryCooldownMs, MAX_CONSECUTIVE_COMPACTION_FAILURES } from "./compaction-retry.ts";
+import { estimateBranchContextTokens } from "./context-usage-estimate.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 
 export { shouldContinueInterruptedSession } from "./agent-session-continuation.ts";
@@ -5217,42 +5218,8 @@ export class AgentSession {
 		const contextWindow = model.contextWindow ?? 0;
 		if (contextWindow <= 0) return undefined;
 
-		// After compaction, pre-compaction assistant usage reflects the old context size.
-		// Until a post-compaction assistant reports provider usage, estimate the rebuilt
-		// context from message content so the footer still tracks new text/image input.
-		const branchEntries = this.sessionManager.getBranch();
-		const latestCompaction = getLatestCompactionEntry(branchEntries);
-
-		if (latestCompaction) {
-			const compactionIndex = branchEntries.lastIndexOf(latestCompaction);
-			let hasPostCompactionUsage = false;
-			for (const entry of branchEntries.slice(compactionIndex + 1).reverse()) {
-				if (entry.type === "message" && entry.message.role === "assistant") {
-					const assistant = entry.message;
-					if (assistant.stopReason !== "aborted" && assistant.stopReason !== "error") {
-						const contextTokens = calculateContextTokens(assistant.usage);
-						if (contextTokens > 0) {
-							hasPostCompactionUsage = true;
-							break;
-						}
-					}
-				}
-			}
-
-			if (!hasPostCompactionUsage) {
-				const tokens = estimateMessagesTokens(this.messages);
-				return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
-			}
-		}
-
-		const estimate = estimateContextTokens(this.messages);
-		const percent = (estimate.tokens / contextWindow) * 100;
-
-		return {
-			tokens: estimate.tokens,
-			contextWindow,
-			percent,
-		};
+		const tokens = estimateBranchContextTokens(this.sessionManager.getBranch(), this.messages);
+		return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
 	}
 
 	/**
