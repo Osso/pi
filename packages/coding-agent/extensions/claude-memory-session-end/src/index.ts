@@ -41,6 +41,9 @@ function launchIndex(sessionPath: string): void {
 			stdio: ["ignore", logFile, logFile],
 		});
 		child.once("error", (error) => reportLaunchFailure(logPath, sessionPath, error));
+		// Spawn errors such as ENOENT arrive asynchronously and are lost when Pi exits right after shutdown;
+		// a missing pid reports the failure synchronously.
+		if (child.pid === undefined) throw new Error(`spawn ${CLAUDE_MEMORY} started no process`);
 		child.unref();
 	} catch (error) {
 		reportLaunchFailure(logPath, sessionPath, error);

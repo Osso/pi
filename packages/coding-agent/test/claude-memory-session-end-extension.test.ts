@@ -1,5 +1,7 @@
+import type * as ChildProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,14 +10,16 @@ import type { ExtensionAPI } from "../src/core/extensions/types.ts";
 const spawnMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
+// require bypasses the module mock, so this is Node's real spawn.
+const { spawn: realSpawn } = createRequire(import.meta.url)("node:child_process") as typeof ChildProcess;
 
 type ShutdownHandler = (
 	event: { reason: "quit" },
 	ctx: { sessionManager: { getSessionFile(): string | undefined } },
 ) => void | Promise<void>;
 
-function fakeChild(): EventEmitter & { unref: ReturnType<typeof vi.fn> } {
-	return Object.assign(new EventEmitter(), { unref: vi.fn() });
+function fakeChild(): EventEmitter & { pid: number; unref: ReturnType<typeof vi.fn> } {
+	return Object.assign(new EventEmitter(), { pid: 4242, unref: vi.fn() });
 }
 
 async function registerShutdownHandler(): Promise<ShutdownHandler> {
@@ -99,6 +103,20 @@ describe("claude-memory session-end extension", () => {
 
 		const log = readFileSync(join(cacheDirectory, "claude-memory/pi-index.log"), "utf8");
 		expect(log).toContain(`failed to launch index-file for session ${transcriptPath}: simulated spawn failure`);
+	});
+
+	it("logs a missing indexer executable before shutdown returns", async () => {
+		spawnMock.mockImplementation((_command: string, args: string[], options: object) =>
+			realSpawn(join(cacheDirectory, "missing-claude-memory"), args, options),
+		);
+		const shutdownHandler = await registerShutdownHandler();
+		const transcriptPath = "/tmp/pi fixture/missing.jsonl";
+
+		shutdownHandler({ reason: "quit" }, { sessionManager: { getSessionFile: () => transcriptPath } });
+
+		// Read synchronously: interactive quit calls process.exit before the asynchronous spawn error is delivered.
+		const log = readFileSync(join(cacheDirectory, "claude-memory/pi-index.log"), "utf8");
+		expect(log).toContain(`failed to launch index-file for session ${transcriptPath}`);
 	});
 
 	it("does nothing for ephemeral sessions", async () => {
