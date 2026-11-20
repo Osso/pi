@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +19,7 @@ describe("SSH relay reconnect", () => {
 		const argvPath = join(directory, "argv.json");
 		const pidPath = join(directory, "peer-pid");
 		const fixture = join(directory, "ssh.mjs");
+		const remoteHost = `relay-test-peer-${hostname()}`;
 		const moduleUrl = pathToFileURL(join(import.meta.dirname, "../src/core/host-relay.ts")).href;
 		writeFileSync(
 			fixture,
@@ -31,7 +32,13 @@ writeFileSync(path, String(attempt));
 writeFileSync(${JSON.stringify(argvPath)}, JSON.stringify(process.argv.slice(2)));
 writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
 if (attempt === 1) { process.stderr.write("peer unavailable\\n"); process.exit(255); }
-await runHostRelay({ controlDbPath: ${JSON.stringify(receiverDb)}, host: "agent-server", input: process.stdin, output: process.stdout, pollMs: 20 });
+await runHostRelay({
+  controlDbPath: ${JSON.stringify(receiverDb)},
+  host: ${JSON.stringify(remoteHost)},
+  input: process.stdin,
+  output: process.stdout,
+  pollMs: 20,
+});
 `,
 			{ mode: 0o755 },
 		);
@@ -46,7 +53,7 @@ await runHostRelay({ controlDbPath: ${JSON.stringify(receiverDb)}, host: "agent-
 		);
 		enqueueStoredRuntimeMailboxMessage(senderDb, {
 			kind: "message",
-			recipientHost: "agent-server",
+			recipientHost: remoteHost,
 			recipient: { sessionId: "receiver", agentId: null },
 			sender: { sessionId: "sender", agentId: null },
 			storeRef: { sessionPath: "/sender/ssh.jsonl", messageId: "outage-message" },

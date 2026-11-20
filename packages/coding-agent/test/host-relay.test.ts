@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
 import { PassThrough, Transform } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runHostRelay } from "../src/core/host-relay.ts";
 import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { formatRuntimeMailboxPrompt } from "../src/core/runtime-coordination-format.ts";
@@ -20,6 +20,12 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { sendSupervisorReply } from "../src/supervisor/mail.ts";
+
+// Let both simulated relay peers remain remote to the test process on every worker.
+vi.mock("node:os", async (importOriginal) => ({
+	...(await importOriginal<typeof os>()),
+	hostname: () => "relay-test-local",
+}));
 
 const a = { sessionId: "laptop-session", agentId: null };
 const b = { sessionId: "server-session", agentId: null };
@@ -42,7 +48,7 @@ describe("cross-host relay", () => {
 		return messages;
 	}
 	beforeEach(() => {
-		directory = mkdtempSync(join(tmpdir(), "pi-relay-"));
+		directory = mkdtempSync(join(os.tmpdir(), "pi-relay-"));
 		dbA = join(directory, "a.sqlite");
 		dbB = join(directory, "b.sqlite");
 		for (const [dbPath, address] of [
