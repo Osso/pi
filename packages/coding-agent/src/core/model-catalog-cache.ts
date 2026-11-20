@@ -178,7 +178,14 @@ async function fetchOpenRouterCatalogWith(fetchImpl: typeof fetch, abortSignal?:
 			parseRetryAfter(response.headers.get("retry-after")),
 		);
 	}
-	const payload: unknown = await response.json();
+	let body: string;
+	try {
+		body = await response.text();
+	} catch (error) {
+		// undici reports a connection dropped mid-body as TypeError("terminated").
+		throw new CatalogRequestError("OpenRouter model catalog response failed", error instanceof TypeError, 0, error);
+	}
+	const payload: unknown = JSON.parse(body);
 	if (!isRecord(payload) || !Array.isArray(payload.data)) {
 		throw new Error("OpenRouter model catalog response has no data array");
 	}

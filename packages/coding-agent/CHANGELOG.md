@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--refresh-models` retries a connection that drops while reading the OpenRouter catalog body, like other transient network failures.
 - Threshold compaction after a zero-usage reply no longer skips the check when the kept usage predates the latest compaction; it estimates the rebuilt context from content, so a large tool result still compacts before the next request.
 - `--session-id` rejects IDs ending in `.jsonl` or `.jsonl.zst`; `--session` reads those as transcript paths, so the printed resume command could not reopen such a session.
 - The claude-memory session-end extension logs a missing or non-executable indexer to `pi-index.log` before quit, instead of losing the asynchronous spawn error when Pi exits.

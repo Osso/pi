@@ -258,20 +258,31 @@ describe("OpenRouter model catalog cache reads", () => {
 describe("OpenRouter model catalog retry policy", () => {
 	useCatalogCache();
 
-	it.each([429, 500, 503, "network"])("retries transient %s and persists recovered models", async (failure) => {
-		let attempts = 0;
-		const fetchImpl: typeof fetch = async () => {
-			if (++attempts < 3) {
-				if (failure === "network") throw new TypeError("fetch failed", { cause: new Error("ECONNRESET") });
-				return new Response(null, { status: Number(failure) });
-			}
-			return responseFor([apiModel("fixture/recovered")]);
-		};
-		const { ensureModelCatalogFresh } = await importCatalogModule();
-		const result = await ensureModelCatalogFresh({ fetchImpl });
-		expect(attempts).toBe(3);
-		expect(result.models.some((model) => model.id === "fixture/recovered")).toBe(true);
-	});
+	it.each([429, 500, 503, "network", "body"])(
+		"retries transient %s and persists recovered models",
+		async (failure) => {
+			let attempts = 0;
+			const fetchImpl: typeof fetch = async () => {
+				if (++attempts < 3) {
+					if (failure === "network") throw new TypeError("fetch failed", { cause: new Error("ECONNRESET") });
+					if (failure === "body") {
+						const dropped = new ReadableStream({
+							start(controller) {
+								controller.error(new TypeError("terminated", { cause: new Error("other side closed") }));
+							},
+						});
+						return new Response(dropped, { status: 200 });
+					}
+					return new Response(null, { status: Number(failure) });
+				}
+				return responseFor([apiModel("fixture/recovered")]);
+			};
+			const { ensureModelCatalogFresh } = await importCatalogModule();
+			const result = await ensureModelCatalogFresh({ fetchImpl });
+			expect(attempts).toBe(3);
+			expect(result.models.some((model) => model.id === "fixture/recovered")).toBe(true);
+		},
+	);
 
 	it.each([401, 403, 404, "json", "empty"])("does not retry permanent %s", async (failure) => {
 		let attempts = 0;
