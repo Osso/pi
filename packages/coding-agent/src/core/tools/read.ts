@@ -439,7 +439,11 @@ function createReadToolDefinitionInternal(
 									firstLineSize = formatSize(Buffer.byteLength(firstLine, "utf-8"));
 								}
 								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`;
-								details = { truncation };
+								details = {
+									truncation: rangeLimited
+										? { ...truncation, totalBytes: fileSize ?? truncation.totalBytes }
+										: truncation,
+								};
 							} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
 								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
 								const nextOffset = endLineDisplay + 1;
