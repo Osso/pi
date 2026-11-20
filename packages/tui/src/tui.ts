@@ -1149,7 +1149,7 @@ export class TUI extends Container {
 		overlayHeight: number,
 		termWidth: number,
 		termHeight: number,
-	): { width: number; row: number; col: number; maxHeight: number | undefined } {
+	): { width: number; row: number; col: number; maxHeight: number } {
 		const opt = options ?? {};
 
 		// Parse margin (clamp to non-negative)
@@ -1176,14 +1176,10 @@ export class TUI extends Container {
 		width = Math.max(1, Math.min(width, availWidth));
 
 		// === Resolve maxHeight ===
-		let maxHeight = parseSizeValue(opt.maxHeight, termHeight);
-		// Clamp to available space
-		if (maxHeight !== undefined) {
-			maxHeight = Math.max(1, Math.min(maxHeight, availHeight));
-		}
+		const maxHeight = Math.max(1, Math.min(parseSizeValue(opt.maxHeight, termHeight) ?? availHeight, availHeight));
 
 		// Effective overlay height (may be clamped by maxHeight)
-		const effectiveHeight = maxHeight !== undefined ? Math.min(overlayHeight, maxHeight) : overlayHeight;
+		const effectiveHeight = Math.min(overlayHeight, maxHeight);
 
 		// === Resolve position ===
 		let row: number;
@@ -1303,8 +1299,8 @@ export class TUI extends Container {
 			// Render component at calculated width
 			let overlayLines = component.render(width);
 
-			// Apply maxHeight if specified
-			if (maxHeight !== undefined && overlayLines.length > maxHeight) {
+			// Apply maxHeight
+			if (overlayLines.length > maxHeight) {
 				overlayLines = overlayLines.slice(0, maxHeight);
 			}
 

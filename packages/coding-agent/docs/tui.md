@@ -120,7 +120,7 @@ const result = await ctx.ui.custom<string | null>(
 );
 ```
 
-For positioning and sizing, use `overlayOptions`:
+For positioning and sizing, use `overlayOptions`. If you omit `maxHeight`, the overlay clips to the terminal rows left after its top and bottom margins:
 
 ```typescript
 const result = await ctx.ui.custom<string | null>(

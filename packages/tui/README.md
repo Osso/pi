@@ -115,7 +115,7 @@ cell.dispose();
 
 ### Overlays
 
-Overlays render components on top of existing content without replacing it. Useful for dialogs, menus, and modal UI.
+Overlays render components on top of existing content without replacing it. Useful for dialogs, menus, and modal UI. If you omit `maxHeight`, the overlay clips to the terminal rows left after the top and bottom margins.
 
 ```typescript
 // Show overlay with default options (centered, max 80 cols)

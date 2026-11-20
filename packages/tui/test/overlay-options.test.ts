@@ -334,6 +334,40 @@ describe("TUI overlay options", () => {
 		});
 	});
 
+	describe("resize with margins", () => {
+		it("keeps base rows and margins visible when an overlay exceeds available height", async () => {
+			const terminal = new VirtualTerminal(40, 12);
+			const tui = new TUI(terminal);
+			const baseRows = Array.from({ length: 8 }, (_, index) => `Base ${index + 1}`);
+			const panelLines = Array.from({ length: 8 }, (_, index) => `Panel ${index + 1}`);
+
+			tui.addChild({ render: () => baseRows, invalidate: () => {} });
+			tui.showOverlay(new StaticOverlay(panelLines), {
+				anchor: "top-left",
+				width: 8,
+				margin: { top: 2, bottom: 2, left: 0, right: 0 },
+			});
+
+			try {
+				tui.start();
+				await renderAndFlush(tui, terminal);
+				terminal.resize(40, 8);
+				await terminal.waitForRender();
+
+				const expected = ["Base 1", "Base 2", "Panel 1", "Panel 2", "Panel 3", "Panel 4", "Base 7", "Base 8"];
+				assert.deepStrictEqual(
+					{
+						viewport: terminal.getViewport().map((line) => line.trimEnd()),
+						scrollbackRows: terminal.getScrollBuffer().length - terminal.rows,
+					},
+					{ viewport: expected, scrollbackRows: 0 },
+				);
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
 	describe("offset", () => {
 		it("should apply offsetX and offsetY from anchor position", async () => {
 			const terminal = new VirtualTerminal(80, 24);

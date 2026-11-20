@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Overlays without `maxHeight` clip to the available terminal rows within their margins instead of pushing base content into scrollback.
 - Static and paused loaders refresh their colors when the active theme changes.
 - Fuzzy search scores consecutive matches even when unrelated earlier characters also match the query.
 - `SettingsList` keeps the highlighted setting when the search caret moves without changing the query.
