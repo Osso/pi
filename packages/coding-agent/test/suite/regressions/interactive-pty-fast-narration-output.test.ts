@@ -84,10 +84,21 @@ async function waitForRenderedCompletion(probe: Probe, toolCallId: string): Prom
 		`durable end_turn ${toolCallId}`,
 	);
 	record(probe, "durable-end-turn", toolCallId);
-	// Persistence precedes the PTY's asynchronous delivery and throttled redraw.
-	// Wait for output quiescence, NOT for the expected prose (which could have been erased).
-	await waitUntil(probe, () => Date.now() - probe.lastOutputAt >= 100, "post-completion PTY quiescence");
-	await probe.terminal.flush();
+	// Persistence precedes the PTY's asynchronous delivery and throttled redraw, which can lag far behind under
+	// load. Wait until every completed end_turn row is rendered and output is quiet, NOT for the expected prose
+	// (which could have been erased). Each row renders after the prose of its own response.
+	const completed = probe.events.filter((entry) => entry.event === "durable-end-turn").length;
+	const deadline = Date.now() + 15_000;
+	for (;;) {
+		await probe.terminal.flush();
+		const rows = probe.terminal.getScrollBuffer().filter((line) => /^\s*end_turn\b/.test(line)).length;
+		if (rows >= completed && Date.now() - probe.lastOutputAt >= 100) return;
+		if (Date.now() > deadline)
+			throw new Error(
+				`Timed out waiting for ${completed} rendered end_turn rows (saw ${rows}); proof: ${probe.proofDir}`,
+			);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
 }
 
 async function startProbe(probe: Probe): Promise<void> {
