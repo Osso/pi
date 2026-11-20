@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Fixed Supervisor reminder delivery stopping for good after a check failed while its session was stopping; the failure was reported through the stale extension context, which raised an unhandled rejection and failed every later check.
 - `/scoped-models` ignores scoped models that are no longer available (for example after `/logout`); before, a hidden model blocked Alt+Up/Alt+Down at its position and could make Save clear the saved scope.
 - The footer picks up branch switches in a linked worktree of a reftable repository; it now watches the worktree's own reftable directory as well as the common one.
 - Toggling a warning in `/settings` no longer drops other `warnings` keys from `settings.json`, including keys edited on disk while Pi runs.

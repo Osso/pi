@@ -2,10 +2,10 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
-import { REMINDER_MESSAGE_TYPE } from "../../extensions/supervisor-session/src/due-tasks.ts";
+import { DueTaskDelivery, REMINDER_MESSAGE_TYPE } from "../../extensions/supervisor-session/src/due-tasks.ts";
 import supervisorSessionExtension from "../../extensions/supervisor-session/src/index.ts";
 import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
-import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../../src/core/extensions/types.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 interface RecordedRequest {
@@ -204,6 +204,42 @@ describe("Supervisor due-task reminders", () => {
 		expect(reminderTexts(harness)).toHaveLength(1);
 		expect(stub.acknowledgements()).toHaveLength(1);
 		expect(errors).toEqual([]);
+	});
+
+	it("keeps checking after a check fails once the session that started it stopped", async () => {
+		const notices: string[] = [];
+		const context = (isStale: () => boolean) =>
+			({
+				get ui() {
+					if (isStale()) throw new Error("stale ctx");
+					return { notify: (message: string) => notices.push(message) };
+				},
+				sessionManager: { getEntries: () => [] },
+			}) as unknown as ExtensionContext;
+		let stopped = false;
+		const delivery = new DueTaskDelivery({} as ExtensionAPI, {
+			intervalMs: 10,
+			readToken: () => {
+				stopped = true;
+				delivery.stop(); // the session ends while this check is running
+				throw new Error("connection reset");
+			},
+		});
+		delivery.start(
+			context(() => stopped),
+			"http://127.0.0.1:9",
+		);
+		await waitFor(() => stopped, "the first tick");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		delivery.start(
+			context(() => false),
+			"http://127.0.0.1:9",
+		);
+		await delivery.settle(context(() => false));
+		delivery.stop();
+
+		expect(notices).toEqual([]);
 	});
 
 	it("does not poll outside the Supervisor session or without tasksUrl", async () => {

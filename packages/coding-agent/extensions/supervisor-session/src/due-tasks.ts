@@ -58,6 +58,8 @@ export class DueTaskDelivery {
 	private readonly pending = new Map<string, PendingDelivery>();
 	/** Checks run one at a time: a timer tick and an `agent_settled` settle must not acknowledge twice. */
 	private checks: Promise<void> = Promise.resolve();
+	/** Incremented by stop(): a check from an earlier run has a stale ctx and its pending state is gone. */
+	private generation = 0;
 	private readonly pi: ExtensionAPI;
 	private readonly options: DueTaskOptions;
 
@@ -76,6 +78,7 @@ export class DueTaskDelivery {
 	}
 
 	stop(): void {
+		this.generation++;
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
 		this.tasksUrl = undefined;
@@ -91,7 +94,9 @@ export class DueTaskDelivery {
 	}
 
 	private check(ctx: ExtensionContext, action: () => Promise<void>): Promise<void> {
+		const generation = this.generation;
 		this.checks = this.checks.then(action).catch((error: unknown) => {
+			if (generation !== this.generation) return; // stopped: its reminders are released for resending
 			ctx.ui.notify(
 				`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`,
 				"error",
