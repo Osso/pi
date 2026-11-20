@@ -558,6 +558,23 @@ describe("active slice session loading", () => {
 		expect(forked.getEntries().map((entry) => entry.id)).toEqual(["old-1", "old-2"]);
 	});
 
+	it("forks the full path to a retained entry whose ancestors precede the compaction cutoff", () => {
+		const file = join(tempDir, "fork-retained-entry.jsonl");
+		const entries = [
+			{ type: "session", version: 3, id: "session-1", timestamp: "2025-01-01T00:00:00Z", cwd: tempDir },
+			messageEntry("old-1", null, "summarized"),
+			messageEntry("kept-1", "old-1", "kept"),
+			messageEntry("kept-2", "kept-1", "kept reply"),
+			{ ...keptOneCompaction("2025-01-01T00:00:00Z"), parentId: "kept-2" },
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const forked = SessionManager.forkFrom(file, tempDir, join(tempDir, "forks"), { id: "forked-kept" }, "kept-2");
+
+		expect(forked.getEntries().map((entry) => entry.id)).toEqual(["old-1", "kept-1", "kept-2"]);
+	});
+
 	it("uses the latest compaction on the active branch", () => {
 		const file = join(tempDir, "multiple-compactions.jsonl");
 		const entries = [

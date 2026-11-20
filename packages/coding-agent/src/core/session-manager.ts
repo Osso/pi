@@ -2012,19 +2012,16 @@ export class SessionManager {
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
+		const isEntry = (entry: FileEntry): entry is SessionEntry => entry.type !== "session";
 		let sourceEntries = loadSessionFileEntries(resolvedSourcePath).fileEntries;
-		// A fork point before the compaction cutoff is outside the loaded active slice.
-		if (fromEntryId && !sourceEntries.some((entry) => entry.type !== "session" && entry.id === fromEntryId)) {
+		// The loaded active slice starts at the compaction cutoff; load everything when the fork path leaves it.
+		const slicePath = fromEntryId ? buildSessionPath(sourceEntries.filter(isEntry), fromEntryId) : [];
+		if (fromEntryId && slicePath[0]?.parentId !== null)
 			sourceEntries = withSeekableSessionTranscript(resolvedSourcePath, loadEntriesFromFile);
-		}
-		if (sourceEntries.length === 0) {
+		if (sourceEntries.length === 0)
 			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
-		}
-
-		const loadedSourceHeader = sourceEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-		if (!loadedSourceHeader) {
+		if (!sourceEntries.some((entry) => entry.type === "session"))
 			throw new Error(`Cannot fork: source session has no header: ${resolvedSourcePath}`);
-		}
 		migrateToCurrentVersion(sourceEntries);
 
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(resolvedTargetCwd);
@@ -2047,7 +2044,7 @@ export class SessionManager {
 		};
 		writeFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`, { flag: "wx" });
 
-		const sessionEntries = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
+		const sessionEntries = sourceEntries.filter(isEntry);
 		const entriesToCopy =
 			fromEntryId === null ? [] : fromEntryId ? buildSessionPath(sessionEntries, fromEntryId) : sessionEntries;
 		for (const [index, entry] of entriesToCopy.entries()) {
