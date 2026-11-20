@@ -28,6 +28,8 @@ describe("SessionManager.newSession with custom id", () => {
 
 	it("rejects invalid custom session ids", () => {
 		const invalidIds = ["", "-abc", "abc-", "_abc", "abc_", ".abc", "abc.", "abc/def", "abc\\def", "abc def"];
+		// --session treats these as transcript paths, so a session with such an id could not be resumed by id.
+		invalidIds.push("notes.jsonl", "notes.jsonl.zst");
 
 		for (const id of invalidIds) {
 			const session = SessionManager.inMemory();

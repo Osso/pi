@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--session-id` rejects IDs ending in `.jsonl` or `.jsonl.zst`; `--session` reads those as transcript paths, so the printed resume command could not reopen such a session.
 - The claude-memory session-end extension logs a missing or non-executable indexer to `pi-index.log` before quit, instead of losing the asynchronous spawn error when Pi exits.
 - A `SIGHUP` restart (including `pi control restart`) now persists a `self_restart` notice so an interrupted turn continues, and every process restart emits `session_start` with reason `restart` and `previousSessionFile` instead of `startup`.
 - Edit diffs highlight a spacing change between words and a tab replaced by spaces; only a change at the start of the text keeps its leading whitespace unhighlighted.

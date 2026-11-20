@@ -274,9 +274,9 @@ function createSessionId(): string {
 }
 
 export function assertValidSessionId(id: string): void {
-	if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id)) {
+	if (!/^(?!.*\.jsonl(?:\.zst)?$)[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id)) {
 		throw new Error(
-			"Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character",
+			"Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', start and end with an alphanumeric character, and not end in '.jsonl' or '.jsonl.zst' (those name transcript files)",
 		);
 	}
 }
