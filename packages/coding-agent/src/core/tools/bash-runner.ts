@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { getShellConfig, killProcessTree } from "../../utils/shell.ts";
-import { type DetachedBashForegroundCompletion, writeDetachedBashActivation } from "../detached-bash-runner.ts";
+import { getShellConfig } from "../../utils/shell.ts";
+import {
+	type DetachedBashForegroundCompletion,
+	requestDetachedBashForegroundCancellation,
+	writeDetachedBashActivation,
+} from "../detached-bash-runner.ts";
 import type { DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import { type AgentSnapshot, isActiveLifecycle } from "../multi-agent-store.ts";
 import { isProcessIdentityAlive } from "../runtime-process.ts";
@@ -96,19 +100,21 @@ async function observeForegroundBashRunner(
 	let outputOffset = 0;
 	let aborted = false;
 	let activation: ReturnType<typeof activateDetachedBashRunner>;
-	let activationError: unknown;
+	let lifecycleError: unknown;
 	const requestCancellation = () => {
 		aborted = true;
-		terminateForegroundBashRunner(runner.runnerPid);
+		lifecycleError = requestDetachedBashForegroundCancellation(runner.artifacts.directory);
 	};
 	// Activate synchronously so an abort right after detach (restart teardown) finds a detached job, not a foreground runner.
 	const activateOnDetach = () => {
-		if (activation || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
+		if (activation || aborted || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
 		outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
+		if (aborted) return;
 		try {
 			activation = activateDetachedBashRunner(runner, cwd, options);
 		} catch (error) {
-			activationError = error;
+			requestCancellation();
+			lifecycleError ??= error;
 		}
 		if (!activation) return;
 		options.signal?.removeEventListener("abort", requestCancellation);
@@ -119,7 +125,7 @@ async function observeForegroundBashRunner(
 	options.detach.signal.addEventListener("abort", activateOnDetach);
 	try {
 		for (;;) {
-			if (activationError) throw activationError;
+			if (lifecycleError) throw lifecycleError;
 			if (activation) return activation.result;
 			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
 			const completion = settleForegroundBashRunner(runner, aborted, options.timeout);
@@ -174,33 +180,28 @@ function activateDetachedBashRunner(
 	},
 ): { ownership: BashOwnership; result: BashRunnerResult } | undefined {
 	if (!isProcessIdentityAlive(runner.processIdentity)) return undefined;
-	try {
-		const ownership = options.lifecycle.register({
-			agentType: "bash",
-			cwd,
-			detached: true,
-			displayName: "Bash command",
-			jobId: runner.jobId,
-			processIdentity: runner.processIdentity,
-			toolCallId: options.toolCallId,
-			workerHandleId: String(runner.runnerPid),
-		});
-		writeDetachedBashActivation(runner.activationPath, ownership.identity);
-		return {
-			ownership,
-			result: {
-				exitCode: null,
-				detached: {
-					jobId: runner.jobId,
-					logPath: runner.artifacts.outputPath,
-					message: `Detached bash command as background job ${runner.jobId}.`,
-				},
+	const ownership = options.lifecycle.register({
+		agentType: "bash",
+		cwd,
+		detached: true,
+		displayName: "Bash command",
+		jobId: runner.jobId,
+		processIdentity: runner.processIdentity,
+		toolCallId: options.toolCallId,
+		workerHandleId: String(runner.runnerPid),
+	});
+	writeDetachedBashActivation(runner.activationPath, ownership.identity);
+	return {
+		ownership,
+		result: {
+			exitCode: null,
+			detached: {
+				jobId: runner.jobId,
+				logPath: runner.artifacts.outputPath,
+				message: `Detached bash command as background job ${runner.jobId}.`,
 			},
-		};
-	} catch (error) {
-		terminateForegroundBashRunner(runner.runnerPid);
-		throw error;
-	}
+		},
+	};
 }
 
 export function readForegroundBashCompletion(path: string): DetachedBashForegroundCompletion | undefined {
@@ -226,8 +227,4 @@ export function readForegroundBashCompletion(path: string): DetachedBashForegrou
 	} catch {
 		return undefined;
 	}
-}
-
-function terminateForegroundBashRunner(pid: number): void {
-	killProcessTree(pid);
 }

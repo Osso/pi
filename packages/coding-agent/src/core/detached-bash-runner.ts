@@ -20,6 +20,7 @@ export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
 const DETACHED_BASH_LAUNCH_VERSION = 3;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const PAYLOAD_KILL_GRACE_MS = 1_000;
+const FOREGROUND_BASH_CANCELLATION_MARKER = "foreground-cancelled";
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedBashLaunchManifestData {
@@ -69,6 +70,15 @@ export function writeDetachedBashLaunchManifest(path: string, data: DetachedBash
 
 export function writeDetachedBashActivation(path: string, identity: DetachedJobOwnershipIdentity): void {
 	writeAtomicJson(path, identity);
+}
+
+export function requestDetachedBashForegroundCancellation(directory: string): Error | undefined {
+	try {
+		writeFileSync(join(directory, FOREGROUND_BASH_CANCELLATION_MARKER), "", { mode: 0o600 });
+		return undefined;
+	} catch (error) {
+		return error instanceof Error ? error : new Error(String(error));
+	}
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -152,23 +162,23 @@ export async function runDetachedBashRunner(
 		stdoutPath: manifest.artifacts.outputPath,
 	});
 	payload.persistIdentity();
-	payload.release();
-	const controlled = await waitForDetachedBashExit(payload, manifest);
-	const identity = controlled.identity;
+	const cancelPath = join(manifest.artifacts.directory, FOREGROUND_BASH_CANCELLATION_MARKER);
+	if (!existsSync(cancelPath)) payload.release();
+	const { cancelReason, exit, identity, timedOut } = await waitForDetachedBashExit(payload, manifest, cancelPath);
 	if (!identity) {
 		writeAtomicJson(manifest.foregroundCompletionPath, {
-			cancelReason: controlled.cancelReason,
-			exitCode: controlled.exit.exitCode,
-			signal: controlled.exit.signal,
-			timedOut: controlled.timedOut,
+			cancelReason,
+			exitCode: exit.exitCode,
+			signal: exit.signal,
+			timedOut,
 		} satisfies DetachedBashForegroundCompletion);
-		return { exitCode: controlled.exit.exitCode, terminalRevision: 0 };
+		return { exitCode: exit.exitCode, terminalRevision: 0 };
 	}
-	const outcome = controlled.timedOut
+	const outcome = timedOut
 		? ({ error: { message: "Detached Bash command timed out" }, kind: "failed" } as const)
-		: controlled.cancelReason
-			? ({ kind: "aborted", reason: controlled.cancelReason } as const)
-			: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
+		: cancelReason
+			? ({ kind: "aborted", reason: cancelReason } as const)
+			: detachedBashOutcome(exit.exitCode, exit.signal);
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
 		identity,
@@ -181,12 +191,13 @@ export async function runDetachedBashRunner(
 		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),
 	);
 	if (!finalized.ok) throw new Error(`Could not finalize detached Bash job: ${finalized.error}`);
-	return { exitCode: controlled.exit.exitCode, terminalRevision: finalized.terminalRevision };
+	return { exitCode: exit.exitCode, terminalRevision: finalized.terminalRevision };
 }
 
 async function waitForDetachedBashExit(
 	payload: ReturnType<typeof spawnGatedDetachedPayload>,
 	manifest: DetachedBashLaunchManifest,
+	foregroundCancellationPath: string,
 ): Promise<{
 	cancelReason?: string;
 	exit: GatedDetachedPayloadExit;
@@ -206,8 +217,10 @@ async function waitForDetachedBashExit(
 	const exitPromise = payload.waitForExit().then((result) => {
 		exit = result;
 	});
-	while (!exit) {
+	for (;;) {
 		identity ??= readDetachedBashActivation(manifest.activationPath);
+		if (exit) return { cancelReason, exit, identity, timedOut };
+		cancelReason ??= cancelForegroundBashPayload(payload.pid, foregroundCancellationPath);
 		if (!timedOut && timeoutAt !== undefined && Date.now() >= timeoutAt) {
 			timedOut = true;
 			terminatePayload();
@@ -240,8 +253,12 @@ async function waitForDetachedBashExit(
 		}
 		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
 	}
-	identity ??= readDetachedBashActivation(manifest.activationPath);
-	return { cancelReason, exit, identity, timedOut };
+}
+
+function cancelForegroundBashPayload(pid: number, cancellationPath: string): string | undefined {
+	if (!existsSync(cancellationPath)) return undefined;
+	signalPayloadGroup(pid, "SIGKILL");
+	return "foreground cancellation";
 }
 
 function signalPayloadGroup(pid: number, signal: NodeJS.Signals): void {

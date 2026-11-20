@@ -8,6 +8,7 @@ import { createDetachedJobLifecycleController } from "../src/core/detached-job-l
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { isProcessIdentityAlive, readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	type BashBackgroundJobsOptions,
 	BashToolDetachRegistry,
@@ -159,6 +160,39 @@ describe("bash tool background detach", () => {
 			expect(store.listAgents()).toHaveLength(0);
 		},
 	);
+
+	it.skipIf(process.platform === "win32")("stops the foreground shell and its child on abort", async () => {
+		const cwd = await createTempDir();
+		const releasePath = join(cwd, "release");
+		const pidPath = join(cwd, "shell-pids");
+		const afterAbortPath = join(cwd, "after-abort");
+		const command = [
+			`(while [ ! -f ${quotePath(releasePath)} ]; do sleep 0.02; done; printf leaked > ${quotePath(afterAbortPath)}) &`,
+			`printf '%s\\n' "$$" "$!" > ${quotePath(pidPath)}`,
+			"wait",
+		].join("\n");
+		const store = new MultiAgentStore();
+		const detachRegistry = new BashToolDetachRegistry();
+		const tool = createBashToolDefinition(cwd, { backgroundJobs: createBackgroundJobs(cwd, store), detachRegistry });
+		const controller = new AbortController();
+		const execution = tool.execute("tool-abort-foreground", { command }, controller.signal, undefined, {} as never);
+		const settled = Promise.allSettled([execution]);
+		try {
+			await waitFor(() => existsSync(pidPath) && /^\d+\n\d+\n$/.test(readFileSync(pidPath, "utf8")), "shell PIDs");
+			const identities = readFileSync(pidPath, "utf8").trimEnd().split("\n").map(Number).map(readProcessIdentity);
+			controller.abort();
+			const detached = detachRegistry.detachRunning();
+			await expect(execution).rejects.toThrow(/Command aborted$/);
+			writeFileSync(releasePath, "release");
+			await waitFor(() => identities.every((identity) => !isProcessIdentityAlive(identity)), "shell group exit");
+			expect(existsSync(afterAbortPath)).toBe(false);
+			expect(detached).toBe(false);
+			expect(store.listAgents()).toHaveLength(0);
+		} finally {
+			writeFileSync(releasePath, "release");
+			await settled;
+		}
+	});
 
 	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();

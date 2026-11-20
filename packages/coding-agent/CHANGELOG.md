@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Aborting a foreground Bash tool call now stops the shell and its process group instead of stopping only the supervising runner. Foreground teardown leaves already detached Bash jobs running.
 - Fixed `/delete` so a late child agent notification no longer recreates the parent transcript after deletion.
 - Offline relay tests keep simulated remote identities distinct from the test runner's hostname so the same tests pass on `agent-server`. Production routing behavior is unchanged.
 - The modal editor extension example tests now resolve the workspace’s public source entry point without a prebuilt coding-agent `dist` directory.

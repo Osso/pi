@@ -40,6 +40,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 - [x] Detaching activates the background job synchronously and releases the tool call's abort listener, so aborting the call afterwards (including restart teardown) does not cancel the job.
+- [x] Aborting a running foreground Bash command stops the shell and its process group, not just the supervising runner. Foreground teardown does not cancel a Bash job that has already detached (`bash-tool-detach.test.ts`, `suite/headless-pi.test.ts`).
 - [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
       notification, recorded through a fenced `detached` lifecycle mark. Silent subagent terminal cleanup
       is the sole exception: its persisted cancellation policy suppresses notification projection without
