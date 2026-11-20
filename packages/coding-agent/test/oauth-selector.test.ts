@@ -4,7 +4,7 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../src/core/provider-display-names.ts";
 import { OAuthSelectorComponent } from "../src/modes/interactive/components/oauth-selector.ts";
-import { isApiKeyLoginProvider } from "../src/modes/interactive/interactive-mode.ts";
+import { isApiKeyLoginProvider } from "../src/modes/interactive/login-flow.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
