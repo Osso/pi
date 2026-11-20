@@ -342,7 +342,7 @@ function createClient(
 		httpOptions.baseUrl = model.baseUrl;
 		httpOptions.apiVersion = ""; // baseUrl already includes version path, don't append
 	}
-	const headers = providerHeadersToRecord({ ...model.headers, ...optionsHeaders });
+	const headers = providerHeadersToRecord(model.headers, optionsHeaders);
 	if (headers) {
 		httpOptions.headers = headers;
 	}

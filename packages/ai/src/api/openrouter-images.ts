@@ -118,7 +118,7 @@ function createClient(
 		apiKey,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
-		defaultHeaders: providerHeadersToRecord({ ...model.headers, ...optionsHeaders }),
+		defaultHeaders: providerHeadersToRecord(model.headers, optionsHeaders),
 	});
 }
 

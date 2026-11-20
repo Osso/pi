@@ -8,11 +8,22 @@ export function headersToRecord(headers: Headers): Record<string, string> {
 	return result;
 }
 
-export function providerHeadersToRecord(headers: ProviderHeaders | undefined): Record<string, string> | undefined {
-	if (!headers) return undefined;
+/**
+ * Merge header sources in order. Later sources override earlier ones by
+ * case-insensitive name, and a null value removes an earlier header.
+ */
+export function providerHeadersToRecord(
+	...sources: Array<ProviderHeaders | undefined>
+): Record<string, string> | undefined {
 	const result: Record<string, string> = {};
-	for (const [key, value] of Object.entries(headers)) {
-		if (value !== null) result[key] = value;
+	for (const headers of sources) {
+		for (const [key, value] of Object.entries(headers ?? {})) {
+			const lowerKey = key.toLowerCase();
+			for (const existing of Object.keys(result)) {
+				if (existing.toLowerCase() === lowerKey) delete result[existing];
+			}
+			if (value !== null) result[key] = value;
+		}
 	}
 	return Object.keys(result).length > 0 ? result : undefined;
 }

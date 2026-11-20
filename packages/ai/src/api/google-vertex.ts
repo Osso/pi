@@ -388,7 +388,7 @@ function buildHttpOptions(model: Model<"google-vertex">, optionsHeaders?: Provid
 		}
 	}
 
-	const headers = providerHeadersToRecord({ ...model.headers, ...optionsHeaders });
+	const headers = providerHeadersToRecord(model.headers, optionsHeaders);
 	if (headers) {
 		httpOptions.headers = headers;
 	}

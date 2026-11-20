@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Google, Vertex and OpenRouter image requests merge model and request headers case-insensitively, so a `null` request header suppresses a model default spelled with different casing.
 - Mistral streams that end without a `finish_reason` now finish with an error that keeps the partial content, instead of `stopReason: "stop"`.
 - Bedrock streams that end without `messageStop` now finish with an error that keeps the partial content, instead of `stopReason: "stop"`.
 - A blank `retry-after` or `retry-after-ms` header no longer counts as a zero-second retry delay.
