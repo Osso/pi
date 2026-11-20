@@ -123,6 +123,17 @@ export class SelectList implements Component {
 			this.selectedIndex = this.selectedIndex === this.filteredItems.length - 1 ? 0 : this.selectedIndex + 1;
 			this.notifySelectionChange();
 		}
+		// Page keys move by one page and stop at the ends.
+		else if (kb.matches(keyData, "tui.select.pageUp")) {
+			this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisible);
+			this.notifySelectionChange();
+		} else if (kb.matches(keyData, "tui.select.pageDown")) {
+			this.selectedIndex = Math.max(
+				0,
+				Math.min(this.filteredItems.length - 1, this.selectedIndex + this.maxVisible),
+			);
+			this.notifySelectionChange();
+		}
 		// Enter
 		else if (kb.matches(keyData, "tui.select.confirm")) {
 			const selectedItem = this.filteredItems[this.selectedIndex];

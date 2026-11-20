@@ -130,8 +130,9 @@ export class SettingsList implements Component {
 			const prefix = isSelected ? this.theme.cursor : "  ";
 			const prefixWidth = visibleWidth(prefix);
 
-			// Pad label to align values
-			const labelPadded = item.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(item.label)));
+			// Clip and pad the label to align values
+			const label = truncateToWidth(item.label, maxLabelWidth, "");
+			const labelPadded = label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(label)));
 			const labelText = this.theme.label(labelPadded, isSelected);
 
 			// Calculate space for value
@@ -184,10 +185,15 @@ export class SettingsList implements Component {
 		} else if (kb.matches(data, "tui.select.down")) {
 			if (displayItems.length === 0) return;
 			this.selectedIndex = this.selectedIndex === displayItems.length - 1 ? 0 : this.selectedIndex + 1;
+		} else if (kb.matches(data, "tui.select.pageUp")) {
+			this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisible);
+		} else if (kb.matches(data, "tui.select.pageDown")) {
+			this.selectedIndex = Math.max(0, Math.min(displayItems.length - 1, this.selectedIndex + this.maxVisible));
+		} else if (kb.matches(data, "tui.select.cancel")) {
+			// Checked before the Space shortcut so a cancel binding on Space cancels instead of changing the value.
+			this.onCancel();
 		} else if (kb.matches(data, "tui.select.confirm") || data === " ") {
 			this.activateItem();
-		} else if (kb.matches(data, "tui.select.cancel")) {
-			this.onCancel();
 		} else if (this.searchEnabled && this.searchInput) {
 			const sanitized = data.replace(/ /g, "");
 			if (!sanitized) {

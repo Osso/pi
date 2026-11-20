@@ -121,4 +121,20 @@ describe("SelectList", () => {
 		assert.ok(rendered[0].includes("…"));
 		assert.equal(visibleIndexOf(rendered[0], "first"), visibleIndexOf(rendered[1], "second"));
 	});
+
+	it("moves the selection by one page with Page Down and Page Up", () => {
+		const items = Array.from({ length: 12 }, (_, index) => ({
+			value: `item-${index + 1}`,
+			label: `Item ${index + 1}`,
+		}));
+		const list = new SelectList(items, 5, testTheme);
+
+		list.handleInput("\x1b[6~");
+		assert.equal(list.getSelectedItem()?.value, "item-6");
+		list.handleInput("\x1b[6~");
+		list.handleInput("\x1b[6~");
+		assert.equal(list.getSelectedItem()?.value, "item-12");
+		list.handleInput("\x1b[5~");
+		assert.equal(list.getSelectedItem()?.value, "item-7");
+	});
 });
