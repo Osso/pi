@@ -202,6 +202,12 @@ describe("Input component", () => {
 			input.handleInput("\x05"); // Ctrl+E
 			input.handleInput("\x17"); // Ctrl+W - deletes "bar"
 			assert.strictEqual(input.getValue(), "foo:");
+
+			// A combining mark on the punctuation stays with it.
+			input.setValue("one'\u0301two");
+			input.handleInput("\x05"); // Ctrl+E
+			input.handleInput("\x17"); // Ctrl+W - deletes "two"
+			assert.strictEqual(input.getValue(), "one'\u0301");
 		});
 
 		it("Ctrl+W handles Unicode word boundaries", () => {

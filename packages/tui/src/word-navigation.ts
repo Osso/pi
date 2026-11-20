@@ -48,7 +48,8 @@ export function findWordBackward(text: string, cursor: number, options?: WordNav
 	} else if (last.isWordLike) {
 		// Skip inside one word-like segment, preserving ASCII punctuation boundaries.
 		const segment = last.segment;
-		const matches = [...segment.matchAll(new RegExp(PUNCTUATION_REGEX, "g"))];
+		// Combining marks on the punctuation belong to its grapheme, so the boundary comes after them.
+		const matches = [...segment.matchAll(new RegExp(`${PUNCTUATION_REGEX.source}\\p{M}*`, "gu"))];
 		const lastMatch = matches[matches.length - 1];
 		if (!lastMatch) {
 			newCursor -= segment.length;

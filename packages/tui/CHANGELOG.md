@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Backward word deletion and movement keep a combining mark with the punctuation it modifies, instead of stopping inside that grapheme.
 - `Editor.isHistorySearchActive()` reports whether Ctrl+R history search is open, so wrappers that intercept Escape can let the editor cancel the search.
 - Markdown tables narrowed to fit the width keep two cells per column when there is room, so a column of wide (CJK) characters no longer renders blank.
 - Editor vertical movement keeps the aimed terminal-cell column after landing inside a wide grapheme, so the next Up or Down no longer drifts one column left.
