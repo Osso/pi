@@ -64,7 +64,7 @@ class UserMessageList implements Component {
 			// Second line: metadata (position in history)
 			const position = i + 1;
 			const metadata = `  Message ${position} of ${this.messages.length}`;
-			const metadataLine = theme.fg("muted", metadata);
+			const metadataLine = theme.fg("muted", truncateToWidth(metadata, width));
 			lines.push(metadataLine);
 			lines.push(""); // Blank line between messages
 		}
