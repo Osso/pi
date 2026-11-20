@@ -324,7 +324,13 @@ export function getOpenRouterCatalogModels(): Model<Api>[] {
 
 /** Merge OpenRouter routing so an override replaces single price limits, not the whole max_price object. */
 export function mergeOpenRouterRouting(base?: OpenRouterRouting, override?: OpenRouterRouting): OpenRouterRouting {
-	const maxPrice = base?.max_price &&
-		override?.max_price && { max_price: { ...base.max_price, ...override.max_price } };
-	return { ...base, ...override, ...maxPrice };
+	const isObject = (value: unknown): value is object =>
+		typeof value === "object" && value !== null && !Array.isArray(value);
+	const merged: Record<string, unknown> = { ...base, ...override };
+	// Object-valued preferences (max_price, sort, preferred_*) merge field by field.
+	for (const [key, value] of Object.entries(override ?? {})) {
+		const baseValue: unknown = base?.[key as keyof OpenRouterRouting];
+		if (isObject(value) && isObject(baseValue)) merged[key] = { ...baseValue, ...value };
+	}
+	return merged as OpenRouterRouting;
 }

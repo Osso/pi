@@ -795,6 +795,44 @@ describe("ModelRegistry", () => {
 			});
 		});
 
+		test("model override keeps inherited OpenRouter sort and latency fields but replaces a sort string", () => {
+			writeRawModelsJson({
+				openrouter: {
+					compat: {
+						openRouterRouting: {
+							sort: { by: "price", partition: "model" },
+							preferred_max_latency: { p50: 2, p90: 5 },
+							order: ["anthropic", "together"],
+						},
+					},
+					modelOverrides: {
+						"anthropic/claude-sonnet-4": {
+							compat: {
+								openRouterRouting: {
+									sort: { by: "latency" },
+									preferred_max_latency: { p90: 3 },
+									order: ["together"],
+								},
+							},
+						},
+						"anthropic/claude-opus-4": { compat: { openRouterRouting: { sort: "throughput" } } },
+					},
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const models = getModelsForProvider(registry, "openrouter");
+			const routing = (id: string) =>
+				(models.find((m) => m.id === id)?.compat as OpenAICompletionsCompat | undefined)?.openRouterRouting;
+
+			expect(routing("anthropic/claude-sonnet-4")).toEqual({
+				sort: { by: "latency", partition: "model" },
+				preferred_max_latency: { p50: 2, p90: 3 },
+				order: ["together"],
+			});
+			expect(routing("anthropic/claude-opus-4")?.sort).toBe("throughput");
+		});
+
 		test("multiple model overrides on same provider", () => {
 			writeRawModelsJson({
 				openrouter: {
