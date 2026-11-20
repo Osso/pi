@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--mode` reports a missing value without consuming the next option or the `--` separator.
 - A zero-byte `settings.json` now reports a parse error. Reload keeps the previous settings, and saves leave the invalid file unchanged.
 - `read` reports the full file size in `details.truncation.totalBytes` when a bounded read stops inside an oversized first line.
 - `read` counts blank lines toward the 2,000-line cap and gives the correct continuation offset when a page ends on a blank line.
