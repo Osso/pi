@@ -319,8 +319,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		}
 		// Pass everything else to search input
 		else {
+			// Cursor keys leave the query unchanged; refiltering would reset the highlighted row.
+			const previousQuery = this.searchInput.getValue();
 			this.searchInput.handleInput(keyData);
-			this.filterModels(this.searchInput.getValue());
+			if (this.searchInput.getValue() !== previousQuery) this.filterModels(this.searchInput.getValue());
 		}
 	}
 

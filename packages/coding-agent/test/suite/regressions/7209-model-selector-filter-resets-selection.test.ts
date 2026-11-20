@@ -62,6 +62,17 @@ describe("issue #7209 model selector filter selects the top row", () => {
 		expect(stripAnsi(selector.render(120).join("\n"))).not.toContain("beta-1");
 	});
 
+	it("keeps the highlighted match when a cursor key leaves the query unchanged", async () => {
+		const selector = await createSelector([]);
+		for (const char of "alpha") selector.handleInput(char);
+		selector.handleInput("\x1b[B");
+		expect(selectedModelId(selector)).toBe("alpha-2");
+
+		selector.handleInput("\x1b[D");
+
+		expect(selectedModelId(selector)).toBe("alpha-2");
+	});
+
 	it("moves the selection to the first match in the scoped tab", async () => {
 		// The current model alpha-1 is the third scoped entry, so the selection starts on row 2.
 		const selector = await createSelector(["alpha-2", "alpha-3", "alpha-1"]);

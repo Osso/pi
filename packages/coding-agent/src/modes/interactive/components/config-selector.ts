@@ -451,8 +451,9 @@ class ResourceList implements Component, Focusable {
 		}
 
 		// Pass to search input
+		const previousQuery = this.searchInput.getValue();
 		this.searchInput.handleInput(data);
-		this.filterItems(this.searchInput.getValue());
+		if (this.searchInput.getValue() !== previousQuery) this.filterItems(this.searchInput.getValue());
 	}
 
 	private toggleResource(item: ResourceItem, enabled: boolean): void {
