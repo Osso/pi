@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Bedrock streams that end without `messageStop` now finish with an error that keeps the partial content, instead of `stopReason: "stop"`.
 - A blank `retry-after` or `retry-after-ms` header no longer counts as a zero-second retry delay.
 - Fixed Google and Vertex streams dropping a signed part that carries no `text` field (such as a signed empty thought before a function call); its signature is now kept and replayed
 - Fixed OpenAI Responses and Codex streams cut off by the output limit returning a finished tool call with empty arguments when the call item ended as `incomplete`, or `stopReason: "toolUse"` when the incomplete response omitted its status; both now end with `stopReason: "length"` without the cut-off call

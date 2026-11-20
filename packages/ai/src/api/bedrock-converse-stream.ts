@@ -238,11 +238,8 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				...(options.requestMetadata !== undefined && { requestMetadata: options.requestMetadata }),
 			};
 			const nextCommandInput = await options?.onPayload?.(commandInput, model);
-			if (nextCommandInput !== undefined) {
-				commandInput = nextCommandInput as typeof commandInput;
-			}
+			if (nextCommandInput !== undefined) commandInput = nextCommandInput as typeof commandInput;
 			const command = new ConverseStreamCommand(commandInput);
-
 			const response = await client.send(command, { abortSignal: options.signal });
 			if (response.$metadata.httpStatusCode !== undefined) {
 				const responseHeaders: Record<string, string> = {};
@@ -251,8 +248,8 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				}
 				await options?.onResponse?.({ status: response.$metadata.httpStatusCode, headers: responseHeaders }, model);
 			}
-
 			if (!response.stream) throw new Error("Bedrock response stream is missing");
+			let messageStopped = false;
 			for await (const item of response.stream) {
 				if (item.messageStart) {
 					if (item.messageStart.role !== ConversationRole.ASSISTANT) {
@@ -267,6 +264,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
 					output.stopReason = mapStopReason(item.messageStop.stopReason);
+					messageStopped = true;
 				} else if (item.metadata) {
 					handleMetadata(item.metadata, model, output);
 				} else if (item.internalServerException) {
@@ -289,6 +287,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			if (output.stopReason === "error" || output.stopReason === "aborted") {
 				throw new Error("An unknown error occurred");
 			}
+			if (!messageStopped) throw new Error("Bedrock stream ended before messageStop");
 
 			// A stream can settle without stopping every block, so finalize here too.
 			for (const block of output.content) finalizeStreamingBlock(block as Block);

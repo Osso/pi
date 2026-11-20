@@ -185,6 +185,22 @@ describe("Bedrock redacted reasoning", () => {
 		expect(Object.hasOwn(thinking ?? {}, "index")).toBe(false);
 	});
 
+	it("reports an error that keeps partial text when the stream ends without messageStop", async () => {
+		bedrockMock.streamEvents = [
+			{ messageStart: { role: "assistant" } },
+			{ contentBlockDelta: { contentBlockIndex: 0, delta: { text: "Partial" } } },
+			{ contentBlockStop: { contentBlockIndex: 0 } },
+		];
+
+		const response = await streamBedrock(gptModel, {
+			messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
+		}).result();
+
+		expect(response.stopReason).toBe("error");
+		expect(response.errorMessage).toContain("messageStop");
+		expect(response.content).toEqual([{ type: "text", text: "Partial" }]);
+	});
+
 	it("joins encrypted reasoning split across deltas", async () => {
 		const [head, tail] = [bedrockMock.redactedBytes.slice(0, 7), bedrockMock.redactedBytes.slice(7)];
 		bedrockMock.streamEvents = [
