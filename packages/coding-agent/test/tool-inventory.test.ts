@@ -8,6 +8,23 @@ import { formatToolInventory } from "../src/cli/list-tools.ts";
 import type { Extension, ToolInfo } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
+function projectExtension(name: string): Extension {
+	const path = `/repo/.pi/extensions/${name}`;
+	return {
+		path,
+		resolvedPath: path,
+		sourceInfo: { path, source: "auto", scope: "project", origin: "top-level" },
+		handlers: new Map(),
+		approvalReviewers: [],
+		toolGates: [],
+		tools: new Map(),
+		messageRenderers: new Map(),
+		commands: new Map(),
+		flags: new Map(),
+		shortcuts: new Map(),
+	};
+}
+
 describe("tool inventory", () => {
 	it("formats active and inactive tools with their sources", () => {
 		const tools: ToolInfo[] = [
@@ -163,27 +180,20 @@ describe("tool inventory", () => {
 	});
 
 	it("aligns extension counts after wide filenames", () => {
-		const extension = (name: string): Extension => {
-			const path = `/repo/.pi/extensions/${name}`;
-			return {
-				path,
-				resolvedPath: path,
-				sourceInfo: { path, source: "auto", scope: "project", origin: "top-level" },
-				handlers: new Map(),
-				approvalReviewers: [],
-				toolGates: [],
-				tools: new Map(),
-				messageRenderers: new Map(),
-				commands: new Map(),
-				flags: new Map(),
-				shortcuts: new Map(),
-			};
-		};
-		const [, , header, , ...rows] = formatExtensionInventory([extension("notes.ts"), extension("日報.ts")]).split(
-			"\n",
-		);
+		const [, , header, , ...rows] = formatExtensionInventory([
+			projectExtension("notes.ts"),
+			projectExtension("日報.ts"),
+		]).split("\n");
 		const commandsColumn = header?.indexOf("commands");
 		expect(rows.map((row) => visibleWidth(row.slice(0, row.indexOf("0"))))).toEqual([commandsColumn, commandsColumn]);
+	});
+
+	it("shows distinct paths for nested extensions with the same display label", () => {
+		const journal = projectExtension("journal/lib/index.ts");
+		const review = projectExtension("review/lib/index.ts");
+		const rows = formatExtensionInventory([review, journal]).split("\n").slice(4);
+
+		expect(rows).toEqual([expect.stringContaining(journal.path), expect.stringContaining(review.path)]);
 	});
 
 	it("shows an explicit empty state when no extensions are loaded", () => {

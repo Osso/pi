@@ -80,6 +80,16 @@ function formatRows(headers: ExtensionInventoryRow, rows: ExtensionInventoryRow[
 	].map((line) => line.trimEnd());
 }
 
+function disambiguateExtensionLabels(rows: Array<ExtensionInventoryRow & { path: string }>): ExtensionInventoryRow[] {
+	const labelKey = (row: ExtensionInventoryRow) => JSON.stringify([row.scope, row.source, row.extension]);
+	const labelCounts = new Map<string, number>();
+	for (const row of rows) {
+		const key = labelKey(row);
+		labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+	}
+	return rows.map((row) => ((labelCounts.get(labelKey(row)) ?? 0) > 1 ? { ...row, extension: row.path } : row));
+}
+
 export function formatExtensionInventory(extensions: Extension[]): string {
 	if (extensions.length === 0) {
 		return "Loaded extensions: none";
@@ -88,6 +98,7 @@ export function formatExtensionInventory(extensions: Extension[]): string {
 	const rows = [...extensions]
 		.sort((a, b) => a.path.localeCompare(b.path))
 		.map((extension) => ({
+			path: extension.path,
 			scope: scopeLabel(extension),
 			source: sourceLabel(extension),
 			extension: extensionLabel(extension),
@@ -108,7 +119,7 @@ export function formatExtensionInventory(extensions: Extension[]): string {
 				tools: "tools",
 				handlers: "handlers",
 			},
-			rows,
+			disambiguateExtensionLabels(rows),
 		),
 	].join("\n");
 }

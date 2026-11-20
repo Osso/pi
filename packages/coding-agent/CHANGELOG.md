@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The extension inventory shows full paths when distinct extensions would otherwise have the same scope, source, and label.
 - The extension inventory aligns registration counts when a filename contains wide characters.
 - A Bash command that exits while Pi is detaching it now completes the registered background job and retains its output.
 - The default footer shows the same rounded session cost no matter when it renders between replies.

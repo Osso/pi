@@ -25,6 +25,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] `/extensions` must be a built-in slash command.
 - [x] Extension inventory output must include every loaded extension, its scope/source, and registered command/tool/handler counts.
 - [x] Extension inventory columns must align in terminal cells, including for filenames with wide characters.
+- [x] Extension inventory uses full paths when multiple rows share the same scope, source, and short label; other rows keep their short labels.
 - [x] Extension inventory output must show an explicit empty state when no extensions are loaded.
 - [x] Extension inventory output must include built-in first-party runtime extensions such as `approval-controls`, `goal`, `agents-core`, `agent-viewer`, `agents-mailbox`, and `run-plan` even while project trust is being resolved.
 
