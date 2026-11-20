@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Nested skill ignore files now work in directories whose names contain glob characters such as `team[1]`; the directory prefix is escaped before it is joined to each rule
 - Fixed a sequential tool call still running when the agent was aborted while a `tool_execution_start` listener ran; it now reports `Operation aborted`, as parallel calls already did
 - Fixed `executeShellWithCapture` losing the output tail when a large chunk was followed by a short one: the rolling buffer dropped the large chunk and kept only the short one (port of the coding-agent fix)
 - Fixed `truncateHead` and `truncateTail` reporting truncation for output that ends in a newline and fits the limits: the final newline was counted as an extra line (`truncateHead`) and against the byte limit (port of the coding-agent fix)

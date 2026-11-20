@@ -222,8 +222,10 @@ export function prefixIgnorePattern(line: string, prefix: string): string | null
 	const pattern = negated ? line.slice(1) : line;
 	const anchored = pattern.startsWith("/") || pattern.replace(/\/$/, "").includes("/");
 	const relativePattern = pattern.startsWith("/") ? pattern.slice(1) : pattern;
+	// The prefix is a literal path: escape glob characters such as the brackets in `team[1]/`.
+	const literalPrefix = prefix.replace(/[\\*?[\]]/g, "\\$&");
 	// Basename rules match at every depth below the ignore file's directory.
-	const prefixed = `${prefix}${anchored ? "" : "**/"}${relativePattern}`;
+	const prefixed = `${literalPrefix}${anchored ? "" : "**/"}${relativePattern}`;
 	return negated ? `!${prefixed}` : prefixed;
 }
 
