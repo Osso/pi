@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `grep` tool limits `./*.ts` (and `!./*.ts`) globs to the search directory's top level, and matches brace globs after a fixed directory such as `pkg/{src/*.ts,test/*.js}`.
 - Edit diffs in the TUI show whitespace-only changes; the removed line no longer shows the new line's spacing.
 - The `edit` tool's returned patch keeps a file's UTF-8 BOM, so it applies to the original file when the first line changes.
 - Cancelling the `/tree` summary prompt reopens the tree with the filter selected in the picker, so the chosen entry stays selected.

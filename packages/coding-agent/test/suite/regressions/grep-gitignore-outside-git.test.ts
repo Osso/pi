@@ -51,6 +51,8 @@ describe("grep respects .gitignore outside git repositories", () => {
 		{ insideGit: true, glob: "src/**/*.ts", expected: ["src/deep/nested.ts", "src/top.ts"] },
 		{ insideGit: false, glob: "{src/*.ts,kept.ts}", expected: ["kept.ts", "src/top.ts"] },
 		{ insideGit: true, glob: "{src/deep/*.ts,*.txt}", expected: ["kept.txt", "src/deep/nested.ts"] },
+		{ insideGit: false, glob: "./*.ts", expected: ["kept.ts"] },
+		{ insideGit: false, glob: "src/{deep/*.ts,top.ts}", expected: ["src/deep/nested.ts", "src/top.ts"] },
 	])(
 		"filters by $glob without including ignored files (insideGit: $insideGit)",
 		async ({ insideGit, glob, expected }) => {
@@ -70,5 +72,11 @@ describe("grep respects .gitignore outside git repositories", () => {
 	it("supports exclusion globs without including ignored files", async () => {
 		writeFileSync(join(tempRoot, "other.ts"), "needle\n");
 		expect(await grepFiles("!*.ts")).toEqual(["kept.txt"]);
+	});
+
+	it("excludes only top-level files with a ./ exclusion glob", async () => {
+		mkdirSync(join(tempRoot, "src"));
+		writeFileSync(join(tempRoot, "src", "nested.txt"), "needle\n");
+		expect(await grepFiles("!./*.txt")).toEqual(["src/nested.txt"]);
 	});
 });
