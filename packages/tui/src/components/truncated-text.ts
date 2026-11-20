@@ -33,12 +33,8 @@ export class TruncatedText implements Component {
 		// Calculate available width after horizontal padding
 		const availableWidth = Math.max(1, width - this.paddingX * 2);
 
-		// Take only the first line (stop at newline)
-		let singleLineText = this.text;
-		const newlineIndex = this.text.indexOf("\n");
-		if (newlineIndex !== -1) {
-			singleLineText = this.text.substring(0, newlineIndex);
-		}
+		// Take only the first line; a CR left in the output would return the cursor and let padding erase the text
+		const singleLineText = this.text.split(/\r\n|\r|\n/, 1)[0] ?? "";
 
 		// Truncate text if needed (accounting for ANSI codes)
 		const displayText = truncateToWidth(singleLineText, availableWidth);

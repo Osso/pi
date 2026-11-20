@@ -122,6 +122,10 @@ describe("TruncatedText component", () => {
 		assert.ok(!stripped.includes("Third line"));
 	});
 
+	it("keeps the first line of CRLF text without a carriage return", () => {
+		assert.deepStrictEqual(new TruncatedText("Hello\r\nSecond line", 1, 0).render(12), [" Hello      "]);
+	});
+
 	it("truncates first line even with newlines in text", () => {
 		const longMultilineText = "This is a very long first line that needs truncation\nSecond line";
 		const text = new TruncatedText(longMultilineText, 1, 0);
