@@ -57,7 +57,7 @@ import specValidationExtension from "../extensions/spec-validation/src/index.ts"
 import supervisorSessionExtension from "../extensions/supervisor-session/src/index.ts";
 import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
-import { type Args, optionArgs, parseArgs, printHelp, requestsTerminalExport } from "./cli/args.ts";
+import { type Args, optionArgs, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
 import { handleDebugCommand } from "./cli/debug-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -885,7 +885,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
-	if (requestsTerminalExport(args)) {
+	if (initialArgs.terminalExport) {
 		await exportTerminalHistory(initialArgs);
 		return;
 	}

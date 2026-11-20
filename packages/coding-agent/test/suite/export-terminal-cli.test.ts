@@ -222,6 +222,17 @@ describe("read-only terminal export CLI", () => {
 		}
 	}, 30000);
 
+	it("does not export when --export-terminal is the value of another option", async () => {
+		const paths = createHeadlessPaths();
+		try {
+			const result = await runExport(paths, ["--system-prompt", "--export-terminal", "--version"]);
+			expect(result.code, result.stderr).toBe(0);
+			expect(result.stdout).toMatch(/^\d+\.\d+\.\d+/);
+		} finally {
+			rmSync(paths.tempDir, { recursive: true, force: true });
+		}
+	}, 30000);
+
 	it.each([false, true])(
 		"default ID lookup does not create directories (saved=%s)",
 		async (saved) => {

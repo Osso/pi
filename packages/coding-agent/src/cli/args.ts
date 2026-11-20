@@ -42,6 +42,8 @@ export interface Args {
 	noExtensions?: boolean;
 	print?: boolean;
 	export?: string;
+	/** Set when --export-terminal or --export-columns is parsed as an option, not consumed as another option's value. */
+	terminalExport?: true;
 	exportTerminal?: string;
 	exportColumns?: number;
 	noSkills?: boolean;
@@ -219,6 +221,7 @@ export function parseArgs(args: string[]): Args {
 				i++;
 			}
 		} else if (arg === "--export-terminal") {
+			result.terminalExport = true;
 			const value = args[i + 1];
 			if (value && !value.startsWith("-")) {
 				result.exportTerminal = value;
@@ -227,6 +230,7 @@ export function parseArgs(args: string[]): Args {
 				result.diagnostics.push({ type: "error", message: "--export-terminal requires a session file or ID" });
 			}
 		} else if (arg === "--export-columns") {
+			result.terminalExport = true;
 			const value = args[i + 1];
 			if (value !== undefined && !value.startsWith("--")) i++;
 			const columns = Number(value);
@@ -312,7 +316,7 @@ export function parseArgs(args: string[]): Args {
 	}
 
 	result.diagnostics.push(...collectStandaloneWorkerDiagnostics(result));
-	if (requestsTerminalExport(args)) {
+	if (result.terminalExport) {
 		result.diagnostics.push(...collectTerminalExportDiagnostics(result));
 	}
 	return result;
@@ -324,10 +328,6 @@ export function optionArgs(args: string[]): string[] {
 	return end === -1 ? args : args.slice(0, end);
 }
 
-export function requestsTerminalExport(args: string[]): boolean {
-	return optionArgs(args).some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg));
-}
-
 function collectTerminalExportDiagnostics(parsed: Args): Args["diagnostics"] {
 	const diagnostics: Args["diagnostics"] = [];
 	if (parsed.exportTerminal === undefined) {
@@ -337,6 +337,7 @@ function collectTerminalExportDiagnostics(parsed: Args): Args["diagnostics"] {
 		diagnostics.push({ type: "error", message: "--export-terminal requires --export-columns <positive integer>" });
 	}
 	const allowed = new Set([
+		"terminalExport",
 		"exportTerminal",
 		"exportColumns",
 		"sessionDir",

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--export-terminal` passed as the value of another option (for example `--system-prompt --export-terminal`) no longer starts a terminal export.
 - `--worktree` now resolves relative `@file` arguments in the selected worktree instead of the launch directory.
 - The `ask_questions` tab bar keeps the active tab (including Submit) visible in a narrow terminal by hiding earlier tabs behind `…`.
 - The footer for a selected child agent no longer shows the pre-compaction context usage right after the child compacts; it uses the same compaction-aware estimate as the main session.
