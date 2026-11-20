@@ -289,4 +289,48 @@ describe("openai-responses provider defaults", () => {
 		expect(result.usage.cost.output).toBe(model.cost.output * multiplier);
 		expect(result.usage.cost.total).toBe((model.cost.input + model.cost.output) * multiplier);
 	});
+
+	it.each([
+		["onPayload adds priority", undefined, "priority", 2],
+		["onPayload removes priority", "priority", undefined, 1],
+	] as const)(
+		"prices the tier sent when %s and the response omits service_tier",
+		async (_case, optionTier, sentTier, multiplier) => {
+			const model = getModel("openai", "gpt-5.4");
+			const completed = {
+				type: "response.completed",
+				response: {
+					status: "completed",
+					usage: {
+						input_tokens: 1000000,
+						output_tokens: 1000000,
+						total_tokens: 2000000,
+						input_tokens_details: { cached_tokens: 0 },
+					},
+				},
+			};
+			let sentBody: { service_tier?: string } | undefined;
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+				sentBody = JSON.parse(String(init?.body));
+				return new Response(`data: ${JSON.stringify(completed)}\n\n`, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			});
+
+			const stream = streamOpenAIResponses(
+				model,
+				{ systemPrompt: "sys", messages: [{ role: "user", content: "hi", timestamp: Date.now() }] },
+				{
+					apiKey: "test-key",
+					serviceTier: optionTier,
+					onPayload: (payload) => ({ ...(payload as object), service_tier: sentTier }),
+				},
+			);
+			const result = await stream.result();
+
+			expect(sentBody?.service_tier).toBe(sentTier);
+			expect(result.usage.cost.total).toBe((model.cost.input + model.cost.output) * multiplier);
+		},
+	);
 });

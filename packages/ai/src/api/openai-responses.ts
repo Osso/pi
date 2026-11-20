@@ -130,7 +130,7 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 			stream.push({ type: "start", partial: output });
 
 			await processResponsesStream(openaiStream, output, stream, model, {
-				serviceTier: options?.serviceTier,
+				serviceTier: params.service_tier,
 				applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
 			});
 

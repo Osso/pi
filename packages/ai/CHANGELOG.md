@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- OpenAI Responses prices usage at the service tier actually sent after `onPayload` changes it, instead of the original `serviceTier` option, when the response omits `service_tier`.
 - Google Generative AI and Vertex streams that close before a `finishReason` fail with an error instead of reporting the partial answer as complete.
 - Bedrock `ThrottlingException` errors (`Throttling error: ...`) are classified as rate limits, so they retry and rotate model pools instead of ending the turn.
 - OpenRouter image generation reports a `content_filter` finish as an error, and counts `cached_tokens` as cache reads separately from `cache_write_tokens`, matching chat completions usage.
