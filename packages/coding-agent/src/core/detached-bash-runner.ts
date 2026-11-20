@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../config.ts";
@@ -13,6 +13,7 @@ import {
 	type DetachedJobOwnershipIdentity,
 	type DetachedJobTerminalInput,
 } from "./detached-job-runner.ts";
+import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "./runtime-process.ts";
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 import { isSqliteContentionError } from "./sqlite.ts";
 
@@ -70,6 +71,20 @@ export function writeDetachedBashLaunchManifest(path: string, data: DetachedBash
 
 export function writeDetachedBashActivation(path: string, identity: DetachedJobOwnershipIdentity): void {
 	writeAtomicJson(path, identity);
+}
+
+function bashActivationIntentPath(activationPath: string): string {
+	return `${activationPath}.pending`;
+}
+
+export function withDetachedBashActivationIntent<T>(activationPath: string, activate: () => T): T {
+	const intentPath = bashActivationIntentPath(activationPath);
+	try {
+		writeAtomicJson(intentPath, readProcessIdentity(process.pid));
+		return activate();
+	} finally {
+		rmSync(intentPath, { force: true });
+	}
 }
 
 export function requestDetachedBashForegroundCancellation(directory: string): Error | undefined {
@@ -165,15 +180,9 @@ export async function runDetachedBashRunner(
 	const cancelPath = join(manifest.artifacts.directory, FOREGROUND_BASH_CANCELLATION_MARKER);
 	if (!existsSync(cancelPath)) payload.release();
 	const { cancelReason, exit, identity, timedOut } = await waitForDetachedBashExit(payload, manifest, cancelPath);
-	if (!identity) {
-		writeAtomicJson(manifest.foregroundCompletionPath, {
-			cancelReason,
-			exitCode: exit.exitCode,
-			signal: exit.signal,
-			timedOut,
-		} satisfies DetachedBashForegroundCompletion);
-		return { exitCode: exit.exitCode, terminalRevision: 0 };
-	}
+	const ownership =
+		identity ?? (await publishForegroundExitAndWaitForActivation(manifest, { ...exit, cancelReason, timedOut }));
+	if (!ownership) return { exitCode: exit.exitCode, terminalRevision: 0 };
 	const outcome = timedOut
 		? ({ error: { message: "Detached Bash command timed out" }, kind: "failed" } as const)
 		: cancelReason
@@ -181,7 +190,7 @@ export async function runDetachedBashRunner(
 			: detachedBashOutcome(exit.exitCode, exit.signal);
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
-		identity,
+		ownership,
 		outcome,
 		options?.now?.() ?? new Date().toISOString(),
 		undefined,
@@ -192,6 +201,28 @@ export async function runDetachedBashRunner(
 	);
 	if (!finalized.ok) throw new Error(`Could not finalize detached Bash job: ${finalized.error}`);
 	return { exitCode: exit.exitCode, terminalRevision: finalized.terminalRevision };
+}
+
+async function publishForegroundExitAndWaitForActivation(
+	manifest: DetachedBashLaunchManifest,
+	completion: DetachedBashForegroundCompletion,
+): Promise<DetachedJobOwnershipIdentity | undefined> {
+	// A detach that started before this marker may already be registering the job.
+	writeAtomicJson(manifest.foregroundCompletionPath, completion);
+	const intentPath = bashActivationIntentPath(manifest.activationPath);
+	let intentPublisher: ProcessIdentity | undefined;
+	try {
+		intentPublisher = JSON.parse(readFileSync(intentPath, "utf8")) as ProcessIdentity;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+			throw new Error(`Could not read Bash detach intent ${intentPath}`, { cause: error });
+		}
+	}
+	while (intentPublisher && existsSync(intentPath) && isProcessIdentityAlive(intentPublisher)) {
+		await new Promise((resolve) => setTimeout(resolve, LAUNCH_MANIFEST_POLL_MS));
+	}
+	// Activation is published before the observer clears its intent.
+	return readDetachedBashActivation(manifest.activationPath);
 }
 
 async function waitForDetachedBashExit(

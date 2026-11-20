@@ -10,6 +10,8 @@ Contract: [Tool backgrounding](../../specs/tool-backgrounding.md).
 
 [`bash.ts`](../../../packages/coding-agent/src/core/tools/bash.ts) uses the durable runner when session lifecycle support is available. Detachment activates the background job synchronously and removes the foreground abort listener; later turn cancellation/restart teardown does not kill detached work. The foreground result identifies the job and output artifact. Later bytes remain in its log; timeout and `close_agent` still terminate work.
 
+For the Bash handoff, the parent writes a short-lived detach intent before checking the foreground completion marker. If the marker is already present, the parent clears the intent without registering a job. The runner records the payload exit before waiting for any pending, live intent to resolve. This keeps the runner available to settle the detached job if the parent commits the detach decision after the payload exits.
+
 [`Pyrun detached-evaluation.ts`](../../../packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts) requires a persisted supervisor, prepared execution agent ID, and lifecycle start timestamp. It writes `launch.json`, permission-locked `script.py`, and `output.log`, then observes canonical JSONL progress/results. The application-owned agent ID is separate from the provider tool-call ID. Detachment returns the job ID/log path while the runner continues. Results retain `durationMs`; notifications include duration. The interactive agent view renders script/output artifacts, not a fabricated child transcript.
 
 ## Recovery and completion

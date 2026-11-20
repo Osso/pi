@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- A Bash command that exits while Pi is detaching it now completes the registered background job and retains its output.
 - The default footer shows the same rounded session cost no matter when it renders between replies.
 - Startup honors `--offline` when it is an option, without mistaking a system prompt value for an offline flag or an option separator.
 - Markdown text such as a plain heading between two `---` rules is no longer stripped as YAML metadata.

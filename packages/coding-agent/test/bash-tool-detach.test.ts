@@ -214,9 +214,11 @@ describe("bash tool background detach", () => {
 			`while [ ! -f ${quotePath(releasePath)} ]; do sleep 0.02; done`,
 			"printf 'end-of-output\\n'",
 		].join("\n");
+		const store = new MultiAgentStore();
+		const detachRegistry = new BashToolDetachRegistry();
 		const tool = createBashToolDefinition(cwd, {
-			backgroundJobs: createBackgroundJobs(cwd, new MultiAgentStore()),
-			detachRegistry: new BashToolDetachRegistry(),
+			backgroundJobs: createBackgroundJobs(cwd, store),
+			detachRegistry,
 		});
 		try {
 			const result = await tool.execute(
@@ -229,16 +231,85 @@ describe("bash tool background detach", () => {
 					if (!job) throw new Error("Foreground Bash runner has no job directory");
 					const completionPath = join(jobs, job, "foreground-completed");
 					writeFileSync(releasePath, "release");
-					// Let the separate runner finish between the observer's output read and its completion check.
+					// Let the separate runner finish before the observer checks completion or tries to detach.
 					waitForBashCompletionMarker(completionPath);
+					detachRegistry.detachRunning();
 				},
 				{} as never,
 			);
 			expect(textFrom(result).trimEnd()).toBe("start-of-output\nend-of-output");
+			expect(store.listAgents()).toHaveLength(0);
 		} finally {
 			writeFileSync(releasePath, "release");
 		}
 	});
+
+	it.skipIf(process.platform === "win32")(
+		"completes a detached Bash job when its payload exits during registration",
+		async () => {
+			const cwd = await createTempDir();
+			const readyPath = join(cwd, "payload-ready");
+			const releasePath = join(cwd, "release-payload");
+			const scriptPath = join(cwd, "wait-for-release.mjs");
+			writeFileSync(
+				scriptPath,
+				[
+					"import { existsSync, writeFileSync } from 'node:fs';",
+					`const readyPath = ${JSON.stringify(readyPath)};`,
+					`const releasePath = ${JSON.stringify(releasePath)};`,
+					"writeFileSync(readyPath, 'ready');",
+					"const timer = setInterval(() => {",
+					"  if (!existsSync(releasePath)) return;",
+					"  console.log('released payload output');",
+					"  clearInterval(timer);",
+					"}, 10);",
+				].join("\n"),
+			);
+			const store = new MultiAgentStore();
+			const detachRegistry = new BashToolDetachRegistry();
+			const backgroundJobs = createBackgroundJobs(cwd, store);
+			const lifecycle = backgroundJobs.lifecycle;
+			if (!lifecycle) throw new Error("Missing detached Bash lifecycle controller");
+			const register = lifecycle.register;
+			lifecycle.register = (input) => {
+				const ownership = register(input);
+				writeFileSync(releasePath, "release\n");
+				waitForBashCompletionMarker(join(ownership.artifacts.directory, "foreground-completed"));
+				return ownership;
+			};
+			const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
+			const resultPromise = tool.execute(
+				"tool-bash-register-completion-race",
+				{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}`, timeout: 10 },
+				undefined,
+				undefined,
+				{} as never,
+			);
+
+			try {
+				await waitFor(() => existsSync(readyPath), "Node payload ready");
+				expect(detachRegistry.detachRunning()).toBe(true);
+				const result = await resultPromise;
+				expect(textFrom(result)).toContain("Command moved to background as job");
+
+				const [job] = store.listAgents();
+				if (!job) throw new Error("Missing detached Bash job");
+				await waitFor(() => {
+					backgroundJobs.lifecycle?.observe(job.id);
+					return store.getAgent(job.id)?.lifecycle === "completed";
+				}, "detached payload completion");
+				const completed = store.getAgent(job.id);
+				expect(completed?.result?.summary).toBe("Process exited successfully.");
+				const [fileRef] = completed?.result?.fileRefs ?? [];
+				expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);
+				expect(fileRef?.path ? readFileSync(fileRef.path, "utf8") : "").toContain("released payload output");
+			} finally {
+				writeFileSync(releasePath, "release\n");
+				await Promise.allSettled([resultPromise]);
+			}
+		},
+		20_000,
+	);
 
 	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();

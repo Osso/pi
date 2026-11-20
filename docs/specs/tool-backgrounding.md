@@ -13,6 +13,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       (`packages/coding-agent/test/runtime-mailbox.test.ts`: `backgrounds a running detachable tool when a steer is pending`).
 - [x] Auto-detach moves the tool out of the foreground only; explicit tool timeout settings continue to kill/fail the underlying work.
 - [x] Detached bash commands create a background job, write later output to an absolute log file reference, and support cancellation through `close_agent`.
+- [x] If a Bash payload exits during detach registration and activation succeeds, the detached job must complete
+      with the payload's exit status and complete output, subject to existing output limits. If foreground
+      completion was already observed before detach preparation, do not register a background job.
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, persist the submitted source as a permission-locked `script.py` file reference for the full running and terminal lifecycle, and record elapsed time in the agent result's `durationMs` field.
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
@@ -60,6 +63,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 ## How it works
 
+- See [Bash detach handoff](../wiki/systems/tool-backgrounding.md#detaching-work) for how the parent and runner coordinate completion.
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
 - `wait_agent({})` snapshots active background jobs and consumes every pending terminal notification already
@@ -90,6 +94,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 - `packages/coding-agent/test/bash-tool-detach.test.ts`
   - Pending regression coverage: write final bytes immediately before process exit and verify that the foreground result includes them.
+  - Pending regression proof: verify complete detached output and the payload's exit status when the payload exits
+    during registration and activation succeeds; verify that foreground completion observed before preparation
+    leaves no background job.
 - `packages/agent-core/test/agent-loop.test.ts` — prepared agent identity persistence and execution propagation.
 - `packages/coding-agent/test/tool-definition-wrapper.test.ts` — extension preparation and execution-context propagation.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — foreground Bash/Pyrun calls survive `/restart` as background jobs; interrupted Pyrun replay uses the original agent identity, ignores an unrelated historical manifest, and settles a child after a foreground wrapper fails following progress.

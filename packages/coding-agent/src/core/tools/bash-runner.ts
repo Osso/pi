@@ -4,6 +4,7 @@ import { getShellConfig } from "../../utils/shell.ts";
 import {
 	type DetachedBashForegroundCompletion,
 	requestDetachedBashForegroundCancellation,
+	withDetachedBashActivationIntent,
 	writeDetachedBashActivation,
 } from "../detached-bash-runner.ts";
 import type { DetachedJobLifecycleController } from "../detached-job-runner.ts";
@@ -107,11 +108,9 @@ async function observeForegroundBashRunner(
 	};
 	// Activate synchronously so an abort right after detach (restart teardown) finds a detached job, not a foreground runner.
 	const activateOnDetach = () => {
-		if (activation || aborted || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
-		forwardOutput();
-		if (aborted) return;
+		if (activation || aborted) return;
 		try {
-			activation = activateDetachedBashRunner(runner, cwd, options);
+			activation = activateDetachedBashRunner(runner, cwd, options, forwardOutput, () => aborted);
 		} catch (error) {
 			requestCancellation();
 			lifecycleError ??= error;
@@ -180,30 +179,36 @@ function activateDetachedBashRunner(
 		lifecycle: DetachedJobLifecycleController;
 		toolCallId?: string;
 	},
+	forwardOutput: () => void,
+	isAborted: () => boolean,
 ): { ownership: BashOwnership; result: BashRunnerResult } | undefined {
-	if (!isProcessIdentityAlive(runner.processIdentity)) return undefined;
-	const ownership = options.lifecycle.register({
-		agentType: "bash",
-		cwd,
-		detached: true,
-		displayName: "Bash command",
-		jobId: runner.jobId,
-		processIdentity: runner.processIdentity,
-		toolCallId: options.toolCallId,
-		workerHandleId: String(runner.runnerPid),
-	});
-	writeDetachedBashActivation(runner.activationPath, ownership.identity);
-	return {
-		ownership,
-		result: {
-			exitCode: null,
-			detached: {
-				jobId: runner.jobId,
-				logPath: runner.artifacts.outputPath,
-				message: `Detached bash command as background job ${runner.jobId}.`,
+	return withDetachedBashActivationIntent(runner.activationPath, () => {
+		if (readForegroundBashCompletion(runner.foregroundCompletionPath)) return undefined;
+		forwardOutput();
+		if (isAborted() || !isProcessIdentityAlive(runner.processIdentity)) return undefined;
+		const ownership = options.lifecycle.register({
+			agentType: "bash",
+			cwd,
+			detached: true,
+			displayName: "Bash command",
+			jobId: runner.jobId,
+			processIdentity: runner.processIdentity,
+			toolCallId: options.toolCallId,
+			workerHandleId: String(runner.runnerPid),
+		});
+		writeDetachedBashActivation(runner.activationPath, ownership.identity);
+		return {
+			ownership,
+			result: {
+				exitCode: null,
+				detached: {
+					jobId: runner.jobId,
+					logPath: runner.artifacts.outputPath,
+					message: `Detached bash command as background job ${runner.jobId}.`,
+				},
 			},
-		},
-	};
+		};
+	});
 }
 
 export function readForegroundBashCompletion(path: string): DetachedBashForegroundCompletion | undefined {
