@@ -469,6 +469,15 @@ export class AgentHarness<
 		if (missing.length > 0) throw new AgentHarnessError("invalid_argument", `Unknown tool(s): ${missing.join(", ")}`);
 	}
 
+	/** Writes queued by listeners during compact() or navigateTree() persist before the harness is idle again. */
+	private async settleStructuralOperation(): Promise<void> {
+		try {
+			await this.flushPendingSessionWrites();
+		} finally {
+			this.phase = "idle";
+		}
+	}
+
 	private async flushPendingSessionWrites(): Promise<void> {
 		while (this.pendingSessionWrites.length > 0) {
 			const write = this.pendingSessionWrites[0];
@@ -616,53 +625,42 @@ export class AgentHarness<
 		}
 	}
 
-	async prompt(text: string, options?: { images?: ImageContent[] }): Promise<AssistantMessage> {
+	private async runTurn(
+		buildText: (turnState: AgentHarnessTurnState<TSkill, TPromptTemplate, TTool>) => string,
+		options?: { images?: ImageContent[] },
+	): Promise<AssistantMessage> {
 		if (this.phase !== "idle") throw new AgentHarnessError("busy", "AgentHarness is busy");
 		this.phase = "turn";
 		const finishRunPromise = this.startRunPromise();
 		try {
 			const turnState = await this.createTurnState();
-			return await this.executeTurn(turnState, text, options);
+			return await this.executeTurn(turnState, buildText(turnState), options);
 		} catch (error) {
 			this.phase = "idle";
 			throw normalizeHarnessError(error, "unknown");
 		} finally {
 			finishRunPromise();
 		}
+	}
+
+	async prompt(text: string, options?: { images?: ImageContent[] }): Promise<AssistantMessage> {
+		return this.runTurn(() => text, options);
 	}
 
 	async skill(name: string, additionalInstructions?: string): Promise<AssistantMessage> {
-		if (this.phase !== "idle") throw new AgentHarnessError("busy", "AgentHarness is busy");
-		this.phase = "turn";
-		const finishRunPromise = this.startRunPromise();
-		try {
-			const turnState = await this.createTurnState();
+		return this.runTurn((turnState) => {
 			const skill = (turnState.resources.skills ?? []).find((candidate) => candidate.name === name);
 			if (!skill) throw new AgentHarnessError("invalid_argument", `Unknown skill: ${name}`);
-			return await this.executeTurn(turnState, formatSkillInvocation(skill, additionalInstructions));
-		} catch (error) {
-			this.phase = "idle";
-			throw normalizeHarnessError(error, "unknown");
-		} finally {
-			finishRunPromise();
-		}
+			return formatSkillInvocation(skill, additionalInstructions);
+		});
 	}
 
 	async promptFromTemplate(name: string, args: string[] = []): Promise<AssistantMessage> {
-		if (this.phase !== "idle") throw new AgentHarnessError("busy", "AgentHarness is busy");
-		this.phase = "turn";
-		const finishRunPromise = this.startRunPromise();
-		try {
-			const turnState = await this.createTurnState();
+		return this.runTurn((turnState) => {
 			const template = (turnState.resources.promptTemplates ?? []).find((candidate) => candidate.name === name);
 			if (!template) throw new AgentHarnessError("invalid_argument", `Unknown prompt template: ${name}`);
-			return await this.executeTurn(turnState, formatPromptTemplateInvocation(template, args));
-		} catch (error) {
-			this.phase = "idle";
-			throw normalizeHarnessError(error, "unknown");
-		} finally {
-			finishRunPromise();
-		}
+			return formatPromptTemplateInvocation(template, args);
+		});
 	}
 
 	async steer(text: string, options?: { images?: ImageContent[] }): Promise<void> {
@@ -737,7 +735,7 @@ export class AgentHarness<
 		} catch (error) {
 			throw normalizeHarnessError(error, "compaction");
 		} finally {
-			this.phase = "idle";
+			await this.settleStructuralOperation();
 		}
 	}
 
@@ -823,6 +821,7 @@ export class AgentHarness<
 				const entry = await this.session.getEntry(summaryId);
 				if (entry?.type === "branch_summary") summaryEntry = entry;
 			}
+			if (options?.label) await this.session.appendLabel(summaryId ?? targetId, options.label);
 			await this.emitOwn({
 				type: "session_tree",
 				newLeafId: await this.session.getLeafId(),
@@ -834,7 +833,7 @@ export class AgentHarness<
 		} catch (error) {
 			throw normalizeHarnessError(error, "branch_summary");
 		} finally {
-			this.phase = "idle";
+			await this.settleStructuralOperation();
 		}
 	}
 

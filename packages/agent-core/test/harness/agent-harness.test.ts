@@ -161,6 +161,66 @@ describe("AgentHarness", () => {
 		expect(persistedText).toEqual(["hello", "hook"]);
 	});
 
+	it("labels the navigation target when navigating without a summary", async () => {
+		const registration = newFaux();
+		registration.setResponses([fauxAssistantMessage("first reply"), fauxAssistantMessage("second reply")]);
+		const session = new Session(new InMemorySessionStorage());
+		const harness = new AgentHarness({
+			models,
+			env: new NodeExecutionEnv({ cwd: process.cwd() }),
+			session,
+			model: registration.getModel(),
+		});
+		await harness.prompt("one");
+		const firstReply = (await session.getEntries()).find(
+			(entry) => entry.type === "message" && entry.message.role === "assistant",
+		);
+		await harness.prompt("two");
+
+		const result = await harness.navigateTree(firstReply?.id ?? "", { label: "checkpoint" });
+
+		expect(result.cancelled).toBe(false);
+		expect(await session.getLabel(firstReply?.id ?? "")).toBe("checkpoint");
+	});
+
+	it("persists messages appended by session_tree listeners before navigation settles", async () => {
+		const registration = newFaux();
+		const requests: string[][] = [];
+		registration.setResponses([
+			fauxAssistantMessage("reply"),
+			fauxAssistantMessage("second reply"),
+			(context) => {
+				requests.push(textFromUserMessages(context.messages));
+				return fauxAssistantMessage("after navigation");
+			},
+		]);
+		const session = new Session(new InMemorySessionStorage());
+		const harness = new AgentHarness({
+			models,
+			env: new NodeExecutionEnv({ cwd: process.cwd() }),
+			session,
+			model: registration.getModel(),
+		});
+		await harness.prompt("one");
+		const reply = (await session.getEntries()).find(
+			(entry) => entry.type === "message" && entry.message.role === "assistant",
+		);
+		await harness.prompt("two");
+		harness.subscribe(async (event) => {
+			if (event.type !== "session_tree") return;
+			await harness.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "branch context" }],
+				timestamp: Date.now(),
+			});
+		});
+
+		await harness.navigateTree(reply?.id ?? "");
+		await harness.prompt("first prompt");
+
+		expect(requests).toEqual([["one", "branch context", "first prompt"]]);
+	});
+
 	it("abort clears steer and follow-up queues but preserves next-turn messages", async () => {
 		const registration = newFaux();
 		let releaseFirstResponse: (() => void) | undefined;
