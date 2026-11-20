@@ -1020,6 +1020,8 @@ describe("Editor component", () => {
 			["forward delete", "🇺x🇸", ["\x01", "\x1b[C", "\x1b[3~"]],
 			["backspace", "🇺x🇸", ["\x05", "\x1b[D", "\x7f"]],
 			["forward delete at the end of a line", "🇺\n🇸", ["\x1b[A", "\x05", "\x1b[3~"]],
+			["Ctrl+K at the end of a line", "🇺\n🇸", ["\x1b[A", "\x05", "\x0b"]],
+			["Alt+D at the end of a line", "🇺\n🇸", ["\x1b[A", "\x05", "\x1bd"]],
 		] as const) {
 			it(`keeps the cursor out of the flag joined by ${name}`, () => {
 				const editor = new Editor(createTestTUI(), defaultEditorTheme);

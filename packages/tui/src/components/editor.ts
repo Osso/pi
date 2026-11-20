@@ -1802,7 +1802,6 @@ export class Editor implements Component, Focusable {
 			this.killRing.push(deletedText, { prepend: false, accumulate: this.lastAction === "kill" });
 			this.lastAction = "kill";
 
-			// Delete from cursor to end of line
 			this.state.lines[this.state.cursorLine] = currentLine.slice(0, this.state.cursorCol);
 		} else if (this.state.cursorLine < this.state.lines.length - 1) {
 			this.pushUndoSnapshot();
@@ -1815,6 +1814,7 @@ export class Editor implements Component, Focusable {
 			this.state.lines[this.state.cursorLine] = currentLine + nextLine;
 			this.state.lines.splice(this.state.cursorLine + 1, 1);
 		}
+		this.setCursorCol(this.state.cursorCol); // joining lines can merge graphemes around the cursor
 
 		this.notifyTextChanged();
 	}
@@ -1867,7 +1867,6 @@ export class Editor implements Component, Focusable {
 
 		const currentLine = this.state.lines[this.state.cursorLine] || "";
 
-		// If at end of line, merge with next line (delete the newline)
 		if (this.state.cursorCol >= currentLine.length) {
 			if (this.state.cursorLine < this.state.lines.length - 1) {
 				this.pushUndoSnapshot();
@@ -1898,6 +1897,7 @@ export class Editor implements Component, Focusable {
 			this.state.lines[this.state.cursorLine] =
 				currentLine.slice(0, this.state.cursorCol) + currentLine.slice(deleteTo);
 		}
+		this.setCursorCol(this.state.cursorCol); // the deletion can merge graphemes around the cursor
 
 		this.notifyTextChanged();
 	}
