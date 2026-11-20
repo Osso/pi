@@ -44,14 +44,7 @@ import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import { formatExtensionInventory } from "../../cli/list-extensions.ts";
 import { formatToolInventory } from "../../cli/list-tools.ts";
-import {
-	APP_NAME,
-	APP_TITLE,
-	CONFIG_DIR_NAME,
-	getPromptHistoryPath,
-	getShareViewerUrl,
-	VERSION,
-} from "../../config.ts";
+import { APP_NAME, APP_TITLE, CONFIG_DIR_NAME, getPromptHistoryPath, VERSION } from "../../config.ts";
 import {
 	type AgentSession,
 	type AgentSessionEvent,
@@ -180,7 +173,6 @@ import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
-import { BorderedLoader } from "./components/bordered-loader.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { CoordinationMessageComponent } from "./components/coordination-message.ts";
@@ -214,9 +206,10 @@ import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { formatHotkeysMarkdown } from "./hotkeys-help.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { type Expandable, ExpandableText, renderLoadedResources } from "./loaded-resources.ts";
-import { LoginFlow } from "./login-flow.ts";
+import { LoginFlow, type LoginFlowHost } from "./login-flow.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
 import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
+import { shareSessionAsGist } from "./share-gist.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -578,6 +571,8 @@ export class InteractiveMode {
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
 	private readonly loginFlow: LoginFlow;
+	/** Narrow view of this mode for the dialogs and commands that live in their own modules. */
+	private readonly dialogHost: LoginFlowHost;
 	private multiAgentStore: MultiAgentStore | undefined;
 	private childViewSessionManager: SessionManager | undefined;
 	private childViewAgentId: string | undefined;
@@ -703,7 +698,7 @@ export class InteractiveMode {
 			() => this.updateEditorBorderColor(),
 		);
 		const mode = this;
-		this.loginFlow = new LoginFlow({
+		this.dialogHost = {
 			get session() {
 				return mode.session;
 			},
@@ -720,7 +715,8 @@ export class InteractiveMode {
 			updateEditorBorderColor: () => this.updateEditorBorderColor(),
 			maybeWarnAboutAnthropicSubscriptionAuth: (model) => this.maybeWarnAboutAnthropicSubscriptionAuth(model),
 			checkDaxnutsEasterEgg: (model) => this.checkDaxnutsEasterEgg(model),
-		});
+		};
+		this.loginFlow = new LoginFlow(this.dialogHost);
 	}
 
 	private getAutocompleteSourceTag(sourceInfo?: SourceInfo): string | undefined {
@@ -3390,7 +3386,7 @@ export class InteractiveMode {
 				return;
 			}
 			if (text === "/share") {
-				await this.handleShareCommand();
+				await shareSessionAsGist(this.dialogHost);
 				this.editor.setText("");
 				return;
 			}
@@ -6304,100 +6300,6 @@ export class InteractiveMode {
 				return;
 			}
 			await this.handleFatalRuntimeError("Failed to import session", error);
-		}
-	}
-
-	private async handleShareCommand(): Promise<void> {
-		// Check if gh is available and logged in
-		try {
-			const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
-			if (authResult.status !== 0) {
-				this.showError("GitHub CLI is not logged in. Run 'gh auth login' first.");
-				return;
-			}
-		} catch {
-			this.showError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-			return;
-		}
-
-		// Export to a temp file
-		const tmpFile = path.join(os.tmpdir(), "session.html");
-		try {
-			await this.session.exportToHtml(tmpFile);
-		} catch (error: unknown) {
-			this.showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
-			return;
-		}
-
-		// Show cancellable loader, replacing the editor
-		const loader = new BorderedLoader(this.ui, theme, "Creating gist...");
-		this.editorContainer.clear();
-		this.editorContainer.addChild(loader);
-		this.ui.setFocus(loader);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
-			loader.dispose();
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			try {
-				fs.unlinkSync(tmpFile);
-			} catch {
-				// Ignore cleanup errors
-			}
-		};
-
-		// Create a secret gist asynchronously
-		let proc: ReturnType<typeof spawn> | null = null;
-
-		loader.onAbort = () => {
-			proc?.kill();
-			restoreEditor();
-			this.showStatus("Share cancelled");
-		};
-
-		try {
-			const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
-				proc = spawn("gh", ["gist", "create", "--public=false", tmpFile]);
-				let stdout = "";
-				let stderr = "";
-				proc.stdout?.on("data", (data) => {
-					stdout += data.toString();
-				});
-				proc.stderr?.on("data", (data) => {
-					stderr += data.toString();
-				});
-				proc.on("close", (code) => resolve({ stdout, stderr, code }));
-			});
-
-			if (loader.signal.aborted) return;
-
-			restoreEditor();
-
-			if (result.code !== 0) {
-				const errorMsg = result.stderr?.trim() || "Unknown error";
-				this.showError(`Failed to create gist: ${errorMsg}`);
-				return;
-			}
-
-			// Extract gist ID from the URL returned by gh
-			// gh returns something like: https://gist.github.com/username/GIST_ID
-			const gistUrl = result.stdout?.trim();
-			const gistId = gistUrl?.split("/").pop();
-			if (!gistId) {
-				this.showError("Failed to parse gist ID from gh output");
-				return;
-			}
-
-			// Create the preview URL
-			const previewUrl = getShareViewerUrl(gistId);
-			this.showStatus(`Share URL: ${previewUrl}\nGist: ${gistUrl}`);
-		} catch (error: unknown) {
-			if (!loader.signal.aborted) {
-				restoreEditor();
-				this.showError(`Failed to create gist: ${error instanceof Error ? error.message : "Unknown error"}`);
-			}
 		}
 	}
 
