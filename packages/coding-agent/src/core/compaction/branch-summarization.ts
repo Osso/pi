@@ -14,7 +14,7 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "../messages.ts";
-import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
+import type { CompactionEntry, ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
 import { estimateTokens } from "./compaction.ts";
 import {
 	addSummaryFileOps,
@@ -202,9 +202,23 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 	// First pass: collect file ops from ALL entries (even if they don't fit in token budget)
 	// This ensures we capture cumulative file tracking from nested branch summaries
 	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
+	// A compaction's lists cover the entries before its first kept entry, so they count at that
+	// position (or first, when it lies before this range); the kept entries are more recent.
+	const ids = new Set(entries.map((entry) => entry.id));
+	const compactionsByKeptId = new Map<string, CompactionEntry[]>();
 	for (const entry of entries) {
+		if (entry.type !== "compaction") continue;
+		if (!ids.has(entry.firstKeptEntryId)) addSummaryFileOps(entry, fileOps);
+		else
+			compactionsByKeptId.set(entry.firstKeptEntryId, [
+				...(compactionsByKeptId.get(entry.firstKeptEntryId) ?? []),
+				entry,
+			]);
+	}
+	for (const entry of entries) {
+		for (const compaction of compactionsByKeptId.get(entry.id) ?? []) addSummaryFileOps(compaction, fileOps);
 		if (entry.type === "message") extractFileOpsFromMessage(entry.message, fileOps);
-		if (entry.type === "branch_summary" || entry.type === "compaction") addSummaryFileOps(entry, fileOps);
+		if (entry.type === "branch_summary") addSummaryFileOps(entry, fileOps);
 	}
 
 	// Second pass: walk from newest to oldest, adding messages until token budget
@@ -304,7 +318,13 @@ export async function generateBranchSummary(
 	const { messages, fileOps } = prepareBranchEntries(entries, tokenBudget);
 
 	if (messages.length === 0) {
-		return { summary: "No content to summarize" };
+		// File operations are tracked independently of the message budget.
+		const { readFiles, modifiedFiles } = computeFileLists(fileOps);
+		return {
+			summary: `No content to summarize${formatFileOperations(readFiles, modifiedFiles)}`,
+			readFiles,
+			modifiedFiles,
+		};
 	}
 
 	// Transform to LLM-compatible messages, then serialize to text

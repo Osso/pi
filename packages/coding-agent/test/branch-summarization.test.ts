@@ -62,6 +62,36 @@ describe("branch summarization file operations", () => {
 			modifiedFiles: ["pi-modified.ts"],
 		});
 	});
+
+	it("orders a compaction's files before the reads it kept verbatim", () => {
+		const read = (id: string, path: string): SessionEntry => ({
+			type: "message",
+			id,
+			parentId: null,
+			timestamp: "2026-11-14T00:00:00.000Z",
+			message: fauxAssistantMessage([{ type: "toolCall", id, name: "read", arguments: { path } }], {
+				stopReason: "toolUse",
+			}),
+		});
+		const entries: SessionEntry[] = [
+			read("m0", "a.ts"),
+			read("m1", "recent.ts"),
+			{
+				type: "compaction",
+				id: "c1",
+				parentId: "m1",
+				timestamp: "2026-11-14T00:00:00.000Z",
+				summary: "Read a.ts and old.ts",
+				firstKeptEntryId: "m1",
+				tokensBefore: 100,
+				details: { readFiles: ["a.ts", "old.ts"], modifiedFiles: [] },
+			},
+		];
+
+		const { readFiles } = computeFileLists(prepareBranchEntries(entries).fileOps);
+
+		expect(readFiles).toEqual(["a.ts", "old.ts", "recent.ts"]);
+	});
 });
 
 describe("generateBranchSummary", () => {
@@ -109,6 +139,32 @@ describe("generateBranchSummary", () => {
 
 		expect(result.error).toBeUndefined();
 		expect(requestedMaxTokens).toBe(expected);
+	});
+
+	it("keeps the file lists when no message fits the history budget", async () => {
+		const branch: SessionEntry[] = [
+			fauxAssistantMessage([{ type: "toolCall", id: "r", name: "read", arguments: { path: "package.json" } }], {
+				stopReason: "toolUse",
+			}),
+			{ role: "user" as const, content: "abcd".repeat(4000), timestamp: 2 },
+		].map((message, index) => ({
+			type: "message",
+			id: `e${index}`,
+			parentId: null,
+			timestamp: "2026-11-14T00:00:00.000Z",
+			message,
+		}));
+
+		const result = await generateBranchSummary(branch, {
+			model: { ...model, contextWindow: 2000 },
+			reserveTokens: 1000,
+			apiKey: "test-key",
+			signal: new AbortController().signal,
+		});
+
+		expect(result.readFiles).toEqual(["package.json"]);
+		expect(result.modifiedFiles).toEqual([]);
+		expect(result.summary).toContain("<read-files>\npackage.json\n</read-files>");
 	});
 
 	it("rejects a summary cut off at the token cap instead of persisting partial text", async () => {
