@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { formatExtensionInventory } from "../src/cli/list-extensions.ts";
@@ -159,6 +160,30 @@ describe("tool inventory", () => {
 			"project  auto    journal/index.ts  0         0      1",
 			"project  auto    review/index.ts   0         0      1",
 		]);
+	});
+
+	it("aligns extension counts after wide filenames", () => {
+		const extension = (name: string): Extension => {
+			const path = `/repo/.pi/extensions/${name}`;
+			return {
+				path,
+				resolvedPath: path,
+				sourceInfo: { path, source: "auto", scope: "project", origin: "top-level" },
+				handlers: new Map(),
+				approvalReviewers: [],
+				toolGates: [],
+				tools: new Map(),
+				messageRenderers: new Map(),
+				commands: new Map(),
+				flags: new Map(),
+				shortcuts: new Map(),
+			};
+		};
+		const [, , header, , ...rows] = formatExtensionInventory([extension("notes.ts"), extension("日報.ts")]).split(
+			"\n",
+		);
+		const commandsColumn = header?.indexOf("commands");
+		expect(rows.map((row) => visibleWidth(row.slice(0, row.indexOf("0"))))).toEqual([commandsColumn, commandsColumn]);
 	});
 
 	it("shows an explicit empty state when no extensions are loaded", () => {

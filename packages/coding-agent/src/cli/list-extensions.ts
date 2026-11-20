@@ -1,4 +1,5 @@
 import { basename, dirname } from "node:path";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Extension } from "../core/extensions/types.ts";
 
 interface ExtensionInventoryRow {
@@ -11,7 +12,7 @@ interface ExtensionInventoryRow {
 }
 
 function pad(value: string, width: number): string {
-	return value.padEnd(width);
+	return value + " ".repeat(width - visibleWidth(value));
 }
 
 function isFirstPartyPath(path: string): boolean {
@@ -36,13 +37,15 @@ function sourceLabel(extension: Extension): string {
 }
 
 function formatRows(headers: ExtensionInventoryRow, rows: ExtensionInventoryRow[]): string[] {
+	const columnWidth = (key: keyof ExtensionInventoryRow) =>
+		Math.max(visibleWidth(headers[key]), ...rows.map((row) => visibleWidth(row[key])));
 	const widths = {
-		scope: Math.max(headers.scope.length, ...rows.map((row) => row.scope.length)),
-		source: Math.max(headers.source.length, ...rows.map((row) => row.source.length)),
-		extension: Math.max(headers.extension.length, ...rows.map((row) => row.extension.length)),
-		commands: Math.max(headers.commands.length, ...rows.map((row) => row.commands.length)),
-		tools: Math.max(headers.tools.length, ...rows.map((row) => row.tools.length)),
-		handlers: Math.max(headers.handlers.length, ...rows.map((row) => row.handlers.length)),
+		scope: columnWidth("scope"),
+		source: columnWidth("source"),
+		extension: columnWidth("extension"),
+		commands: columnWidth("commands"),
+		tools: columnWidth("tools"),
+		handlers: columnWidth("handlers"),
 	};
 
 	return [
