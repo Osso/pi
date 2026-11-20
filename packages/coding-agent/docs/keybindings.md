@@ -181,8 +181,11 @@ Used inside the scoped models selector (opened via `/scoped-models`). Escape clo
 
 Create `~/.pi/agent/keybindings.json`:
 
+`ctrl+p` is also the default `app.model.cycleForward` key, and app actions run before editor movement, so these examples move model cycling to `f8` before using `ctrl+p` for cursor-up.
+
 ```json
 {
+  "app.model.cycleForward": "f8",
   "tui.editor.cursorUp": ["up", "ctrl+p"],
   "tui.editor.cursorDown": ["down", "ctrl+n"],
   "tui.editor.deleteWordBackward": ["ctrl+w", "alt+backspace"]
@@ -197,6 +200,7 @@ On native Windows, `app.suspend` has no default binding because Windows terminal
 
 ```json
 {
+  "app.model.cycleForward": "f8",
   "tui.editor.cursorUp": ["up", "ctrl+p"],
   "tui.editor.cursorDown": ["down", "ctrl+n"],
   "tui.editor.cursorLeft": ["left", "ctrl+b"],
