@@ -126,7 +126,12 @@ interface RestorablePyrunArtifactFixture extends PyrunEvaluationFixture {
 	scriptPath: string;
 }
 
-function createRestorablePyrunArtifact(toolCallId: string, output: string): RestorablePyrunArtifactFixture {
+function createRestorablePyrunArtifact(
+	toolCallId: string,
+	output: string,
+	options: { piBridgeEnabled?: boolean; getContextUsage?: () => unknown } = {},
+): RestorablePyrunArtifactFixture {
+	const piBridgeEnabled = options.piBridgeEnabled ?? false;
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-restore-artifact-"));
 	temporaryDirectories.push(root);
 	const sessionManager = SessionManager.create(root, join(root, "sessions"));
@@ -140,7 +145,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 		controlDbPath,
 		cwd: root,
 		footerData: undefined,
-		getContextUsage: () => undefined,
+		getContextUsage: options.getContextUsage ?? (() => undefined),
 		model: undefined,
 		sessionManager,
 		toolExecutionStartedAt: Date.now(),
@@ -154,7 +159,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 			throw new Error("Pi bridge disabled");
 		},
 		params,
-		piBridgeEnabled: false,
+		piBridgeEnabled,
 		runnerOptions: { command: join(root, "missing-pyrun") },
 		store,
 		toolCallId,
@@ -182,7 +187,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 		bridgeResponsePath: join(directory, "bridge-responses.jsonl"),
 		controlDbPath,
 		foregroundCompletionPath: join(directory, "foreground-completed"),
-		params: createCanonicalPyrunEvalParams(params, ctx, false),
+		params: createCanonicalPyrunEvalParams(params, ctx, piBridgeEnabled),
 		runnerAddress: { agentId: "pyrun_1", sessionId: sessionManager.getSessionId() },
 		runnerOptions: evalInput.runnerOptions,
 		runnerProcessIdentity: deadRunnerProcessIdentity,
@@ -405,6 +410,29 @@ describe("resuming durable Pyrun artifacts", () => {
 		expect(existsSync(fixture.manifestPath)).toBe(true);
 		expect(existsSync(fixture.scriptPath)).toBe(true);
 		expect(existsSync(pyrunJobDirectory(fixture, "pyrun_2"))).toBe(false);
+	});
+
+	it("replays a complete terminal result after the Pi context snapshot changed", async () => {
+		const output = `${JSON.stringify({
+			kind: "result",
+			result: { console: ["terminal output"], executed: "original code", type: "completed", value: 42 },
+		})}\n`;
+		const usage = (tokens: number) => () => ({ tokens, contextWindow: 100_000, percent: tokens / 1000 });
+		const fixture = createRestorablePyrunArtifact("restore-snapshot-call", output, {
+			piBridgeEnabled: true,
+			getContextUsage: usage(10_000),
+		});
+
+		const resumed = await replayInterruptedCall(fixture, {
+			ctx: {
+				...fixture.evalInput.ctx,
+				getContextUsage: usage(11_000),
+				toolExecutionStartedAt: Date.now(),
+			} as unknown as ExtensionContext,
+		});
+
+		expect(resumed).toMatchObject({ details: { type: "completed", value: 42 }, isError: false });
+		expect(JSON.stringify(resumed.content)).toContain("terminal output");
 	});
 
 	it("replays a complete terminal error with preceding console output", async () => {

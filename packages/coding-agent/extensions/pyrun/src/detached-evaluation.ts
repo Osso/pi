@@ -165,7 +165,9 @@ function restorePyrunCandidate(
 	jobId: string,
 ): PyrunResumeDecision | undefined {
 	const { directory, manifest } = candidate;
-	if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
+	// The Pi capability snapshot (context usage, git branch, model) changes between launch and replay.
+	const callIdentity = (params: object) => JSON.stringify({ ...params, pi: undefined });
+	if (callIdentity(manifest.params) !== callIdentity(expectedParams)) {
 		throw new Error(`Pyrun tool-call artifact collision for ${toolCallId}`);
 	}
 	const records = readCompletePyrunArtifactRecords(manifest.artifacts.outputPath);
