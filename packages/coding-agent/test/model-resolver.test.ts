@@ -237,6 +237,29 @@ describe("resolveModelScopeWithDiagnostics", () => {
 			warn.mockRestore();
 		}
 	});
+
+	test("matches a glob against a literal thinking-level tag in model IDs before treating it as a level", async () => {
+		const tagged = (id: string): Model<"anthropic-messages"> => ({
+			...mockModels[1],
+			id,
+			name: id,
+			provider: "ollama",
+		});
+		const registry = {
+			getAvailable: () => [tagged("qwen3:high"), tagged("qwen3:low")],
+		} as unknown as Parameters<typeof resolveModelScopeWithDiagnostics>[1];
+
+		const literal = await resolveModelScopeWithDiagnostics(["ollama/qwen*:high"], registry);
+		expect(literal.scopedModels.map(({ model, thinkingLevel }) => [model.id, thinkingLevel])).toEqual([
+			["qwen3:high", undefined],
+		]);
+
+		const level = await resolveModelScopeWithDiagnostics(["ollama/qwen*:medium"], registry);
+		expect(level.scopedModels.map(({ model, thinkingLevel }) => [model.id, thinkingLevel])).toEqual([
+			["qwen3:high", "medium"],
+			["qwen3:low", "medium"],
+		]);
+	});
 });
 
 describe("resolveCliModel", () => {

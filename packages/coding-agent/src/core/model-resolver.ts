@@ -289,17 +289,20 @@ export async function resolveModelScopeWithDiagnostics(
 			// Extract optional thinking level suffix (e.g., "provider/*:high")
 			const colonIdx = pattern.lastIndexOf(":");
 			const suffix = colonIdx === -1 ? undefined : pattern.substring(colonIdx + 1);
-			const thinkingLevel = suffix !== undefined && isValidThinkingLevel(suffix) ? suffix : undefined;
+			const levelSuffix = suffix !== undefined && isValidThinkingLevel(suffix) ? suffix : undefined;
+			let thinkingLevel: typeof levelSuffix;
 			// Match against "provider/modelId" or just the model ID, so "*sonnet*" needs no provider.
 			const matchGlob = (glob: string) =>
 				availableModels.filter(
 					(m) => matchesModelGlob(`${m.provider}/${m.id}`, glob) || matchesModelGlob(m.id, glob),
 				);
-			let matchingModels = matchGlob(thinkingLevel ? pattern.substring(0, colonIdx) : pattern);
-			// An invalid level suffix falls back to the default level with a warning, as for plain patterns.
-			if (matchingModels.length === 0 && suffix !== undefined && !thinkingLevel) {
+			// The full pattern comes first, so a literal ":high" tag in a model ID is not a thinking level.
+			let matchingModels = matchGlob(pattern);
+			if (matchingModels.length === 0 && suffix !== undefined) {
 				matchingModels = matchGlob(pattern.substring(0, colonIdx));
-				if (matchingModels.length > 0) {
+				thinkingLevel = levelSuffix;
+				// An invalid level suffix falls back to the default level with a warning, as for plain patterns.
+				if (matchingModels.length > 0 && !levelSuffix) {
 					const message = `Invalid thinking level "${suffix}" in pattern "${pattern}". Using default instead.`;
 					diagnostics.push({ type: "warning", message, pattern });
 				}
