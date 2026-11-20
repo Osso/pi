@@ -52,6 +52,17 @@ describe("CustomEditor prompt history persistence", () => {
 		expect(editor.getText()).toBe("older prompt");
 	});
 
+	it("shows each legacy prompt once on the launch that migrates it", () => {
+		const legacyPromptHistoryPath = join(tempDir, "prompt-history.json");
+		writeFileSync(legacyPromptHistoryPath, JSON.stringify([" explain tests ", "explain tests", "read README"]));
+		const editor = createEditor(controlDbPath, legacyPromptHistoryPath);
+
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("explain tests");
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("read README");
+	});
+
 	it("cancels Ctrl+R history search with Escape and restores the draft instead of running the app handler", () => {
 		recordPromptHistoryEntry(controlDbPath, "check tests");
 		const editor = createEditor(controlDbPath);

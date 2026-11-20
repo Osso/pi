@@ -59,9 +59,11 @@ export function readOrMigratePromptHistory(controlDbPath: string, legacyEntries:
 		const preparedRows = preparePromptHistoryMigrationRows(legacyEntries);
 		if (preparedRows.length === 0) return legacyEntries.slice(0, limit);
 		const inserted = insertPromptHistoryMigrationRows(db, preparedRows);
-		if (inserted === preparedRows.length) return legacyEntries.slice(0, limit);
-		if (inserted === 0) return readPromptHistoryRows(db, limit);
-		throw new Error(`Prompt history migration inserted ${inserted} of ${preparedRows.length} prepared rows`);
+		if (inserted !== 0 && inserted !== preparedRows.length) {
+			throw new Error(`Prompt history migration inserted ${inserted} of ${preparedRows.length} prepared rows`);
+		}
+		// The stored rows are trimmed and deduplicated; the raw legacy entries are not.
+		return readPromptHistoryRows(db, limit);
 	});
 }
 
