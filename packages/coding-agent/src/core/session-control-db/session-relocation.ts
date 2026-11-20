@@ -7,16 +7,53 @@ export interface SessionNameState {
 	hasStoredValue: boolean;
 }
 
-export function writeSessionName(controlDbPath: string, sessionPath: string, name: string | undefined): void {
+export type SessionNameWriteResult = SessionNameState & {
+	written: boolean;
+	revision: number | null;
+};
+
+type SessionNameWriteRow = {
+	name: string | null;
+	name_revision: number;
+};
+
+export function writeSessionName(
+	controlDbPath: string,
+	sessionPath: string,
+	name: string | undefined,
+	expectedRevision?: number | null,
+): SessionNameWriteResult {
 	const storedName = normalizeSessionName(name) ?? "";
-	withControlDb(controlDbPath, (db) => {
-		const result = db
-			.prepare("UPDATE session_metadata SET name = ?, updated_at = ? WHERE session_path = ?")
-			.run(storedName, new Date().toISOString(), sessionPath);
-		if (Number(result.changes) !== 1) {
-			throw new Error(`Cannot update session name without metadata for ${sessionPath}`);
-		}
+	const unconditional = expectedRevision === undefined;
+	const revision = expectedRevision ?? null;
+	return withControlDb(controlDbPath, (db) => {
+		const updated = db
+			.prepare(
+				`UPDATE session_metadata
+				 SET name = ?, name_revision = name_revision + 1, updated_at = ?
+				 WHERE session_path = ? AND (? OR (? IS NULL AND name IS NULL) OR name_revision = ?)
+				 RETURNING name, name_revision`,
+			)
+			.get(storedName, new Date().toISOString(), sessionPath, Number(unconditional), revision, revision) as
+			| SessionNameWriteRow
+			| undefined;
+		if (updated) return sessionNameWriteResult(updated, true);
+
+		const current = db
+			.prepare("SELECT name, name_revision FROM session_metadata WHERE session_path = ?")
+			.get(sessionPath) as SessionNameWriteRow | undefined;
+		if (!current) throw new Error(`Cannot update session name without metadata for ${sessionPath}`);
+		return sessionNameWriteResult(current, false);
 	});
+}
+
+function sessionNameWriteResult(row: SessionNameWriteRow, written: boolean): SessionNameWriteResult {
+	return {
+		name: normalizeSessionName(row.name ?? undefined),
+		hasStoredValue: row.name !== null,
+		written,
+		revision: row.name_revision,
+	};
 }
 
 export function readSessionNameState(controlDbPath: string, sessionPath: string): SessionNameState {

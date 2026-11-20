@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Fixed `set_session_name` overwriting manual renames or clears persisted by another process, including renames that repeat the tool's title. The tool can correct only the name revision it last wrote. Extension API calls to `pi.setSessionName(name)` remain unconditional unless an expected revision is supplied.
 - Fixed `--mode json` truncating queued JSONL on shutdown. The first signal lets session disposal finish and drains stdout before exit, preserving exit code 143 for `SIGTERM`. A second signal exits immediately, even if the reader is not consuming stdout, and can truncate output. The JSON schema is unchanged.
 - Fixed foreground runner-owned Bash calls sometimes omitting the final bytes written before process completion. The call now reads any remaining output after the completion marker before it reports the exit status.
 - Aborting a foreground Bash tool call now stops the shell and its process group instead of stopping only the supervising runner. Foreground teardown leaves already detached Bash jobs running.

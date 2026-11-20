@@ -17,14 +17,7 @@ interface SetSessionNameDetails {
 }
 
 export default function sessionAutonameExtension(pi: ExtensionAPI): void {
-	let nameSetByTool: string | undefined;
-	let ownNameEvents = 0;
-	// Any name change the tool did not make (/name, /unname, picker rename) takes the name out of its control,
-	// even when the new name repeats the tool's title.
-	pi.on("session_info_changed", () => {
-		if (ownNameEvents > 0) ownNameEvents--;
-		else nameSetByTool = undefined;
-	});
+	let lastWrite: { sessionId: string; revision: number } | undefined;
 
 	pi.registerTool<typeof SET_SESSION_NAME_PARAMETERS, SetSessionNameDetails>({
 		name: "set_session_name",
@@ -39,18 +32,21 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 		parameters: SET_SESSION_NAME_PARAMETERS,
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const name = normalizeName(params.name);
-			const refusal = describeRefusal(ctx, name, nameSetByTool);
+			const refusal = describeIneligibleSession(ctx, name);
 			if (refusal) return errorResult(refusal);
-			ownNameEvents++;
-			pi.setSessionName(name);
-			nameSetByTool = name;
+
+			const sessionId = ctx.sessionManager.getSessionId();
+			const expectedRevision = lastWrite?.sessionId === sessionId ? lastWrite.revision : null;
+			const result = pi.setSessionName(name, expectedRevision);
+			if (!result.written || result.revision === null) return errorResult(describeWriteRefusal(result));
+			lastWrite = { sessionId, revision: result.revision };
 			return { content: [{ type: "text", text: `Session name set to "${name}".` }], details: { name } };
 		},
 	});
 }
 
 /** Return why the session cannot take this name, or undefined when it can. */
-function describeRefusal(ctx: ExtensionContext, name: string, nameSetByTool: string | undefined): string | undefined {
+function describeIneligibleSession(ctx: ExtensionContext, name: string): string | undefined {
 	if (!name) return "Session name must be a non-empty string.";
 	if (ctx.multiAgentAgentId || ctx.sessionManager.isSubagentSession()) {
 		return "Child agent sessions cannot be named.";
@@ -58,14 +54,13 @@ function describeRefusal(ctx: ExtensionContext, name: string, nameSetByTool: str
 	if (!ctx.sessionManager.getSessionFile()) {
 		return "Only persisted sessions can be named.";
 	}
-	const currentName = ctx.sessionManager.getSessionName();
-	if (currentName === undefined && ctx.sessionManager.hasSessionNameState()) {
-		return "The session name was cleared explicitly; leave it unnamed.";
-	}
-	if (currentName !== undefined && currentName !== nameSetByTool) {
-		return `The session is already named "${currentName}".`;
-	}
 	return undefined;
+}
+
+function describeWriteRefusal(state: { name: string | undefined; hasStoredValue: boolean }): string {
+	if (state.name !== undefined) return `The session is already named "${state.name}".`;
+	if (state.hasStoredValue) return "The session name was cleared explicitly; leave it unnamed.";
+	return "The stored session name changed or is not available.";
 }
 
 function normalizeName(rawName: string): string {

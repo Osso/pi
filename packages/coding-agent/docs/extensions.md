@@ -1569,10 +1569,21 @@ pi.on("session_start", async (_event, ctx) => {
 
 ### pi.setSessionName(name)
 
-Set the session display name (shown in session selector instead of first message).
+Set the session display name (shown in the session selector instead of the first message). `pi.setSessionName(name)` remains unconditional.
+
+Pass `expectedRevision` as an optional second argument to make a conditional write:
+
+- `undefined` (or omitted): write unconditionally.
+- `null`: write only if the session has never had a stored name or an explicit clear.
+- A number: write only if it matches a revision previously returned for the session and that revision is still current.
+
+The revision comparison and persisted write are atomic. A persisted manual write changes the revision even if it sets the same name. A revision mismatch leaves the stored value unchanged.
+
+The result is `{ name, hasStoredValue, written, revision }`. `name` is the resulting display name, or `undefined` if unnamed. `hasStoredValue` distinguishes an explicit clear from a never-named session. `written` indicates whether the requested write was applied. `revision` is the resulting persisted name revision, or `null` when there is no persisted name revision.
 
 ```typescript
-pi.setSessionName("Refactor auth module");
+pi.setSessionName("Refactor auth module"); // Unconditional
+const result = pi.setSessionName("Refactor auth module", null); // Only if never named
 ```
 
 ### pi.getSessionName()

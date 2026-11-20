@@ -49,6 +49,7 @@ export const CONTROL_DB_SCHEMA_SQL = `
 			id TEXT NOT NULL,
 			cwd TEXT NOT NULL,
 			name TEXT,
+			name_revision INTEGER NOT NULL DEFAULT 0,
 			parent_session_path TEXT,
 			archived_at TEXT,
 			goal_json TEXT,

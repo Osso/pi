@@ -54,7 +54,7 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
 import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
-import type { RuntimeMailboxMessage } from "../session-control-db.ts";
+import type { RuntimeMailboxMessage, SessionNameWriteResult } from "../session-control-db.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -1527,7 +1527,7 @@ export interface ExtensionAPI {
 	// =========================================================================
 
 	/** Set the session display name (shown in session selector). */
-	setSessionName(name: string): void;
+	setSessionName(name: string, expectedRevision?: number | null): SessionNameWriteResult;
 
 	/** Get the current session name, if set. */
 	getSessionName(): string | undefined;
@@ -1757,7 +1757,7 @@ export type SendUserMessageHandler = (
 
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 
-export type SetSessionNameHandler = (name: string) => void;
+export type SetSessionNameHandler = (name: string, expectedRevision?: number | null) => SessionNameWriteResult;
 
 export type GetSessionNameHandler = () => string | undefined;
 

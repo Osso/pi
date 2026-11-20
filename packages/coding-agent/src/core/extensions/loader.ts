@@ -355,9 +355,9 @@ function createExtensionAPI(
 			runtime.requestResumeContinuation();
 		},
 
-		setSessionName(name: string): void {
+		setSessionName(name: string, expectedRevision?: number | null) {
 			runtime.assertActive();
-			runtime.setSessionName(name);
+			return runtime.setSessionName(name, expectedRevision);
 		},
 
 		getSessionName(): string | undefined {

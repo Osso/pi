@@ -43,6 +43,7 @@ import {
 	readSessionSandboxProfile,
 	relocateSessionControlData,
 	type SessionMetadata,
+	type SessionNameWriteResult,
 	type WritableSessionMetadata,
 	writeSessionGoal,
 	writeSessionMetadata,
@@ -1552,12 +1553,25 @@ export class SessionManager {
 	}
 
 	/** Set or clear the current session display name. */
-	setSessionName(name: string | undefined): void {
-		this.sessionName = normalizeSessionName(name);
-		this.hasStoredSessionName = true;
-		if (!this.metadataControlDbPath || !this.sessionFile) return;
+	setSessionName(name: string | undefined, expectedRevision?: number | null): SessionNameWriteResult {
+		if (!this.persist || !this.metadataControlDbPath || !this.sessionFile) {
+			if (expectedRevision !== undefined) {
+				return {
+					name: this.sessionName,
+					hasStoredValue: this.hasStoredSessionName,
+					written: false,
+					revision: null,
+				};
+			}
+			this.sessionName = normalizeSessionName(name);
+			this.hasStoredSessionName = true;
+			return { name: this.sessionName, hasStoredValue: true, written: true, revision: null };
+		}
 		this.writeMetadataSnapshot();
-		writeSessionName(this.metadataControlDbPath, this.sessionFile, this.sessionName);
+		const result = writeSessionName(this.metadataControlDbPath, this.sessionFile, name, expectedRevision);
+		this.sessionName = result.name;
+		this.hasStoredSessionName = result.hasStoredValue;
+		return result;
 	}
 
 	getSessionName(): string | undefined {
@@ -1568,13 +1582,8 @@ export class SessionManager {
 		return this.hasStoredSessionName;
 	}
 
-	/**
-	 * Append a custom message entry (for extensions) that participates in LLM context.
-	 * @param customType Extension identifier for filtering on reload
-	 * @param content Message content (string or TextContent/ImageContent array)
-	 * @param display Whether to show in TUI (true = styled display, false = hidden)
-	 * @param details Optional extension-specific metadata (not sent to LLM)
-	 * @returns Entry id
+	/** Append an extension message to LLM context; details are not sent to the model.
+	 * `display` controls whether it renders in the TUI.
 	 */
 	appendCustomMessageEntry<T = unknown>(
 		customType: string,
@@ -1612,9 +1621,7 @@ export class SessionManager {
 		return this.byId.get(id);
 	}
 
-	/**
-	 * Get all direct children of an entry.
-	 */
+	/** Get direct children of an entry. */
 	getChildren(parentId: string): SessionEntry[] {
 		const children: SessionEntry[] = [];
 		for (const entry of this.byId.values()) {
@@ -1625,18 +1632,12 @@ export class SessionManager {
 		return children;
 	}
 
-	/**
-	 * Get the label for an entry, if any.
-	 */
+	/** Get an entry's label, if any. */
 	getLabel(id: string): string | undefined {
 		return this.labelsById.get(id);
 	}
 
-	/**
-	 * Set or clear a label on an entry.
-	 * Labels are user-defined markers for bookmarking/navigation.
-	 * Pass undefined or empty string to clear the label.
-	 */
+	/** Set or clear an entry label; undefined or empty string clears it. */
 	appendLabelChange(targetId: string, label: string | undefined): string {
 		if (!this.byId.has(targetId)) {
 			throw new Error(`Entry ${targetId} not found`);
@@ -1660,11 +1661,7 @@ export class SessionManager {
 		return entry.id;
 	}
 
-	/**
-	 * Walk from entry to root, returning all entries in path order.
-	 * Includes all entry types (messages, compaction, model changes, etc.).
-	 * Use buildSessionContext() to get the resolved messages for the LLM.
-	 */
+	/** Walk from an entry to the root in path order, including all entry types. */
 	getBranch(fromId?: string): SessionEntry[] {
 		const path: SessionEntry[] = [];
 		const startId = fromId ?? this.leafId;
@@ -1677,17 +1674,13 @@ export class SessionManager {
 		return path;
 	}
 
-	/**
-	 * Build the active, compaction-aware entry list for context/rendering.
-	 * Uses tree traversal from current leaf.
+	/** Build the active, compaction-aware entry list from the current leaf.
 	 */
 	buildContextEntries(): SessionEntry[] {
 		return buildContextEntries(this.getEntries(), this.leafId, this.byId);
 	}
 
-	/**
-	 * Build the session context (what gets sent to the LLM).
-	 * Uses tree traversal from current leaf.
+	/** Build the LLM context from the current leaf path.
 	 */
 	buildSessionContext(): SessionContext {
 		return buildSessionContext(this.getEntries(), this.leafId, this.byId);

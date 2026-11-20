@@ -40,7 +40,7 @@ export type GoalRow = {
 };
 
 export interface SessionMetadataWriteValues {
-	name: string | null;
+	name: string | undefined;
 	archivedAt: string | null;
 	isSubagent: boolean;
 	subagentName: string | null;
@@ -55,6 +55,7 @@ export const UPSERT_SESSION_METADATA_SQL = `
 		id,
 		cwd,
 		name,
+		name_revision,
 		parent_session_path,
 		archived_at,
 		goal_json,
@@ -69,11 +70,12 @@ export const UPSERT_SESSION_METADATA_SQL = `
 		first_message,
 		updated_at
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(session_path) DO UPDATE SET
 		id = excluded.id,
 		cwd = excluded.cwd,
-		name = excluded.name,
+		name = CASE WHEN excluded.name_revision > 0 THEN excluded.name ELSE session_metadata.name END,
+		name_revision = session_metadata.name_revision + excluded.name_revision,
 		parent_session_path = excluded.parent_session_path,
 		archived_at = excluded.archived_at,
 		is_subagent = excluded.is_subagent,
@@ -95,7 +97,7 @@ export function readSessionMetadataWriteValues(
 	const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
 	const preservedIsSubagent = preserved?.is_subagent === 1;
 	return {
-		name: metadata.name !== undefined ? (normalizeSessionName(metadata.name) ?? "") : (preserved?.name ?? null),
+		name: metadata.name === undefined ? undefined : (normalizeSessionName(metadata.name) ?? ""),
 		archivedAt: metadata.archivedAt ?? preserved?.archived_at ?? null,
 		isSubagent: metadata.isSubagent ?? preservedIsSubagent,
 		subagentName: metadata.subagentName ?? preserved?.subagent_name ?? null,
@@ -114,7 +116,8 @@ export function writeSessionMetadataRow(
 		metadata.sessionPath,
 		metadata.id,
 		metadata.cwd,
-		values.name,
+		values.name ?? null,
+		values.name === undefined ? 0 : 1,
 		metadata.parentSessionPath ?? null,
 		values.archivedAt,
 		null,

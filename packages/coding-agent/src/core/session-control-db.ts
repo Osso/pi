@@ -148,6 +148,7 @@ export {
 	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db/session-metadata.ts";
+export type { SessionNameWriteResult } from "./session-control-db/session-relocation.ts";
 export {
 	listDescendantSessionPaths,
 	listSubagentSessionPaths,

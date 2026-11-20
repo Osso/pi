@@ -556,6 +556,7 @@ export function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 		"session_metadata",
 		{
 			name: "TEXT",
+			name_revision: "INTEGER NOT NULL DEFAULT 0",
 			parent_session_path: "TEXT",
 			archived_at: "TEXT",
 			goal_json: "TEXT",

@@ -207,6 +207,7 @@ import {
 	registerRuntimeMailboxListener,
 	retainControlDbConnection,
 	retireRuntimeMailboxListener,
+	type SessionNameWriteResult,
 	type SharedChannelMessage,
 	takeRuntimeMailboxMessagesForDelivery,
 	writeLastMessage,
@@ -4369,9 +4370,7 @@ export class AgentSession {
 					}
 				},
 				requestResumeContinuation: () => this.requestResumeContinuation(),
-				setSessionName: (name) => {
-					this.setSessionName(name);
-				},
+				setSessionName: (name, expectedRevision) => this.setSessionName(name, expectedRevision),
 				getSessionName: () => {
 					return this.sessionManager.getSessionName();
 				},
@@ -4887,18 +4886,18 @@ export class AgentSession {
 	// =========================================================================
 
 	/** Set a display name for the current session. */
-	setSessionName(name: string): void {
-		this.sessionManager.setSessionName(name);
-		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
-		this._emit(event);
-		void this._extensionRunner.emit(event);
+	setSessionName(name: string | undefined, expectedRevision?: number | null): SessionNameWriteResult {
+		const result = this.sessionManager.setSessionName(name, expectedRevision);
+		if (result.written) {
+			const event = { type: "session_info_changed", name: result.name } as const;
+			this._emit(event);
+			void this._extensionRunner.emit(event);
+		}
+		return result;
 	}
 
 	clearSessionName(): void {
-		this.sessionManager.setSessionName(undefined);
-		const event = { type: "session_info_changed", name: undefined } as const;
-		this._emit(event);
-		void this._extensionRunner.emit(event);
+		this.setSessionName(undefined);
 	}
 
 	updateCompactionSummary(entryId: string, summary: string): void {

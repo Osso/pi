@@ -90,6 +90,7 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 
 export interface HeadlessPiOptions {
 	noSupervisor?: boolean;
+	noSessionName?: boolean;
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
 	cliPath?: string;
@@ -696,14 +697,15 @@ function createRequestRecorder(options: {
 async function startRpcClientSession(
 	client: RpcClient,
 	context: HeadlessSessionContext,
-	noSupervisor = false,
+	fixtureOptions: HeadlessPiOptions,
 ): Promise<void> {
 	await client.start();
 	const state = await client.getState();
 	context.mainSessionId = state.sessionId;
 	context.sessionFile = state.sessionFile ?? "";
-	if (!context.sessionFile && !noSupervisor) throw new Error("Headless Pi did not create a persistent session");
-	if (!state.sessionName) await nameHeadlessSession(client);
+	if (!context.sessionFile && !fixtureOptions.noSupervisor)
+		throw new Error("Headless Pi did not create a persistent session");
+	if (!fixtureOptions.noSessionName && !state.sessionName) await nameHeadlessSession(client);
 }
 
 // Named sessions keep the harness session identifiable without relying on model-driven naming.
@@ -711,9 +713,15 @@ function nameHeadlessSession(client: RpcClient): Promise<void> {
 	return client.setSessionName("Headless Pi");
 }
 
-async function sendHeadlessCommand(client: RpcClient, command: RpcCommandBody): Promise<RpcResponse> {
+async function sendHeadlessCommand(
+	client: RpcClient,
+	command: RpcCommandBody,
+	fixtureOptions: HeadlessPiOptions,
+): Promise<RpcResponse> {
 	const response = await client.send(command);
-	if (command.type === "new_session" && response.success) await nameHeadlessSession(client);
+	if (command.type === "new_session" && response.success && !fixtureOptions.noSessionName) {
+		await nameHeadlessSession(client);
+	}
 	return response;
 }
 
@@ -820,7 +828,7 @@ async function startSharedHeadlessSession(
 			removeTempDir: () => {},
 		});
 	try {
-		await startRpcClientSession(client, context, fixtureOptions.noSupervisor);
+		await startRpcClientSession(client, context, fixtureOptions);
 	} catch (error) {
 		unsubscribeEvents();
 		return runWithCleanup(async () => {
@@ -932,7 +940,7 @@ function createHeadlessRuntime(options: {
 			const client = createHeadlessRpcClient(options.paths, options.fixtureOptions, options.context.sessionFile);
 			options.clientControl.client = client;
 			options.clientControl.unsubscribeEvents = subscribeHeadlessRpcOutput(client, options);
-			await startRpcClientSession(client, options.context, options.fixtureOptions.noSupervisor);
+			await startRpcClientSession(client, options.context, options.fixtureOptions);
 		},
 		async crash() {
 			options.clientControl.unsubscribeEvents();
@@ -950,7 +958,7 @@ function createHeadlessRuntime(options: {
 		},
 		startSharedSession: (sharedOptions) =>
 			startSharedHeadlessSession(options.paths, options.fixtureOptions, sharedSessions, sharedOptions),
-		send: (command) => sendHeadlessCommand(options.clientControl.client, command),
+		send: (command) => sendHeadlessCommand(options.clientControl.client, command, options.fixtureOptions),
 		respondToExtensionUiRequest: (response) => options.clientControl.client.respondToExtensionUiRequest(response),
 		getPyrunRunnerPids: () =>
 			readdirSync(options.paths.sessionDir, { recursive: true })
@@ -1202,7 +1210,7 @@ export default function(pi) {
 			uiRequests,
 			uiRequestListeners,
 		});
-		await startRpcClientSession(client, context, fixtureOptions.noSupervisor);
+		await startRpcClientSession(client, context, fixtureOptions);
 	} catch (error) {
 		unsubscribeEvents();
 		await supervisorSentinel?.close();
