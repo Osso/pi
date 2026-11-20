@@ -1917,6 +1917,20 @@ describe("edit tool CRLF handling", () => {
 		expect(content).toBe("\uFEFFfirst\r\nREPLACED\r\nthird\r\n");
 	});
 
+	it("returns a patch that applies to a BOM file when the first line changes", async () => {
+		const testFile = join(testDir, "bom-first-line.txt");
+		const originalContent = "\uFEFFbefore\n";
+		writeFileSync(testFile, originalContent);
+
+		const result = await editTool.execute("test-bom-patch", {
+			path: testFile,
+			edits: [{ oldText: "before", newText: "after" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("\uFEFFafter\n");
+		expect(applyPatch(originalContent, result.details?.patch ?? "")).toBe("\uFEFFafter\n");
+	});
+
 	it("should preserve CRLF line endings and BOM in multi-edit mode", async () => {
 		const testFile = join(testDir, "bom-crlf-multi.txt");
 		writeFileSync(testFile, "\uFEFFfirst\r\nsecond\r\nthird\r\nfourth\r\n");
