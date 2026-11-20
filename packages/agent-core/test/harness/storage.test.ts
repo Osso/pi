@@ -216,6 +216,28 @@ describe("JsonlSessionStorage", () => {
 		expect((await loaded.getPathToRoot("child")).map((entry) => entry.id)).toEqual(["root", "child"]);
 	});
 
+	it("appends after a final record that lacks its newline", async () => {
+		const dir = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: dir });
+		const filePath = join(dir, "session.jsonl");
+		const storage = await JsonlSessionStorage.create(env, filePath, { cwd: dir, sessionId: "session-1" });
+		const one: MessageEntry = {
+			type: "message",
+			id: "one",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			message: createUserMessage("one"),
+		};
+		await storage.appendEntry(one);
+		writeFileSync(filePath, readFileSync(filePath, "utf8").trimEnd());
+
+		const reopened = await JsonlSessionStorage.open(env, filePath);
+		await reopened.appendEntry({ ...one, id: "two", parentId: "one", message: createUserMessage("two") });
+
+		const reloaded = await JsonlSessionStorage.open(env, filePath);
+		expect((await reloaded.getEntries()).map((entry) => entry.id)).toEqual(["one", "two"]);
+	});
+
 	it("finds entries by type", async () => {
 		const dir = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: dir });

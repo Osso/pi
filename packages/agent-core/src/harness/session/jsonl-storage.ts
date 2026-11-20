@@ -140,6 +140,7 @@ async function loadJsonlStorage(
 	header: SessionHeader;
 	entries: SessionTreeEntry[];
 	leafId: string | null;
+	endsWithNewline: boolean;
 }> {
 	const content = getFileSystemResultOrThrow(await fs.readTextFile(filePath), `Failed to read session ${filePath}`);
 	const lines = content.split("\n").filter((line) => line.trim());
@@ -156,7 +157,7 @@ async function loadJsonlStorage(
 		entries.push(entry);
 		leafId = leafIdAfterEntry(entry);
 	}
-	return { header, entries, leafId };
+	return { header, entries, leafId, endsWithNewline: content.endsWith("\n") };
 }
 
 export class JsonlSessionStorage implements SessionStorage<JsonlSessionMetadata> {
@@ -167,6 +168,8 @@ export class JsonlSessionStorage implements SessionStorage<JsonlSessionMetadata>
 	private byId: Map<string, SessionTreeEntry>;
 	private labelsById: Map<string, string>;
 	private currentLeafId: string | null;
+	/** A reopened file whose last record lacks its newline needs one before the next append. */
+	private missingFinalNewline = false;
 
 	private constructor(
 		fs: JsonlSessionStorageFileSystem,
@@ -186,7 +189,9 @@ export class JsonlSessionStorage implements SessionStorage<JsonlSessionMetadata>
 
 	static async open(fs: JsonlSessionStorageFileSystem, filePath: string): Promise<JsonlSessionStorage> {
 		const loaded = await loadJsonlStorage(fs, filePath);
-		return new JsonlSessionStorage(fs, filePath, loaded.header, loaded.entries, loaded.leafId);
+		const storage = new JsonlSessionStorage(fs, filePath, loaded.header, loaded.entries, loaded.leafId);
+		storage.missingFinalNewline = !loaded.endsWithNewline;
+		return storage;
 	}
 
 	static async create(
@@ -235,13 +240,19 @@ export class JsonlSessionStorage implements SessionStorage<JsonlSessionMetadata>
 			timestamp: new Date().toISOString(),
 			targetId: leafId,
 		};
-		getFileSystemResultOrThrow(
-			await this.fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`),
-			`Failed to append session leaf ${entry.id}`,
-		);
+		await this.appendLine(entry, `Failed to append session leaf ${entry.id}`);
 		this.entries.push(entry);
 		this.byId.set(entry.id, entry);
 		this.currentLeafId = leafId;
+	}
+
+	private async appendLine(entry: SessionTreeEntry, failureMessage: string): Promise<void> {
+		const prefix = this.missingFinalNewline ? "\n" : "";
+		getFileSystemResultOrThrow(
+			await this.fs.appendFile(this.filePath, `${prefix}${JSON.stringify(entry)}\n`),
+			failureMessage,
+		);
+		this.missingFinalNewline = false;
 	}
 
 	async createEntryId(): Promise<string> {
@@ -249,10 +260,7 @@ export class JsonlSessionStorage implements SessionStorage<JsonlSessionMetadata>
 	}
 
 	async appendEntry(entry: SessionTreeEntry): Promise<void> {
-		getFileSystemResultOrThrow(
-			await this.fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`),
-			`Failed to append session entry ${entry.id}`,
-		);
+		await this.appendLine(entry, `Failed to append session entry ${entry.id}`);
 		this.entries.push(entry);
 		this.byId.set(entry.id, entry);
 		updateLabelCache(this.labelsById, entry);

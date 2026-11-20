@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- `JsonlSessionStorage` adds the missing newline before appending to a reopened session file whose last record has none.
 - Nested skill ignore files now work in directories whose names contain glob characters such as `team[1]`; the directory prefix is escaped before it is joined to each rule
 - Fixed a sequential tool call still running when the agent was aborted while a `tool_execution_start` listener ran; it now reports `Operation aborted`, as parallel calls already did
 - Fixed `executeShellWithCapture` losing the output tail when a large chunk was followed by a short one: the rolling buffer dropped the large chunk and kept only the short one (port of the coding-agent fix)
