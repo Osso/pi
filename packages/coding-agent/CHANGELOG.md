@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `edit` tool's `details.patch` is generated from the stored and written file bytes, so it applies to files with CRLF or mixed line endings.
 - Resuming an interrupted bridge-enabled `pyrun_eval` call no longer fails with an artifact collision when the context usage, branch or model changed since launch.
 - `/fork` message position lines no longer exceed the terminal width.
 - The `/login` prompt hint shows the `tui.input.submit` key that actually submits the value, instead of `tui.select.confirm`.

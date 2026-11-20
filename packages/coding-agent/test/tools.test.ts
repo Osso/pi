@@ -1931,6 +1931,21 @@ describe("edit tool CRLF handling", () => {
 		expect(applyPatch(originalContent, result.details?.patch ?? "")).toBe("\uFEFFafter\n");
 	});
 
+	it("returns a patch that applies to a file with mixed line endings", async () => {
+		const testFile = join(testDir, "mixed-endings.txt");
+		const originalContent = "a\r\nb\r\nc\nd\r\n";
+		writeFileSync(testFile, originalContent);
+
+		const result = await editTool.execute("test-mixed-patch", {
+			path: testFile,
+			edits: [{ oldText: "b\n", newText: "B1\nB2\n" }],
+		});
+
+		const written = readFileSync(testFile, "utf-8");
+		expect(written).toBe("a\r\nB1\r\nB2\r\nc\nd\r\n");
+		expect(applyPatch(originalContent, result.details?.patch ?? "")).toBe(written);
+	});
+
 	it("should preserve CRLF line endings and BOM in multi-edit mode", async () => {
 		const testFile = join(testDir, "bom-crlf-multi.txt");
 		writeFileSync(testFile, "\uFEFFfirst\r\nsecond\r\nthird\r\nfourth\r\n");

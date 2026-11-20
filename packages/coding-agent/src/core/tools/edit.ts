@@ -341,9 +341,9 @@ export function createEditToolDefinition(
 
 				// Diff before writing, so a diff failure leaves the file unchanged.
 				const diffResult = generateDiffString(baseContent, newContent);
-				// Keep the BOM in the patch so it applies to the file as stored.
-				const patch = generateUnifiedPatch(path, bom + baseContent, bom + newContent);
 				const finalContent = bom + restoreOriginalLineEndings(content, baseContent, newContent);
+				// Patch the stored bytes (BOM, CRLF or mixed endings) so it applies to the file as stored.
+				const patch = generateUnifiedPatch(path, rawContent, finalContent);
 				await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 				return {
