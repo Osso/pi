@@ -8,6 +8,15 @@ import { formatToolInventory } from "../src/cli/list-tools.ts";
 import type { Extension, ToolInfo } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
+function inventoryTool(name: string, source: string, description: string): ToolInfo {
+	return {
+		name,
+		description,
+		parameters: Type.Object({}),
+		sourceInfo: { path: `/fixture/${name}.ts`, source, scope: "project", origin: "top-level" },
+	};
+}
+
 function projectExtension(name: string): Extension {
 	const path = `/repo/.pi/extensions/${name}`;
 	return {
@@ -85,6 +94,29 @@ describe("tool inventory", () => {
 		expect(output.split("\n").every((line) => line.length <= 100)).toBe(true);
 	});
 
+	it.each([
+		{ description: "日報".repeat(27), truncated: `${"日報".repeat(12)}日...` },
+		{ description: `${"a".repeat(50)}😀xyz`, truncated: `${"a".repeat(50)}...` },
+	])("truncates a tool description at whole terminal cells", ({ description, truncated }) => {
+		const output = formatToolInventory([inventoryTool("read", "builtin", description)], ["read"]);
+		expect(output).toContain(truncated);
+		expect(output.split("\n").every((line) => visibleWidth(line) <= 100)).toBe(true);
+	});
+
+	it("aligns tool descriptions after wide source names", () => {
+		const description = "Report contents";
+		const tools = [
+			inventoryTool("read", "extension:note", description),
+			inventoryTool("scan", "extension:日報", description),
+		];
+		const [, , header, , ...rows] = formatToolInventory(tools, ["read"]).split("\n");
+		const descriptionColumn = header?.indexOf("description");
+		expect(rows.map((row) => visibleWidth(row.slice(0, row.indexOf(description))))).toEqual([
+			descriptionColumn,
+			descriptionColumn,
+		]);
+	});
+
 	it("keeps a multi-line description on its tool row", () => {
 		const tools: ToolInfo[] = [
 			{
@@ -120,7 +152,9 @@ describe("tool inventory", () => {
 			description: "Show available tools",
 		});
 	});
+});
 
+describe("extension inventory", () => {
 	it("formats loaded extension inventory with registered resource counts", () => {
 		const extension = {
 			path: "<first-party:agents-core>",

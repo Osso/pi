@@ -13,7 +13,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] `pi tools` must parse as a metadata action, not as a prompt message.
 - [x] `/tools` must be a built-in slash command.
 - [x] Tool inventory output must include every configured tool, whether each tool is active, its source, and its description.
-- [x] Tool inventory output must keep terminal table lines compact by truncating long descriptions.
+- [x] Tool inventory columns must align in terminal cells, including when names or sources contain wide characters. Descriptions collapse whitespace and use at most 54 cells, including `...` when truncated, without splitting a displayed character.
 - [x] Tool inventory output must show an explicit empty state when no tools are available.
 - [x] Default coding sessions must keep the read-only discovery tools `grep`, `find`, and `ls` active alongside editing tools.
 - [x] Tool inventory data must include tools registered by extensions during `session_start`.

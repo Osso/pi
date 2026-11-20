@@ -8,7 +8,7 @@ Use `pi tools` / `pi extensions` for startup inventory, or `/tools` / `/extensio
 
 [args.ts](../../../packages/coding-agent/src/cli/args.ts) parses the CLI words as metadata actions when they are in command position. [main.ts](../../../packages/coding-agent/src/main.ts) creates the runtime, resolves project trust, and awaits `session.bindExtensions({})` before printing and exiting. Consequently, tools registered during `session_start` are included. First-party factories have synthetic `<first-party:name>` paths; [resource-loader.ts](../../../packages/coding-agent/src/core/resource-loader.ts) loads these factories separately from filesystem discovery and applies `disabledExtensions` filtering.
 
-[AgentSession.getAllTools](../../../packages/coding-agent/src/core/agent-session.ts) reads the configured tool-definition map; `getActiveToolNames()` reads the agent's active tools. [list-tools.ts](../../../packages/coding-agent/src/cli/list-tools.ts) sorts by name and prints active yes/no, source, and description, truncating descriptions to 54 characters. [list-extensions.ts](../../../packages/coding-agent/src/cli/list-extensions.ts) sorts by path and prints scope/source plus command, tool, and handler-map counts. It pads columns by visible terminal width, not string length, and replaces duplicate short labels within a scope and source with full paths. The handler count counts event keys, not individual callbacks. Both formatters have explicit empty output.
+[AgentSession.getAllTools](../../../packages/coding-agent/src/core/agent-session.ts) reads the configured tool-definition map; `getActiveToolNames()` reads the agent's active tools. [list-tools.ts](../../../packages/coding-agent/src/cli/list-tools.ts) sorts by name and prints active yes/no, source, and description. It flattens description whitespace, truncates descriptions to 54 terminal cells, and aligns columns by visible width. [list-extensions.ts](../../../packages/coding-agent/src/cli/list-extensions.ts) sorts by path and prints scope/source plus command, tool, and handler-map counts. It pads columns by visible terminal width, not string length, and replaces duplicate short labels within a scope and source with full paths. The handler count counts event keys, not individual callbacks. Both formatters have explicit empty output.
 
 [slash-commands.ts](../../../packages/coding-agent/src/core/slash-commands.ts) supplies completion entries. [InteractiveMode](../../../packages/coding-agent/src/modes/interactive/interactive-mode.ts) clears the composer at dispatch and renders the same formatter output as chat `Text` components.
 
@@ -18,7 +18,7 @@ Defaults originate in [tools/index.ts](../../../packages/coding-agent/src/core/t
 
 “Active” is registration state, not permission to execute: [safe mode](safe-mode.md) can still block a listed active tool. Allow/exclude filters can remove definitions entirely, so inventory is not a catalog of every possible tool.
 
-Test source inspected, not executed:
+Test coverage:
 
 - [args.test.ts](../../../packages/coding-agent/test/args.test.ts), [tool-inventory.test.ts](../../../packages/coding-agent/test/tool-inventory.test.ts): parsing, formatting, empty states, command metadata.
 - [cli-runtime-inventory.test.ts](../../../packages/coding-agent/test/cli-runtime-inventory.test.ts), [tool-inventory-session.test.ts](../../../packages/coding-agent/test/tool-inventory-session.test.ts): process startup/trust/disabled extensions and late registration.

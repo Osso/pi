@@ -1,3 +1,4 @@
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import type { ToolInfo } from "../core/extensions/types.ts";
 
 interface ToolInventoryRow {
@@ -10,7 +11,7 @@ interface ToolInventoryRow {
 const DESCRIPTION_WIDTH = 54;
 
 function pad(value: string, width: number): string {
-	return value.padEnd(width);
+	return value + " ".repeat(width - visibleWidth(value));
 }
 
 function sourceLabel(tool: ToolInfo): string {
@@ -25,44 +26,24 @@ function sourceLabel(tool: ToolInfo): string {
 
 function truncateDescription(description: string): string {
 	const singleLine = description.replace(/\s+/g, " ").trim();
-	if (singleLine.length <= DESCRIPTION_WIDTH) {
-		return singleLine;
-	}
-	return `${singleLine.slice(0, DESCRIPTION_WIDTH - 3).trimEnd()}...`;
+	if (visibleWidth(singleLine) <= DESCRIPTION_WIDTH) return singleLine;
+	const ellipsis = "...";
+	const prefix = sliceByColumn(singleLine, 0, DESCRIPTION_WIDTH - ellipsis.length, true);
+	return prefix.trimEnd() + ellipsis;
 }
 
 function formatRows(headers: ToolInventoryRow, rows: ToolInventoryRow[]): string[] {
-	const widths = {
-		active: Math.max(headers.active.length, ...rows.map((row) => row.active.length)),
-		name: Math.max(headers.name.length, ...rows.map((row) => row.name.length)),
-		source: Math.max(headers.source.length, ...rows.map((row) => row.source.length)),
-		description: Math.max(headers.description.length, ...rows.map((row) => row.description.length)),
-	};
-
-	return [
-		[
-			pad(headers.active, widths.active),
-			pad(headers.name, widths.name),
-			pad(headers.source, widths.source),
-			pad(headers.description, widths.description),
-		].join("  "),
-		[
-			"-".repeat(widths.active),
-			"-".repeat(widths.name),
-			"-".repeat(widths.source),
-			"-".repeat(widths.description),
-		].join("  "),
-		...rows.map((row) =>
-			[
-				pad(row.active, widths.active),
-				pad(row.name, widths.name),
-				pad(row.source, widths.source),
-				pad(row.description, widths.description),
-			]
-				.join("  ")
-				.trimEnd(),
-		),
-	].map((line) => line.trimEnd());
+	const keys = ["active", "name", "source", "description"] as const;
+	const columns = keys.map((key) => ({
+		key,
+		width: Math.max(visibleWidth(headers[key]), ...rows.map((row) => visibleWidth(row[key]))),
+	}));
+	const renderRow = (row: ToolInventoryRow) =>
+		columns
+			.map(({ key, width }) => pad(row[key], width))
+			.join("  ")
+			.trimEnd();
+	return [renderRow(headers), columns.map(({ width }) => "-".repeat(width)).join("  "), ...rows.map(renderRow)];
 }
 
 export function formatToolInventory(tools: ToolInfo[], activeToolNames: string[]): string {
