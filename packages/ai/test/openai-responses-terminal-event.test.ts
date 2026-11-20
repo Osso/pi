@@ -474,6 +474,47 @@ describe("OpenAI Responses terminal event handling", () => {
 		expect(output.usage).toMatchObject({ output: 12, cacheRead: 5 });
 	});
 
+	it("drops a tool call whose item finished as incomplete at the output limit", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const item = { type: "function_call", id: "fc_1", call_id: "call_1", name: "read", arguments: "" };
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield { type: "response.output_item.added", sequence_number: 0, output_index: 0, item } as ResponseStreamEvent;
+			const done = { ...item, arguments: '{"path":"README', status: "incomplete" };
+			yield {
+				type: "response.output_item.done",
+				sequence_number: 1,
+				output_index: 0,
+				item: done,
+			} as ResponseStreamEvent;
+			yield* createIncompleteEvents();
+		}
+
+		await processResponsesStream(events(), output, new AssistantMessageEventStream(), model);
+
+		expect(output.stopReason).toBe("length");
+		expect(output.content).toEqual([]);
+	});
+
+	it("ends with a length stop when an incomplete response omits its status", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const item = { type: "function_call", id: "fc_1", call_id: "call_1", name: "read", arguments: '{"path":"a"}' };
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield { type: "response.output_item.added", sequence_number: 0, output_index: 0, item } as ResponseStreamEvent;
+			yield { type: "response.output_item.done", sequence_number: 1, output_index: 0, item } as ResponseStreamEvent;
+			for await (const event of createIncompleteEvents()) {
+				if (event.type === "response.incomplete") delete (event.response as { status?: string }).status;
+				yield event;
+			}
+		}
+
+		await processResponsesStream(events(), output, new AssistantMessageEventStream(), model);
+
+		expect(output.stopReason).toBe("length");
+		expect(output.responseId).toBe("resp_incomplete");
+	});
+
 	it("keeps a completed response whose tool call finished", async () => {
 		const model = createModel();
 		const output = createOutput(model);

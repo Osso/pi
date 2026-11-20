@@ -690,7 +690,7 @@ export async function processResponsesStream<TApi extends Api>(
 					partial: output,
 				});
 				outputSlots.delete(event.output_index);
-			} else if (item.type === "function_call" && slot?.type === "toolCall") {
+			} else if (item.type === "function_call" && slot?.type === "toolCall" && item.status !== "incomplete") {
 				Object.assign(slot.block, parseToolCallArguments(item.arguments || slot.block.partialJson));
 				// Finalize in-place and strip the scratch buffer so replay only
 				// carries parsed arguments.
@@ -707,6 +707,7 @@ export async function processResponsesStream<TApi extends Api>(
 			finalizeResponse(event.response);
 		} else if (event.type === "response.incomplete") {
 			finalizeResponse(event.response);
+			output.stopReason = "length";
 			const reason = event.response?.incomplete_details?.reason ?? "unknown";
 			if (reason !== "max_output_tokens") {
 				throw new Error(`Incomplete response returned, reason: ${reason}`);
