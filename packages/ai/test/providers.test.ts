@@ -457,6 +457,27 @@ describe("createProvider", () => {
 		await provider.refreshModels?.();
 		expect(fetches).toBe(2);
 	});
+
+	it("retries a dynamic refresh after the loader throws synchronously", async () => {
+		let calls = 0;
+		const provider = createProvider({
+			id: "dynamic-sync-throw",
+			auth: { apiKey: { name: "Test", resolve: async () => ({ auth: {} }) } },
+			models: [],
+			refreshModels: () => {
+				calls++;
+				if (calls === 1) throw new Error("loader not ready");
+				return Promise.resolve([testModel("api-a", "listed")]);
+			},
+			api: recordingStreams("a", []),
+		});
+
+		await expect(provider.refreshModels?.()).rejects.toThrow("loader not ready");
+		await provider.refreshModels?.();
+
+		expect(calls).toBe(2);
+		expect(provider.getModels().map((m) => m.id)).toEqual(["listed"]);
+	});
 });
 
 describe("fauxProvider", () => {

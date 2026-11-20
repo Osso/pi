@@ -354,7 +354,8 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 			? () => {
 					inflightRefresh ??= (async () => {
 						try {
-							models = await refreshModels();
+							// Deferred call: a synchronous throw must not run `finally` before `inflightRefresh` is assigned.
+							models = await Promise.resolve().then(refreshModels);
 						} finally {
 							inflightRefresh = undefined;
 						}
