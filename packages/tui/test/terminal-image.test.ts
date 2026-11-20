@@ -430,6 +430,20 @@ describe("Kitty image cursor movement", () => {
 		}
 	});
 
+	it("bounds iTerm2 images to the reserved rows when maxHeightCells applies", () => {
+		setCapabilities({ images: "iterm2", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const result = renderImage("AAAA", { widthPx: 10, heightPx: 100 }, { maxWidthCells: 10, maxHeightCells: 5 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 5);
+			assert.ok(result.sequence.includes("width=1;height=5"));
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
 	it("caps Image component height to a square pixel box by default", () => {
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
 		setCellDimensions({ widthPx: 10, heightPx: 20 });

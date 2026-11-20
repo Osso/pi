@@ -475,7 +475,7 @@ export function renderImage(
 	if (caps.images === "iterm2") {
 		const sequence = encodeITerm2(base64Data, {
 			width: size.columns,
-			height: "auto",
+			height: size.rows,
 			preserveAspectRatio: options.preserveAspectRatio ?? true,
 		});
 		return { sequence, rows: size.rows };
