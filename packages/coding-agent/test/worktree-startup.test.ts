@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +31,7 @@ const startupMocks = vi.hoisted(() => {
 		createAgentSessionServices: vi.fn(),
 		events: [] as string[],
 		resolveWorktree: vi.fn(),
+		runPrintMode: vi.fn(),
 	};
 });
 
@@ -48,7 +49,14 @@ vi.mock("../src/core/agent-session-services.ts", () => ({
 	createAgentSessionServices: startupMocks.createAgentSessionServices,
 }));
 
+vi.mock("../src/modes/index.ts", async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	runPrintMode: startupMocks.runPrintMode,
+}));
+
 import { main } from "../src/main.ts";
+
+const originalStdinIsTTY = process.stdin.isTTY;
 
 describe("worktree startup", () => {
 	let tempDir: string;
@@ -99,6 +107,7 @@ describe("worktree startup", () => {
 	});
 
 	afterEach(() => {
+		Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: originalStdinIsTTY });
 		process.chdir(originalCwd);
 		if (originalAgentDir === undefined) {
 			delete process.env[ENV_AGENT_DIR];
@@ -126,6 +135,24 @@ describe("worktree startup", () => {
 		]);
 		expect(startupMocks.createAgentSessionServices).toHaveBeenCalledWith(
 			expect.objectContaining({ cwd: worktreeCwd }),
+		);
+	});
+
+	it("resolves relative @file arguments in the selected worktree", async () => {
+		const worktreeCwd = join(tempDir, "project-feature");
+		mkdirSync(worktreeCwd);
+		writeFileSync(join(worktreeCwd, "notes.md"), "worktree notes");
+		startupMocks.resolveWorktree.mockResolvedValue(worktreeCwd);
+		startupMocks.runPrintMode.mockResolvedValue(0);
+		Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+		await main(["--worktree", "feature", "-p", "@notes.md", "Review"]);
+
+		expect(startupMocks.runPrintMode).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				initialMessage: `<file name="${join(worktreeCwd, "notes.md")}">\nworktree notes\n</file>\nReview`,
+			}),
 		);
 	});
 

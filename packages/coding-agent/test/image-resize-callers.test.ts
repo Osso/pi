@@ -45,7 +45,7 @@ describe("image resize callers", () => {
 		const imagePath = join(testDir, "test.png");
 		writeFileSync(imagePath, Buffer.from(TINY_PNG_BASE64, "base64"));
 
-		const result = await processFileArguments([imagePath]);
+		const result = await processFileArguments([imagePath], process.cwd());
 
 		expect(result.images).toHaveLength(0);
 		expect(result.text).toContain("Image omitted");

@@ -27,14 +27,18 @@ function exitUnreadableFile(absolutePath: string, error: unknown): never {
 }
 
 /** Process @file arguments into text content and image attachments */
-export async function processFileArguments(fileArgs: string[], options?: ProcessFileOptions): Promise<ProcessedFiles> {
+export async function processFileArguments(
+	fileArgs: string[],
+	cwd: string,
+	options?: ProcessFileOptions,
+): Promise<ProcessedFiles> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
 	let text = "";
 	const images: ImageContent[] = [];
 
 	for (const fileArg of fileArgs) {
 		// Expand and resolve path (handles ~ expansion and macOS screenshot Unicode spaces)
-		const absolutePath = resolve(resolveReadPath(fileArg, process.cwd()));
+		const absolutePath = resolve(resolveReadPath(fileArg, cwd));
 
 		// Check if file exists
 		try {

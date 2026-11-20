@@ -116,7 +116,7 @@ describe("blockImages setting", () => {
 			const imagePath = join(testDir, "test.png");
 			writeFileSync(imagePath, Buffer.from(TINY_PNG_BASE64, "base64"));
 
-			const result = await processFileArguments([imagePath]);
+			const result = await processFileArguments([imagePath], process.cwd());
 
 			expect(result.images).toHaveLength(1);
 			expect(result.images[0].type).toBe("image");
@@ -126,7 +126,7 @@ describe("blockImages setting", () => {
 			const imagePath = join(testDir, "test.bmp");
 			writeFileSync(imagePath, createTinyBmp1x1Red24bpp());
 
-			const result = await processFileArguments([imagePath]);
+			const result = await processFileArguments([imagePath], process.cwd());
 
 			expect(result.images).toHaveLength(1);
 			expect(result.images[0].type).toBe("image");
@@ -139,7 +139,7 @@ describe("blockImages setting", () => {
 			const textPath = join(testDir, "test.txt");
 			writeFileSync(textPath, "Hello, world!");
 
-			const result = await processFileArguments([textPath]);
+			const result = await processFileArguments([textPath], process.cwd());
 
 			expect(result.images).toHaveLength(0);
 			expect(result.text).toContain("Hello, world!");

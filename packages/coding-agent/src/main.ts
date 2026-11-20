@@ -229,17 +229,14 @@ function printModelCatalogRefreshSummary(result: ModelCatalogRefreshResult): voi
 
 async function prepareInitialMessage(
 	parsed: Args,
+	cwd: string,
 	autoResizeImages: boolean,
 	stdinContent?: string,
 ): Promise<{
 	initialMessage?: string;
 	initialImages?: ImageContent[];
 }> {
-	if (parsed.fileArgs.length === 0) {
-		return buildInitialMessage({ parsed, stdinContent });
-	}
-
-	const { text, images } = await processFileArguments(parsed.fileArgs, { autoResizeImages });
+	const { text, images } = await processFileArguments(parsed.fileArgs, cwd, { autoResizeImages });
 	return buildInitialMessage({
 		parsed,
 		fileText: text,
@@ -1315,6 +1312,7 @@ export async function main(args: string[], options?: MainOptions) {
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(
 		parsed,
+		cwd,
 		settingsManager.getImageAutoResize(),
 		stdinContent,
 	);
