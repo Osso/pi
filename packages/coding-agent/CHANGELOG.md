@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `--print` treats `tools`, `extensions`, and `login` as prompt text even when another option comes between `--print` and the prompt.
 - `--mode` reports a missing value without consuming the next option or the `--` separator.
 - A zero-byte `settings.json` now reports a parse error. Reload keeps the previous settings, and saves leave the invalid file unchanged.
 - `read` reports the full file size in `details.truncation.totalBytes` when a bounded read stops inside an oversized first line.

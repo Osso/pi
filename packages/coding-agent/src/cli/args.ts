@@ -95,6 +95,7 @@ export function parseArgs(args: string[]): Args {
 			return value;
 		};
 		const ephemeralSessionFlag = EPHEMERAL_SESSION_FLAGS.get(arg);
+		const isCommandPosition = result.print !== true && result.messages.length === 0 && result.fileArgs.length === 0;
 
 		if (arg === "--") {
 			// End of options: everything after is a message or @file argument, even when it starts with "-".
@@ -277,11 +278,11 @@ export function parseArgs(args: string[]): Args {
 			}
 		} else if (arg === "--refresh-models") {
 			result.refreshModels = true;
-		} else if (arg === "tools" && result.messages.length === 0 && result.fileArgs.length === 0) {
+		} else if (arg === "tools" && isCommandPosition) {
 			result.listTools = true;
-		} else if (arg === "extensions" && result.messages.length === 0 && result.fileArgs.length === 0) {
+		} else if (arg === "extensions" && isCommandPosition) {
 			result.listExtensions = true;
-		} else if (arg === "login" && result.messages.length === 0 && result.fileArgs.length === 0) {
+		} else if (arg === "login" && isCommandPosition) {
 			const provider = args[i + 1];
 			if (provider !== undefined && !provider.startsWith("-") && !provider.startsWith("@")) {
 				result.loginProvider = provider;

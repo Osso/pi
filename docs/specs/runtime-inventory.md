@@ -6,6 +6,8 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 
 ## What it must do
 
+- [x] After `-p` or `--print`, `tools` and `extensions` are prompt text, even if another option comes before the prompt.
+
 ### Tool inventory
 
 - [x] `pi tools` must parse as a metadata action, not as a prompt message.
@@ -45,6 +47,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/args.test.ts`
+- `packages/coding-agent/test/suite/regressions/print-command-word.test.ts`
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts`
 - `packages/coding-agent/test/system-prompt.test.ts`
 - `packages/coding-agent/test/tool-inventory.test.ts`
