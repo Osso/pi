@@ -269,19 +269,15 @@ export function visibleWidth(str: string): number {
  * differential repaint. Their compatibility decompositions have the same cell
  * width but avoid stale-cell artifacts in terminal renderers.
  */
-const THAI_LAO_AM_REGEX = /[\u0e33\u0eb3]/;
-const THAI_LAO_AM_GLOBAL_REGEX = /[\u0e33\u0eb3]/g;
-
 export function normalizeTerminalOutput(str: string): string {
-	const normalized = THAI_LAO_AM_REGEX.test(str)
-		? str.replace(THAI_LAO_AM_GLOBAL_REGEX, (char) => (char === "\u0e33" ? "\u0e4d\u0e32" : "\u0ecd\u0eb2"))
-		: str;
-	if (!normalized.includes("\t")) return normalized;
-	// Expand visible tabs to the layout width; tabs inside OSC/APC payloads stay untouched.
+	if (!/[\t\u0e33\u0eb3]/.test(str)) return str;
+	// Expand visible tabs and AM vowels; OSC/APC payloads (e.g. hyperlink URLs) stay untouched.
 	let result = "";
-	for (let i = 0; i < normalized.length; ) {
-		const ansi = extractAnsiCode(normalized, i);
-		result += ansi?.code ?? (normalized[i] === "\t" ? "   " : normalized[i]);
+	for (let i = 0; i < str.length; ) {
+		const ansi = extractAnsiCode(str, i);
+		const c = str[i];
+		result +=
+			ansi?.code ?? (c === "\t" ? "   " : c === "\u0e33" ? "\u0e4d\u0e32" : c === "\u0eb3" ? "\u0ecd\u0eb2" : c);
 		i += ansi?.length ?? 1;
 	}
 	return result;
@@ -868,6 +864,9 @@ export function extractSegments(
 				}
 				before += segment;
 				beforeWidth += w;
+			} else if (currentCol < afterStart && currentCol + w > afterStart && afterLen > 0) {
+				after += " ".repeat(currentCol + w - afterStart);
+				afterWidth += currentCol + w - afterStart;
 			} else if (currentCol >= afterStart && currentCol < afterEnd) {
 				const fits = !strictAfter || currentCol + w <= afterEnd;
 				if (fits) {

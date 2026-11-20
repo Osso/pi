@@ -77,6 +77,15 @@ describe("visibleWidth", () => {
 		assert.strictEqual(visibleWidth("ກຳ"), 2);
 	});
 
+	it("keeps Thai and Lao AM vowels in hyperlink URLs unchanged", () => {
+		const link = "\x1b]8;;https://example.test/\u0e01\u0e33\x1b\\\u0e01\u0e33\x1b]8;;\x1b\\";
+
+		assert.strictEqual(
+			normalizeTerminalOutput(link),
+			"\x1b]8;;https://example.test/\u0e01\u0e33\x1b\\\u0e01\u0e4d\u0e32\x1b]8;;\x1b\\",
+		);
+	});
+
 	it("normalizes Thai and Lao AM vowels only for terminal output", () => {
 		assert.strictEqual(normalizeTerminalOutput("ำ"), "ํา");
 		assert.strictEqual(normalizeTerminalOutput("ຳ"), "ໍາ");

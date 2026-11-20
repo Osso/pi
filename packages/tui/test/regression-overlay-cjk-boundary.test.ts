@@ -56,6 +56,14 @@ describe("overlay CJK boundary regression", () => {
 		assert.strictEqual(overlay.includes("│XX│"), true);
 	});
 
+	it("keeps text after the overlay in place when the overlay ends inside a wide grapheme", () => {
+		const out = compositeLineAt("ab界CD", "X", 2, 1, 8);
+
+		assert.strictEqual(sliceByColumn(out, 3, 1, true).endsWith(" "), true);
+		assert.strictEqual(sliceByColumn(out, 4, 2, true).endsWith("CD"), true);
+		assert.strictEqual(visibleWidth(out), 8);
+	});
+
 	it("composites an overlay when it starts at a wide grapheme boundary", () => {
 		const out = compositeLineAt("abcd让EFGH", "│XX│", 4, 4, 20);
 		const overlay = sliceByColumn(out, 4, 4, true);
