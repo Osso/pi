@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- The native detach focus test fixture now resolves the selected executable using the caller's `PATH` before it isolates the PTY environment. An absolute path in `DTACH` is no longer required.
 - `Input` keeps the cursor out of a grapheme that typed text joins (such as a flag's first half), and scrolls a wide character under the cursor fully into a narrow window instead of rendering a blank cursor.
 - Backward word deletion and movement keep a combining mark with the punctuation it modifies, instead of stopping inside that grapheme.
 - `Editor.isHistorySearchActive()` reports whether Ctrl+R history search is open, so wrappers that intercept Escape can let the editor cancel the search.

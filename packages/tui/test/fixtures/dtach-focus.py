@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import shutil
 import signal
 import struct
 import sys
@@ -14,7 +15,10 @@ import termios
 import time
 
 root = Path(sys.argv[1])
-dtach, runtime, fixture, scenario = sys.argv[2:6]
+detach_command, runtime, fixture, scenario = sys.argv[2:6]
+dtach = shutil.which(detach_command)
+if dtach is None:
+    raise FileNotFoundError(f"Native detach executable not found: {detach_command}")
 events_path = root / "events.jsonl"
 socket = root / "dtach.sock"
 clients = []
