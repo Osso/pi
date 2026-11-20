@@ -199,8 +199,10 @@ export class SettingsList implements Component {
 			if (!sanitized) {
 				return;
 			}
+			const previousQuery = this.searchInput.getValue();
 			this.searchInput.handleInput(sanitized);
-			this.applyFilter(this.searchInput.getValue());
+			const query = this.searchInput.getValue();
+			if (query !== previousQuery) this.applyFilter(query);
 		}
 	}
 

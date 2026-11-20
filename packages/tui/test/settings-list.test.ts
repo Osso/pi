@@ -58,6 +58,27 @@ describe("SettingsList", () => {
 		assert.equal(selectedLabel(list), "Item 7");
 	});
 
+	it("keeps the selected setting when moving the search caret", () => {
+		const changes: string[] = [];
+		const list = new SettingsList(
+			[
+				{ id: "hide-thinking", label: "Hide thinking", currentValue: "false", values: ["false", "true"] },
+				{ id: "hide-tool-output", label: "Hide tool output", currentValue: "false", values: ["false", "true"] },
+			],
+			5,
+			theme,
+			(id, value) => changes.push(`${id}=${value}`),
+			() => {},
+			{ enableSearch: true },
+		);
+		list.handleInput("hide");
+		list.handleInput("\x1b[B");
+		assert.ok(list.render(60).some((line) => line.startsWith("> Hide tool output")));
+		list.handleInput("\x1b[D");
+		list.handleInput("\r");
+		assert.deepStrictEqual(changes, ["hide-tool-output=true"]);
+	});
+
 	it("cancels instead of changing the value when Space is bound to cancel", () => {
 		const previous = getKeybindings();
 		setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS, { "tui.select.cancel": "space" }));
