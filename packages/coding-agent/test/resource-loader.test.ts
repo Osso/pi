@@ -697,6 +697,33 @@ Content`,
 			}
 		});
 
+		it.skipIf(process.getuid?.() === 0)(
+			"should warn when project memory sits in an unsearchable directory",
+			async () => {
+				writeFileSync(join(cwd, "AGENTS.md"), "Project instructions.");
+				const projectMemoryDir = join(cwd, "docs", "local");
+				mkdirSync(projectMemoryDir, { recursive: true });
+				writeFileSync(join(projectMemoryDir, "memory.md"), "Project memory.");
+				chmodSync(projectMemoryDir, 0o600);
+				const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+				try {
+					const loader = new DefaultResourceLoader({ cwd, agentDir });
+					await loader.reload();
+
+					expect(loader.getAgentsFiles().agentsFiles).toEqual([
+						{ path: join(cwd, "AGENTS.md"), content: "Project instructions." },
+					]);
+					expect(consoleError.mock.calls.map((call) => String(call[0]))).toContainEqual(
+						expect.stringContaining(join(projectMemoryDir, "memory.md")),
+					);
+				} finally {
+					consoleError.mockRestore();
+					chmodSync(projectMemoryDir, 0o700);
+				}
+			},
+		);
+
 		it("should load an instruction file symlinked to global project memory", async () => {
 			const globalMemoryDir = join(agentDir, "docs", "local");
 			mkdirSync(globalMemoryDir, { recursive: true });

@@ -124,15 +124,15 @@ function loadContextFilesFromDir(dir: string, candidates: string[]): LoadedConte
 	const contextFiles: LoadedContextFile[] = [];
 	for (const filename of candidates) {
 		const filePath = join(dir, filename);
-		if (existsSync(filePath)) {
-			try {
-				// A directory with a context-file name is not a context file.
-				if (!statSync(filePath).isFile()) continue;
-				const content = readFileSync(filePath, "utf-8");
-				contextFiles.push({ path: filePath, content, realPath: realpathSync(filePath) });
-			} catch (error) {
+		try {
+			// A directory with a context-file name is not a context file.
+			if (!statSync(filePath).isFile()) continue;
+			const content = readFileSync(filePath, "utf-8");
+			contextFiles.push({ path: filePath, content, realPath: realpathSync(filePath) });
+		} catch (error) {
+			const code = error instanceof Error && "code" in error ? error.code : undefined;
+			if (code !== "ENOENT" && code !== "ENOTDIR")
 				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
-			}
 		}
 	}
 	return contextFiles;
