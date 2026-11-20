@@ -1,4 +1,11 @@
-import { type Component, type Focusable, Input, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	type Focusable,
+	Input,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { KeybindingsManager } from "../keybindings.ts";
 
@@ -179,7 +186,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		} else if (kb.matches(data, "tui.select.confirm")) activateRow();
 	}
 
-	function renderTabBar(): string {
+	function renderTabBar(width: number): string {
 		const labels = questions.map((question, index) => {
 			const { answer } = getQuestionState(index);
 			const marker = hasAnswer(answer) ? "■" : "□";
@@ -190,7 +197,11 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		const submit = isSubmitTab()
 			? theme.bg("selectedBg", theme.fg("text", submitText))
 			: theme.fg(canSubmit() ? "success" : "dim", submitText);
-		return ` ${[...labels, submit].join(" ")}`;
+		// Drop tabs from the left until the active tab fits, so a narrow terminal still shows it.
+		const tabs = [...labels, submit];
+		let first = 0;
+		while (first < tab && visibleWidth(` … ${tabs.slice(first).join(" ")}`) > width) first++;
+		return truncateToWidth(` ${first > 0 ? "… " : ""}${tabs.slice(first).join(" ")}`, width);
 	}
 
 	function renderOptionRows(width: number): string[] {
@@ -261,7 +272,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		invalidate(): void {},
 		render(width: number): string[] {
 			const rule = theme.fg("accent", "─".repeat(Math.max(1, width)));
-			const tabBar = tabCount > 1 ? [truncateToWidth(renderTabBar(), width), ""] : [];
+			const tabBar = tabCount > 1 ? [renderTabBar(width), ""] : [];
 			const help = truncateToWidth(` ${theme.fg("dim", renderHelp())}`, width);
 			return [rule, ...tabBar, ...renderBody(width), "", help, rule];
 		},

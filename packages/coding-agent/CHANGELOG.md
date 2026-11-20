@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `ask_questions` tab bar keeps the active tab (including Submit) visible in a narrow terminal by hiding earlier tabs behind `…`.
 - The footer for a selected child agent no longer shows the pre-compaction context usage right after the child compacts; it uses the same compaction-aware estimate as the main session.
 - A `models.json` model header override no longer fails the request when the provider header it replaces references an unset environment variable.
 - `models.json` model overrides of OpenRouter routing now merge object-valued preferences (`sort`, `preferred_min_throughput`, `preferred_max_latency`) with the provider's values field by field, as `max_price` already did, instead of replacing them.

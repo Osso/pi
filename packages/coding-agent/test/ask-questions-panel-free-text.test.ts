@@ -136,6 +136,7 @@ describe("ask_questions panel free text", () => {
 		expect(Math.max(...widths())).toBeLessThanOrEqual(50);
 		press(KEY.right, KEY.right, KEY.right, KEY.right);
 		expect(stripAnsi(panel.render(50).join("\n"))).toContain("Answer every question");
+		expect(stripAnsi(panel.render(50)[1] ?? "")).toContain("✓ Submit");
 		expect(Math.max(...widths())).toBeLessThanOrEqual(50);
 		expect(Math.max(...panel.render(20).map((line) => visibleWidth(line)))).toBeLessThanOrEqual(20);
 	});
