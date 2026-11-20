@@ -1,4 +1,8 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	SessionShutdownEvent,
+} from "../../../src/core/extensions/types.ts";
 import { archivePersistedSession } from "../../../src/core/session-archive-storage.ts";
 import { readSessionMetadata, unarchiveSession } from "../../../src/core/session-control-db.ts";
 import { deleteSessionTree } from "../../../src/core/session-delete.ts";
@@ -52,7 +56,9 @@ function archiveAtQuit(session: CurrentSession): void {
 	}
 }
 
-async function deleteAtQuit(session: CurrentSession): Promise<void> {
+async function deleteAtQuit(session: CurrentSession, event: SessionShutdownEvent): Promise<void> {
+	if (!event.closeTranscript) throw new Error("Cannot delete session: quit cannot close the transcript to writes.");
+	await event.closeTranscript();
 	const result = await deleteSessionTree(session.sessionPath, session.controlDbPath);
 	if (!result.ok) throw new Error(`Failed to delete session: ${result.error}`);
 }
@@ -76,14 +82,14 @@ async function closeRunningChildren(pi: ExtensionAPI, ctx: ExtensionCommandConte
 }
 
 export default function sessionArchiveExtension(pi: ExtensionAPI): void {
-	// Archive/delete run at quit teardown, after the last session write and before the resume hint is printed.
-	let pendingQuitAction: (() => void | Promise<void>) | undefined;
+	// Archive/delete run at quit teardown, before the resume hint is printed.
+	let pendingQuitAction: ((event: SessionShutdownEvent) => void | Promise<void>) | undefined;
 	const quitWith = (
-		action: (session: CurrentSession) => void | Promise<void>,
+		action: (session: CurrentSession, event: SessionShutdownEvent) => void | Promise<void>,
 		session: CurrentSession,
 		ctx: ExtensionCommandContext,
 	) => {
-		pendingQuitAction = () => action(session);
+		pendingQuitAction = (event) => action(session, event);
 		ctx.shutdown();
 	};
 	pi.on("session_shutdown", async (event) => {
@@ -91,7 +97,7 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 		pendingQuitAction = undefined;
 		if (event.reason !== "quit" || !action) return;
 		try {
-			await action();
+			await action(event);
 		} catch (error) {
 			// The TUI is already stopped at quit, so report on stderr where it stays visible after exit.
 			process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

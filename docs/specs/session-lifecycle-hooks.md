@@ -10,6 +10,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 - [x] `session_start` fires with `reason` ∈ {startup, reload, new, resume, fork, restart}; for new/resume/fork/restart it carries `previousSessionFile` (`agent-session-runtime-events.test.ts` and `2860-replaced-session-context.test.ts` assert the emitted `reason`/`previousSessionFile`).
 - [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts` and `2860-replaced-session-context.test.ts`).
+- [x] Only a hosted `session_shutdown` with `reason: "quit"` provides `closeTranscript()`. Before an extension irreversibly removes the current transcript, it must await this callback. The callback stops new coordination and settles accepted work that can start transcript writes. It then stops writes without clearing in-memory entries or changing the saved path. It does not remove the file or change shutdown ordering.
 - [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts`).
 - [x] Runtime-owned replacement, reload, relocation, restart, import, and quit transitions serialize so each installed runtime receives its own `session_shutdown` before context invalidation, including concurrent requests and deferred tool-result relocation (`agent-session-runtime-events.test.ts` and `suite/change-working-directory-tool.test.ts`).
 - [x] After shutdown delivery and before disposal, teardown removes a non-resident persisted session with no message entries unless the transition retains that same session file; startup also sweeps dead, fileless zero-message metadata rows. The sweep reads only candidate IDs and paths, not message-search text. Live, resident, archived, message-bearing, and recovery-persisted sessions remain intact (`empty-session-cleanup.test.ts`, `suite/agent-session-runtime.test.ts`, and `suite/headless-pi.test.ts`).
@@ -52,7 +53,8 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 - `packages/coding-agent/src/core/extensions/types.ts:545-552` — `SessionStartEvent` (`reason`, `previousSessionFile`).
 - `packages/coding-agent/src/core/extensions/types.ts:554-566` — `SessionBeforeSwitchEvent`, `SessionBeforeForkEvent` (`entryId`, `position`).
-- `packages/coding-agent/src/core/extensions/types.ts:568-590` — `SessionBeforeCompactEvent` (signal), `SessionCompactEvent`, `SessionShutdownEvent`.
+- `packages/coding-agent/src/core/extensions/types.ts` — `SessionBeforeCompactEvent` (signal), `SessionCompactEvent`, and `SessionShutdownEvent` (`closeTranscript`).
+- `packages/coding-agent/src/core/session-manager.ts` — `stopPersisting()` stops transcript writes without clearing the saved path or in-memory entries.
 - `packages/coding-agent/src/core/extensions/types.ts:592-621` — `TreePreparation`, `SessionBeforeTreeEvent`, `SessionTreeEvent`.
 - `packages/coding-agent/src/core/extensions/types.ts:623-631` — `SessionEvent` union.
 - `packages/coding-agent/src/core/extensions/types.ts:984` — `ExtensionEvent` union includes `ProjectTrustEvent`, `ResourcesDiscoverEvent`, `SessionEvent`.

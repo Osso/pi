@@ -53,6 +53,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] When child agents of the current runtime are running, name the count in the confirmation; after confirmation close them with their descendants and wait for their turns to settle. If any child is still running afterwards, keep the session, report the child, and do not quit, because a running child can still write its transcript (`session-archive-extension.test.ts`, `delete-closes-running-agents.test.ts`).
 - [x] Ask for confirmation; declining keeps the session and Pi running (`session-archive-extension.test.ts`).
 - [x] On confirmation, quit Pi and at quit teardown delete the current session and every child agent session recorded under it (recursively), removing their control-DB metadata (`session-archive-extension.test.ts`).
+- [x] After `/delete` closes child agents, a late terminal agent notification must not recreate the parent `.jsonl` file during quit teardown (`delete-closes-running-agents.test.ts`).
 - [x] Move files to the trash when the `trash` CLI succeeds, otherwise delete permanently; report failures on stderr.
 
 ### Resume picker delete

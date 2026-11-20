@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it, vi } from "vitest";
+import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
+import {
+	getControlDbPath,
+	readRuntimeMailboxListener,
+	readSessionMetadata,
+} from "../../../src/core/session-control-db.ts";
 import { requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 it("/delete closes running child agents, then deletes the session and their transcripts", async () => {
@@ -27,6 +33,10 @@ it("/delete closes running child agents, then deletes the session and their tran
 		await agent.waitForEvent((event) => event.type === "agent_end");
 		const childTranscript = child.transcript?.path;
 		if (!childTranscript) throw new Error("Worker has no transcript");
+		const controlDbPath = getControlDbPath(agent.paths.agentDir);
+		const parentListener = readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: agent.sessionId });
+		if (!parentListener) throw new Error("Expected parent runtime mailbox listener");
+		const parentRuntimeIdentity = readProcessIdentity(parentListener.pid);
 		expect([existsSync(agent.sessionFile), existsSync(childTranscript)]).toEqual([true, true]);
 
 		const response = agent.send({ type: "prompt", message: "/delete" });
@@ -39,8 +49,13 @@ it("/delete closes running child agents, then deletes the session and their tran
 		expect((await response).success).toBe(true);
 
 		await vi.waitFor(
-			() => expect([existsSync(agent.sessionFile), existsSync(childTranscript)]).toEqual([false, false]),
+			() => {
+				expect(isProcessIdentityAlive(parentRuntimeIdentity)).toBe(false);
+				expect([existsSync(agent.sessionFile), existsSync(childTranscript)]).toEqual([false, false]);
+			},
 			{ timeout: 15_000, interval: 50 },
 		);
+		expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toBeUndefined();
+		expect(readSessionMetadata(controlDbPath, childTranscript)).toBeUndefined();
 	});
 }, 90_000);

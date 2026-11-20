@@ -953,15 +953,10 @@ async function listSessionsFromDir(
 }
 
 /**
- * Manages conversation sessions as append-only trees stored in JSONL files.
+ * Stores conversation sessions as append-only JSONL trees. Appends extend the current leaf.
+ * Branching moves the leaf to an earlier entry without changing history.
  *
- * Each session entry has an id and parentId forming a tree structure. The "leaf"
- * pointer tracks the current position. Appending creates a child of the current leaf.
- * Branching moves the leaf to an earlier entry, allowing new branches without
- * modifying history.
- *
- * Use buildSessionContext() to get the resolved message list for the LLM, which
- * handles compaction summaries and follows the path from root to current leaf.
+ * `buildSessionContext()` resolves the path to that leaf and its compaction summaries.
  */
 export class SessionManager {
 	private sessionId: string = "";
@@ -1141,6 +1136,11 @@ export class SessionManager {
 
 	isPersisted(): boolean {
 		return this.persist;
+	}
+
+	/** Stops transcript writes without clearing its path or in-memory history. */
+	stopPersisting(): void {
+		this.persist = false;
 	}
 
 	getCwd(): string {

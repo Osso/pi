@@ -712,12 +712,12 @@ export interface SessionCompactEvent {
 	willRetry: boolean;
 }
 
-/** Fired before an extension runtime is torn down due to quit, reload, or session replacement. */
 export interface SessionShutdownEvent {
 	type: "session_shutdown";
 	reason: "quit" | "reload" | "new" | "resume" | "fork" | "restart";
-	/** Destination session file when shutting down due to session replacement. */
-	targetSessionFile?: string;
+	targetSessionFile?: string; // Destination session file when shutting down due to session replacement.
+	/** On hosted quit, await this to settle admitted delivery and stop writes before removing the transcript. */
+	closeTranscript?: () => Promise<void>;
 }
 
 /** Fired for a claimed durable runtime-mailbox message before prompt conversion. */

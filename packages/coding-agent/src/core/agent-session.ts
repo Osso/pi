@@ -1,16 +1,8 @@
 /**
- * AgentSession - Core abstraction for agent lifecycle and session management.
- *
- * This class is shared between all run modes (interactive, print, rpc).
- * It encapsulates:
- * - Agent state access
- * - Event subscription with automatic session persistence
- * - Model and thinking level management
- * - Compaction (manual and auto)
- * - Bash execution
- * - Session switching and branching
- *
- * Modes use this class and add their own I/O layer on top.
+ * AgentSession - Core abstraction for agent lifecycle and session management, shared by interactive,
+ * print, and rpc modes; it encapsulates agent state access; event subscription with automatic session
+ * persistence; model and thinking level management; manual and automatic compaction; Bash execution;
+ * and session switching and branching. Modes use this class and add their own I/O layer on top.
  */
 
 import { randomUUID } from "node:crypto";
@@ -1840,6 +1832,13 @@ export class AgentSession {
 		this._disconnectFromAgent();
 		this._eventListeners = [];
 		cleanupSessionResources(this.sessionId);
+	}
+
+	async closeTranscript(): Promise<void> {
+		this._disableRuntimeCoordinationInbound = true;
+		await this._turnStartLockTail;
+		await this._runtimeMailboxDrainPromise;
+		this.sessionManager.stopPersisting();
 	}
 
 	// =========================================================================

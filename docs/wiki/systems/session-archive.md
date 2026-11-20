@@ -16,6 +16,8 @@ implicitly archive child rows. Archived scope preserves recent ordering instead 
 
 Session deletion resolves transitive descendants with one indexed lookup, invokes `trash` asynchronously in batches with bounded argument size, and retains permanent unlink when trash fails. One metadata-cleanup transaction covers only files actually deleted. The picker and `/delete` quit teardown await completion. This avoids per-file process startup and synchronous trash-process freezes.
 
+After `/delete` closes the child agents, quit teardown stops new coordination delivery and waits for deliveries that already started to pass their write admission checks. It then closes the current transcript manager to writes before deleting the transcript tree. This prevents a late terminal agent notification from recreating the parent `.jsonl` file. Archive and picker behavior are unchanged.
+
 `/archive`, `/delete`, and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
 
 `/unarchive` clears only the current persisted session's archive metadata using the control-DB API. It leaves the active manager and transcript unchanged, with no picker, ID lookup, or session replacement. An already-unarchived session produces an informational notification without a metadata write. Compressed sessions are restored by the existing storage path when resumed, before becoming the current session.

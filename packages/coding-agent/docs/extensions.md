@@ -524,9 +524,13 @@ pi.on("session_tree", async (event, ctx) => {
 
 Fired before a started session runtime is torn down. Use this to clean up resources opened from `session_start` or other session-scoped hooks.
 
+`event.closeTranscript?: () => Promise<void>` is available only on hosted quit (`reason: "quit"` from `AgentSessionRuntime`). If your handler will irreversibly remove the current transcript, check that the callback is present and await it before removal. Do not proceed with removal if it is absent.
+
+The callback stops new coordination delivery and waits for admitted delivery to pass its write admission checks. It then stops further transcript writes. It does not delete the file, clear the in-memory entries, or change the path returned by `ctx.sessionManager.getSessionFile()`. Shutdown handlers still run in their normal order before runtime teardown.
+
 ```typescript
 pi.on("session_shutdown", async (event, ctx) => {
-  // event.reason - "quit" | "reload" | "new" | "resume" | "fork"
+  // event.reason - "quit" | "reload" | "new" | "resume" | "fork" | "restart"
   // event.targetSessionFile - destination session for session replacement flows
   // Cleanup, save state, etc.
 });

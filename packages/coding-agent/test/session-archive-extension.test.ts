@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
-import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	RegisteredCommand,
+	SessionShutdownEvent,
+} from "../src/core/extensions/types.ts";
 import { archivePersistedSession, restoreArchivedSession } from "../src/core/session-archive-storage.ts";
 import {
 	archiveSession,
@@ -126,7 +131,7 @@ describe("session archive extension", () => {
 		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-quit-command-"));
 		tempDirs.push(baseDir);
 		const controlDbPath = getControlDbPath(baseDir);
-		const writeSession = (name: string, options?: { parentSession?: string }) => {
+		const createSession = (name: string, options?: { parentSession?: string }) => {
 			const manager = SessionManager.create(
 				baseDir,
 				baseDir,
@@ -135,18 +140,19 @@ describe("session archive extension", () => {
 			manager.setMetadataControlDbPath(controlDbPath);
 			manager.appendMessage({ role: "user", content: `${name} work`, timestamp: 1 });
 			manager.persistForRecovery();
-			return requireValue(manager.getSessionFile());
+			return manager;
 		};
-		const sessionPath = writeSession("current");
-		const childPath = writeSession("child", { parentSession: sessionPath });
-		const otherPath = writeSession("other");
+		const currentManager = createSession("current");
+		const sessionPath = requireValue(currentManager.getSessionFile());
+		const childPath = requireValue(createSession("child", { parentSession: sessionPath }).getSessionFile());
+		const otherPath = requireValue(createSession("other").getSessionFile());
 		const commands = new Map<string, RegisteredCommand>();
 		const events = createEventBus();
-		const shutdownHandlers: Array<(event: { reason: string }) => void | Promise<void>> = [];
+		const shutdownHandlers: Array<(event: SessionShutdownEvent) => void | Promise<void>> = [];
 		sessionArchiveExtension({
 			events,
-			on(event: string, handler: (event: { reason: string }) => void | Promise<void>) {
-				if (event === "session_shutdown") shutdownHandlers.push(handler);
+			on(_event: "session_shutdown", handler: (event: SessionShutdownEvent) => void | Promise<void>) {
+				shutdownHandlers.push(handler);
 			},
 			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 				commands.set(name, {
@@ -161,17 +167,23 @@ describe("session archive extension", () => {
 		const shutdown = vi.fn();
 		const ctx = {
 			controlDbPath,
-			sessionManager: { getSessionFile: () => sessionPath, getSessionId: () => "current-session" },
+			sessionManager: currentManager,
 			shutdown,
 			ui: { confirm, notify },
 		} as unknown as ExtensionCommandContext;
-		const teardown = async (reason: string) => {
-			for (const handler of shutdownHandlers) await handler({ reason });
+		const teardown = async (reason: SessionShutdownEvent["reason"]) => {
+			const event = {
+				type: "session_shutdown" as const,
+				reason,
+				...(reason === "quit" ? { closeTranscript: async () => currentManager.stopPersisting() } : {}),
+			};
+			for (const handler of shutdownHandlers) await handler(event);
 		};
 		const quit = () => teardown("quit");
 		return {
 			childPath,
 			commands,
+			currentManager,
 			confirm,
 			controlDbPath,
 			ctx,
@@ -261,7 +273,7 @@ describe("session archive extension", () => {
 			"Delete session?",
 			"Close the 1 running child agent, delete the current session and its child agent sessions, then quit.",
 		);
-		expect(closeRequests).toEqual([{ ownerSessionId: "current-session", reason: "closed by /delete" }]);
+		expect(closeRequests).toEqual([{ ownerSessionId: f.currentManager.getSessionId(), reason: "closed by /delete" }]);
 		await f.quit();
 		if (outcome === "keeps") {
 			expect(f.notify).toHaveBeenCalledWith("Could not close Worker; the session was not deleted.", "error");

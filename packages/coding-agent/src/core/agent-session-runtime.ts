@@ -151,14 +151,7 @@ export class AgentSessionRuntime {
 		this.rebindSession = rebindSession;
 	}
 
-	/**
-	 * Set a synchronous callback that runs after `session_shutdown` handlers finish
-	 * but before the current session is invalidated.
-	 *
-	 * This is for host-owned UI teardown that must not yield to the event loop,
-	 * such as detaching extension-provided TUI components before the old extension
-	 * context becomes stale.
-	 */
+	/** Run synchronous host UI teardown after shutdown handlers and before session invalidation. */
 	setBeforeSessionInvalidate(beforeSessionInvalidate?: () => void): void {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;
 	}
@@ -230,6 +223,7 @@ export class AgentSessionRuntime {
 			type: "session_shutdown",
 			reason,
 			targetSessionFile,
+			...(reason === "quit" ? { closeTranscript: () => session.closeTranscript() } : {}),
 		});
 		this.beforeSessionInvalidate?.();
 		removeAbandonedEmptySession(session.sessionManager, targetSessionFile);
