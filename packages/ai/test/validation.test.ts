@@ -116,6 +116,18 @@ describe("validateToolArguments", () => {
 		}
 	});
 
+	it("preserves a value already valid for a plain oneOf schema", () => {
+		const schema = {
+			oneOf: [{ type: "number" }, { type: "integer" }, { type: "string" }],
+		} as Tool["parameters"];
+		const { tool, toolCall } = createToolCallWithPlainSchema(schema, "42");
+
+		expect(validateToolArguments(tool, toolCall)).toEqual({ value: "42" });
+		expect(() => validateToolArguments(tool, { ...toolCall, arguments: { value: 42 } })).toThrow(
+			"must match exactly one schema in oneOf",
+		);
+	});
+
 	it("rejects invalid coercions for serialized plain JSON schemas", () => {
 		const failingCases: Array<{
 			schema: Tool["parameters"];

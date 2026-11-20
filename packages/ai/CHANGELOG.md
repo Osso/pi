@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Tool argument validation preserves values that already satisfy a plain JSON Schema `oneOf` instead of coercing them into overlapping branches.
 - OpenAI Codex SSE parsing accepts CRLF and CR line endings, including a CRLF split across stream chunks, instead of failing with `Invalid Codex SSE JSON`.
 - Bedrock tool calls finished by `messageStop` without a `contentBlockStop` get strict argument parsing: malformed JSON yields `argumentsError` instead of a repaired partial object.
 - OpenAI Responses prices usage at the service tier actually sent after `onPayload` changes it, instead of the original `serviceTier` option, when the response omits `service_tier`.

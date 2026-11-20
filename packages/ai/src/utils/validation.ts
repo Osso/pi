@@ -208,6 +208,8 @@ function coerceWithUnionSchema(value: unknown, schemas: JsonSchemaObject[]): unk
 }
 
 function coerceWithJsonSchema(value: unknown, schema: JsonSchemaObject): unknown {
+	// Coercion can move a valid oneOf value into two overlapping branches.
+	if (Array.isArray(schema.oneOf) && getSubSchemaValidator(schema)?.Check(value)) return value;
 	let nextValue = value;
 
 	if (Array.isArray(schema.allOf)) {
