@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `edit` keeps untouched line endings between separate replacement ranges, even when a replacement creates a repeated line in a file with mixed LF and CRLF.
 - `find` preserves literal trailing backslashes in POSIX filenames instead of returning them as directory paths.
 - Fixed `set_session_name` overwriting manual renames or clears persisted by another process, including renames that repeat the tool's title. The tool can correct only the name revision it last wrote. Extension API calls to `pi.setSessionName(name)` remain unconditional unless an expected revision is supplied.
 - Fixed `--mode json` truncating queued JSONL on shutdown. The first signal lets session disposal finish and drains stdout before exit, preserving exit code 143 for `SIGTERM`. A second signal exits immediately, even if the reader is not consuming stdout, and can truncate output. The JSON schema is unchanged.

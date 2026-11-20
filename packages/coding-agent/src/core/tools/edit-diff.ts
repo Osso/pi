@@ -60,19 +60,41 @@ function joinLinePieces(pieces: string[]): string {
 	return result;
 }
 
-/**
- * Convert edited LF content back to file bytes. Unchanged lines keep their original bytes, so an edit in a
- * file with mixed line endings does not rewrite endings outside the edit; added lines use `hunkEnding`.
- */
-export function restoreOriginalLineEndings(original: string, normalizedBase: string, normalizedEdited: string): string {
+type AffectedLineGroup = { startLine: number; endLine: number; editedContent: string };
+
+/** Restore endings within matched line groups and copy the original bytes between them. */
+export function restoreOriginalLineEndings(
+	original: string,
+	normalizedBase: string,
+	affectedLineGroups: AffectedLineGroup[],
+): string {
 	const originalLines = original.match(ORIGINAL_LINE) ?? [];
 	const baseLines = splitLinesWithEndings(normalizedBase);
-	const editedLines = splitLinesWithEndings(normalizedEdited);
-	const { prefix, suffix } = countUnchangedEdges(baseLines, editedLines);
-	const chunks = [originalLines.slice(0, prefix)];
-	let baseIndex = prefix;
+	const chunks: string[][] = [];
+	let originalLineIndex = 0;
+	for (const group of affectedLineGroups) {
+		chunks.push(originalLines.slice(originalLineIndex, group.startLine));
+		for (const chunk of restoreEditedGroup(original, originalLines, baseLines, group)) chunks.push(chunk);
+		originalLineIndex = group.endLine;
+	}
+	chunks.push(originalLines.slice(originalLineIndex));
+	return joinLinePieces(chunks.flat());
+}
+
+function restoreEditedGroup(
+	original: string,
+	originalLines: string[],
+	baseLines: string[],
+	group: AffectedLineGroup,
+): string[][] {
+	const editedLines = splitLinesWithEndings(group.editedContent);
+	const { prefix, suffix } = countUnchangedEdges(baseLines.slice(group.startLine, group.endLine), editedLines);
+	const firstChanged = group.startLine + prefix;
+	const endChanged = group.endLine - suffix;
+	const chunks = [originalLines.slice(group.startLine, firstChanged)];
+	let baseIndex = firstChanged;
 	let removedStart: number | undefined;
-	const changedBase = baseLines.slice(prefix, baseLines.length - suffix);
+	const changedBase = baseLines.slice(firstChanged, endChanged);
 	for (const part of Diff.diffArrays(changedBase, editedLines.slice(prefix, editedLines.length - suffix))) {
 		if (part.removed) {
 			removedStart = baseIndex;
@@ -85,8 +107,8 @@ export function restoreOriginalLineEndings(original: string, normalizedBase: str
 		if (!part.added) baseIndex += part.value.length;
 		if (!part.removed) removedStart = undefined;
 	}
-	chunks.push(originalLines.slice(baseLines.length - suffix));
-	return joinLinePieces(chunks.flat());
+	chunks.push(originalLines.slice(endChanged, group.endLine));
+	return chunks;
 }
 
 /**
@@ -204,16 +226,12 @@ function applyReplacements(content: string, replacements: TextReplacement[], off
 	return result;
 }
 
-/**
- * Apply replacements to `originalContent`, where fuzzy ones were matched against `baseContent`, its normalized
- * form. Each replacement is widened to the lines it touches; those lines are rewritten from the content the
- * replacement indexes, and all other lines are copied from `originalContent`, so unchanged lines keep their bytes.
- */
+/** Apply edits to affected lines in their matching space and keep the original text between groups. */
 function applyReplacementsPreservingUnchangedLines(
 	originalContent: string,
 	baseContent: string,
 	replacements: MatchedEdit[],
-): string {
+): { content: string; affectedLineGroups: AffectedLineGroup[] } {
 	const originalLines = getLineSpans(originalContent);
 	const baseLines = getLineSpans(baseContent);
 	if (originalLines.length !== baseLines.length) {
@@ -245,6 +263,7 @@ function applyReplacementsPreservingUnchangedLines(
 
 	let result = "";
 	let originalLineIndex = 0;
+	const affectedLineGroups: AffectedLineGroup[] = [];
 	for (const group of groups) {
 		const inOriginal = group.replacements[0]?.inOriginal ?? true;
 		const [content, lines] = inOriginal ? [originalContent, originalLines] : [baseContent, baseLines];
@@ -254,10 +273,13 @@ function applyReplacementsPreservingUnchangedLines(
 			originalLines[originalLineIndex]?.start ?? 0,
 			originalLines[group.startLine]?.start ?? 0,
 		);
-		result += applyReplacements(content.slice(groupStart, groupEnd), group.replacements, groupStart);
+		const editedContent = applyReplacements(content.slice(groupStart, groupEnd), group.replacements, groupStart);
+		result += editedContent;
+		affectedLineGroups.push({ startLine: group.startLine, endLine: group.endLine, editedContent });
 		originalLineIndex = group.endLine;
 	}
-	return result + originalContent.slice(originalLines[originalLineIndex]?.start ?? originalContent.length);
+	const remainingStart = originalLines[originalLineIndex]?.start ?? originalContent.length;
+	return { content: result + originalContent.slice(remainingStart), affectedLineGroups };
 }
 
 export interface FuzzyMatchResult {
@@ -284,6 +306,7 @@ export interface Edit {
 export interface AppliedEditsResult {
 	baseContent: string;
 	newContent: string;
+	affectedLineGroups: AffectedLineGroup[];
 }
 
 /**
@@ -454,15 +477,7 @@ function getNoChangeError(path: string, totalEdits: number): Error {
 	return new Error(`No changes made to ${path}. The replacements produced identical content.`);
 }
 
-/**
- * Apply one or more exact-text replacements to LF-normalized content.
- *
- * All edits are matched against the same original content. Replacements are
- * then applied in reverse order so offsets remain stable. If any edit needs
- * fuzzy matching, the operation runs in fuzzy-normalized content space and then
- * overlays those line-level changes onto the original content so unchanged line
- * blocks keep their original bytes.
- */
+/** Match all edits against LF text; fuzzy matching changes only the affected line groups. */
 export function applyEditsToNormalizedContent(
 	normalizedContent: string,
 	edits: Edit[],
@@ -531,15 +546,17 @@ export function applyEditsToNormalizedContent(
 	}
 
 	const baseContent = normalizedContent;
-	const newContent = usedFuzzyMatch
-		? applyReplacementsPreservingUnchangedLines(normalizedContent, replacementBaseContent, matchedEdits)
-		: applyReplacements(replacementBaseContent, matchedEdits);
+	const { content: newContent, affectedLineGroups } = applyReplacementsPreservingUnchangedLines(
+		normalizedContent,
+		replacementBaseContent,
+		matchedEdits,
+	);
 
 	if (baseContent === newContent) {
 		throw getNoChangeError(path, normalizedEdits.length);
 	}
 
-	return { baseContent, newContent };
+	return { baseContent, newContent, affectedLineGroups };
 }
 
 /** Generate a standard unified patch. */

@@ -541,7 +541,7 @@ Specify which built-in tools to enable:
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied
 
-The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers.
+The `edit` tool returns `details.diff` for Pi's TUI display. Exact and fuzzy edits preserve the original line endings on untouched lines between replacement ranges. The standard unified `details.patch` applies to the original file as stored, including files with mixed line endings.
 
 ```typescript
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
