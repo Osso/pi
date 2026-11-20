@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- A nested skill `.gitignore` in a directory whose name starts with `#` or `!` applies its rules; the rebased rule no longer reads as a comment or a negation.
 - `AgentHarness.navigateTree()` applies the requested `label` and, like `compact()`, persists writes queued by listeners before it settles.
 - `JsonlSessionRepo.list({ cwd })` no longer returns sessions of a different cwd that encodes to the same directory name.
 - `JsonlSessionStorage` adds the missing newline before appending to a reopened session file whose last record has none.

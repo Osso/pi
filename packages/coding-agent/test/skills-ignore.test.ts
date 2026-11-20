@@ -55,12 +55,12 @@ describe("nested skill ignore files", () => {
 		expect(skills.map((skill) => skill.name).sort()).toEqual(expectedNames);
 	});
 
-	it("honors an ignore file in a directory whose name contains glob characters", async () => {
+	it.each(["team[1]", "#collection", "!collection"])("honors an ignore file in a directory named %s", async (dir) => {
 		for (const name of ["drafts/draft-review", "release-review"]) {
-			mkdirSync(join(skillsDir, "team[1]", name), { recursive: true });
-			writeFileSync(join(skillsDir, "team[1]", name, "SKILL.md"), "---\ndescription: Test skill\n---\nContent");
+			mkdirSync(join(skillsDir, dir, name), { recursive: true });
+			writeFileSync(join(skillsDir, dir, name, "SKILL.md"), "---\ndescription: Test skill\n---\nContent");
 		}
-		writeFileSync(join(skillsDir, "team[1]", ".gitignore"), "drafts/\n");
+		writeFileSync(join(skillsDir, dir, ".gitignore"), "drafts/\n");
 		const packageManager = new DefaultPackageManager({
 			cwd: root,
 			agentDir,
