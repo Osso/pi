@@ -3871,18 +3871,16 @@ export class AgentSession {
 		if (assistantMessage.stopReason === "error" || directContextTokens === 0) {
 			const messages = this.agent.state.messages;
 			const estimate = estimateContextTokens(messages);
-			// Without provider usage, estimate.tokens is the pure message-size estimate (#8328). A usage-backed
-			// estimate from kept pre-compaction messages reflects the old (larger) context and would falsely
-			// trigger compaction right after one just finished.
+			// Without provider usage, estimate.tokens is the pure message-size estimate (#8328). Usage from kept
+			// pre-compaction messages reflects the old (larger) context, so estimate the rebuilt context from content.
 			const usageMsg = estimate.lastUsageIndex === null ? undefined : messages[estimate.lastUsageIndex];
-			if (
+			const usageIsStale =
 				compactionEntry &&
 				usageMsg?.role === "assistant" &&
-				(usageMsg as AssistantMessage).timestamp <= new Date(compactionEntry.timestamp).getTime()
-			) {
-				return false;
-			}
-			contextTokens = estimate.tokens;
+				(usageMsg as AssistantMessage).timestamp <= new Date(compactionEntry.timestamp).getTime();
+			contextTokens = usageIsStale
+				? messages.reduce((tokens, message) => tokens + estimateTokens(message), 0)
+				: estimate.tokens;
 		} else {
 			contextTokens = estimateThresholdContextTokens(
 				this.agent.state.messages,

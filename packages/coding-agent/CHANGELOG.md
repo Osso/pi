@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Threshold compaction after a zero-usage reply no longer skips the check when the kept usage predates the latest compaction; it estimates the rebuilt context from content, so a large tool result still compacts before the next request.
 - `--session-id` rejects IDs ending in `.jsonl` or `.jsonl.zst`; `--session` reads those as transcript paths, so the printed resume command could not reopen such a session.
 - The claude-memory session-end extension logs a missing or non-executable indexer to `pi-index.log` before quit, instead of losing the asynchronous spawn error when Pi exits.
 - A `SIGHUP` restart (including `pi control restart`) now persists a `self_restart` notice so an interrupted turn continues, and every process restart emits `session_start` with reason `restart` and `previousSessionFile` instead of `startup`.
