@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Viewport-only repaints (same-size resize, content shrinking upward) delete Kitty images that left the repainted rows and clear an image's reserved rows before drawing it, instead of erasing the image afterwards.
 - iTerm2 inline images pass their reserved row count as the image height, so `maxHeightCells` limits the drawn image and not only the layout.
 - Terminal output no longer rewrites Thai and Lao AM vowels inside escape sequences, which changed OSC 8 hyperlink URLs; an overlay that ends inside a wide character no longer shifts the following text one column left.
 - Key handling fixes: modified Escape bindings such as `shift+escape` now match their Kitty and modifyOtherKeys sequences; Kitty Backspace (code point 127) and C1 controls are no longer decoded as printable text, so an unbound Backspace no longer inserts DEL; `parseKey()` recognizes the `\x1b[1~`/`\x1b[7~` Home and `\x1b[4~`/`\x1b[8~` End sequences that `matchesKey()` accepts.

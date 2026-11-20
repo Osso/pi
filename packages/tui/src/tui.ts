@@ -1908,6 +1908,24 @@ export class TUI extends Container {
 			return targetScreenRow - currentScreenRow;
 		};
 
+		// A multi-row Kitty image reserves (and with rowPrefix clears) its rows before drawing from the top one.
+		const writeRows = (lines: string[], rowPrefix: string): string => {
+			let buffer = "";
+			for (let i = 0; i < lines.length; i++) {
+				if (i > 0) buffer += "\r\n";
+				const line = lines[i];
+				if (line === undefined) throw new Error(`Missing rendered line at index ${i}`);
+				const imageReservedRows = isImageLine(line) ? this.getKittyImageReservedRows(lines, i) : 1;
+				if (imageReservedRows > 1 && imageReservedRows <= height) {
+					buffer += rowPrefix + `\r\n${rowPrefix}`.repeat(imageReservedRows - 1);
+					buffer += `\x1b[${imageReservedRows - 1}A${line}\x1b[${imageReservedRows - 1}B`;
+					i += imageReservedRows - 1;
+					continue;
+				}
+				buffer += rowPrefix + line;
+			}
+			return buffer;
+		};
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
@@ -1916,25 +1934,7 @@ export class TUI extends Container {
 				buffer += this.deleteKittyImages(this.previousKittyImageIds);
 				buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
 			}
-			for (let i = 0; i < newLines.length; i++) {
-				if (i > 0) buffer += "\r\n";
-				const line = newLines[i];
-				if (line === undefined) throw new Error(`Missing rendered line at index ${i}`);
-				const isImage = isImageLine(line);
-				const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i) : 1;
-				if (imageReservedRows > 1 && imageReservedRows <= height) {
-					for (let row = 1; row < imageReservedRows; row++) {
-						buffer += "\r\n";
-					}
-					buffer += `\x1b[${imageReservedRows - 1}A`;
-					buffer += line;
-					buffer += `\x1b[${imageReservedRows - 1}B`;
-					i += imageReservedRows - 1;
-					continue;
-				}
-				buffer += line;
-			}
-			buffer += "\x1b[?2026l"; // End synchronized output
+			buffer += `${writeRows(newLines, "")}\x1b[?2026l`; // End synchronized output
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);
 			this.hardwareCursorRow = this.cursorRow;
@@ -1956,9 +1956,9 @@ export class TUI extends Container {
 		// Rewrite the screen from startRow to the end without clearing scrollback. Lines already pushed into
 		// scrollback cannot be updated or scroll back down; rows past the screen height scroll into it naturally.
 		const viewportRender = (startRow: number): void => {
-			let buffer = "\x1b[?2026h\x1b[H";
+			let buffer = `\x1b[?2026h${this.deleteChangedKittyImages(startRow, this.previousLines.length - 1)}\x1b[H`;
 			const visibleLines = newLines.slice(startRow);
-			buffer += visibleLines.map((line) => `\x1b[2K${line}`).join("\r\n");
+			buffer += writeRows(visibleLines, "\x1b[2K");
 			buffer += "\x1b[J\x1b[?2026l";
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);

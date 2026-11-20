@@ -239,6 +239,57 @@ describe("TUI Kitty image cleanup", () => {
 		}
 	});
 
+	it("clears reserved Kitty image rows before drawing on a same-size viewport repaint", async () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const terminal = new LoggingVirtualTerminal(40, 10);
+			const { tui, component } = createTestTui(terminal);
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 2 },
+				{ widthPx: 20, heightPx: 20 },
+			);
+			const imageLines = image.render(40);
+			const imageSequence = imageLines[0];
+			component.lines = ["before", ...imageLines, "after"];
+			tui.start();
+			await terminal.waitForRender();
+			terminal.clearWrites();
+
+			terminal.resize(40, 10);
+			await terminal.waitForRender();
+
+			const writes = terminal.getWrites();
+			assert.ok(writes.includes(`\x1b[2K\r\n\x1b[2K\x1b[1A${imageSequence}\x1b[1B`));
+			assert.ok(!writes.includes(`${imageSequence}\r\n\x1b[2K`));
+			tui.stop();
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("deletes a removed Kitty image when the viewport repaint moves up", async () => {
+		const terminal = new LoggingVirtualTerminal(40, 4);
+		const { tui, component } = createTestTui(terminal);
+		tui.setClearOnShrink(false);
+		const image = encodeKitty("AAAA", { columns: 2, rows: 2, imageId: 42, moveCursor: false });
+		component.lines = ["one", "two", "three", image, "", "tail"];
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		component.lines = ["one", "two", "three", "tail"];
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		assert.ok(terminal.getWrites().includes(deleteKittyImage(42)));
+		tui.stop();
+	});
+
 	it("deletes changed image ids before drawing moved placements", async () => {
 		const terminal = new LoggingVirtualTerminal(40, 10);
 		const { tui, component } = createTestTui(terminal);
