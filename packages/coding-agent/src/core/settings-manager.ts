@@ -401,7 +401,7 @@ export class SettingsManager {
 			return undefined;
 		});
 
-		if (!content) {
+		if (content === undefined) {
 			return {};
 		}
 		const settings = SettingsManager.parseSettingsObject(content);
@@ -733,9 +733,8 @@ export class SettingsManager {
 		modifiedNestedFields: Map<keyof Settings, Set<string>>,
 	): void {
 		this.storage.withLock(scope, (current) => {
-			const currentFileSettings = current
-				? SettingsManager.migrateSettings(SettingsManager.parseSettingsObject(current))
-				: {};
+			const currentFileSettings =
+				current === undefined ? {} : SettingsManager.migrateSettings(SettingsManager.parseSettingsObject(current));
 			const mergedSettings: Settings = { ...currentFileSettings };
 			for (const field of modifiedFields) {
 				const value = snapshotSettings[field];
