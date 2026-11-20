@@ -34,7 +34,7 @@ Requires Pi's built-in `/usage` dispatcher emitting `claude-bridge:usage-request
 
 ## Configuration
 
-Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config directory, usually `.pi/claude-bridge.json` (project; merged over global).
+Config: `~/.config/pi/agent/claude-bridge.json` (global) or the project Pi config directory, usually `.pi/claude-bridge.json` (project; merged over global).
 
 ```json
 {
@@ -61,7 +61,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 
 Opt in with existing saved profiles at `~/.claude/<name>.credentials.json`. Names must be unique and contain only letters, digits, underscores or hyphens, starting with a letter or digit. The bridge does not discover accounts or log them in. The selected account and dated quota rejections are shared by bridge processes through `~/.config/pi-claude-bridge/account-state/`, one `<pid>.json` per process merged on read. The bridge keeps the selected account while it is eligible and otherwise takes the next eligible profile in configured order, honoring newer denials. It reads subscription usage only after quota rejections leave no eligible account; healthy requests never query usage.
 
-Example local server configuration in that server user's `~/.pi/agent/claude-bridge.json` (not a global default):
+Example local server configuration in that server user's `~/.config/pi/agent/claude-bridge.json` (not a global default):
 
 ```json
 {
@@ -83,7 +83,7 @@ Selection, dated rejections, and successful quota observations are shared throug
 
 **Startup notice:** the first session points out `provider.plan` if unset, then records `startupNoticeShown` in the global config so it doesn't nag again.
 
-**Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Overriding `contextWindow` or other fields requires changing the bridge model metadata — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
+**Extension providers and models.json:** pi's `modelOverrides` in `~/.config/pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Overriding `contextWindow` or other fields requires changing the bridge model metadata — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
 
 ## Session working directory
 
@@ -95,7 +95,7 @@ Configured-profile OAuth observations use a private normal-operation trace, inde
 
 Set `CLAUDE_BRIDGE_DEBUG=1` to enable debug output:
 
-- **Bridge log** at `claude-bridge.log` in pi's agent dir (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) — provider calls, session sync decisions, tool results, CC stderr. Override location with `CLAUDE_BRIDGE_DEBUG_PATH`.
+- **Bridge log** at `claude-bridge.log` in pi's agent dir (`PI_CODING_AGENT_DIR`, default `~/.config/pi/agent`) — provider calls, session sync decisions, tool results, CC stderr. Override location with `CLAUDE_BRIDGE_DEBUG_PATH`.
 - **Per-query CC CLI logs** at `cc-cli-logs/<timestamp>-<tag>-<seq>.log` in the same directory — the subprocess's own debug stream; tag is `provider`. Shows CC's view of session loading, API requests, and tool calls.
 
 When filing a bug about a session-resume failure (e.g. "No conversation found"), the most useful attachments are the `syncResult:` lines from the bridge log plus the matching `cc-cli-logs/` file for the failing query.
@@ -124,7 +124,7 @@ Other extensions can change the system prompt. When the result still contains pi
 
 ### Using claude bridge with @gotgenes/pi-subagents
 
-Requires the following in `~/.pi/agent/subagents.json`:
+Requires the following in `~/.config/pi/agent/subagents.json`:
 
 ```json
 {"promptInheritance": {"claude-bridge": "portable"}}

@@ -24,7 +24,7 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
 Pi loads skills from:
 
 - Global:
-  - `~/.pi/agent/skills/`
+  - `~/.config/pi/agent/skills/`
   - `~/.agents/skills/`
 - Project (only after the project is trusted):
   - `.pi/skills/`
@@ -35,7 +35,7 @@ Pi loads skills from:
 - CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
 
 Discovery rules:
-- In `~/.pi/agent/skills/`, `.pi/skills/`, repo-local `.codex/skills/`, and repo-local `.claude/skills/`, direct root `.md` files are discovered as individual skills
+- In `~/.config/pi/agent/skills/`, `.pi/skills/`, repo-local `.codex/skills/`, and repo-local `.claude/skills/`, direct root `.md` files are discovered as individual skills
 - In all skill locations, directories containing `SKILL.md` are discovered recursively
 - In `~/.agents/skills/` and project `.agents/skills/`, root `.md` files are ignored
 

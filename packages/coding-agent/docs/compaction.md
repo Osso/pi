@@ -36,7 +36,7 @@ Automatic threshold compaction uses the first applicable rule:
 
 During a running tool-bearing turn, Pi checks the configured threshold after current tool results are completed and committed, before the subsequent provider request. Compaction preserves coherent tool-call/output pairs and continues the same active turn with compacted context. It does not interrupt an in-flight provider stream or uncommitted tool execution. The token threshold therefore applies at this safe boundary without waiting for the whole turn to end or for a speculative 70% cache to become ready; usage can cross the threshold while the current response or tools finish.
 
-Set `"compaction": { "thresholdTokens": 500000 }` in `~/.pi/agent/settings.json` to compact at 500k tokens across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
+Set `"compaction": { "thresholdTokens": 500000 }` in `~/.config/pi/agent/settings.json` to compact at 500k tokens across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
 
 `reserveTokens` defaults to 16384 and still controls summarization output budgets even with a token threshold configured. `keepRecentMessages` remains unchanged. The token threshold does not change the separate speculative cache boundary (70%, or `compaction.backgroundStartTokens`). Normal compaction is checked first, so the speculative boundary takes effect only when it is below the normal trigger or add a UI control.
 
@@ -58,7 +58,7 @@ Set `"compaction": { "idle": false }` to disable this trigger alone. `compaction
 
 ### Disabling built-in compaction
 
-Set `compaction.enabled` to `false` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json` to disable Pi's built-in local summarizer. The default is `true`, preserving the normal behavior.
+Set `compaction.enabled` to `false` in `~/.config/pi/agent/settings.json` or `<project-dir>/.pi/settings.json` to disable Pi's built-in local summarizer. The default is `true`, preserving the normal behavior.
 
 With the setting disabled, registered `compaction` handlers still run for manual compaction and automatic threshold or overflow compaction. A handler-provided result is saved normally, including provider-native results from custom handlers. Pi never falls back to the local summarizer when the handlers are absent, fail, or return no result; instead it reports an actionable error to enable built-in compaction or configure a compaction extension.
 
@@ -70,7 +70,7 @@ Manual-resumption post-run ownership prevents a cancelled turn from racing its r
 
 ### How It Works
 
-1. **Find cut point**: Keep the `keepRecentMessages` newest context messages (default 20, counting user, assistant, tool result, and custom messages; configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). Every compaction reason (threshold, overflow, idle, manual) uses this count. The cut never crosses the previous compaction entry. If the oldest kept message is a tool result, the cut moves back to its tool call, so a few extra messages can be kept. Kept messages are sent verbatim with no size cap, so 20 very large messages can still exceed a small model's context window
+1. **Find cut point**: Keep the `keepRecentMessages` newest context messages (default 20, counting user, assistant, tool result, and custom messages; configurable in `~/.config/pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). Every compaction reason (threshold, overflow, idle, manual) uses this count. The cut never crosses the previous compaction entry. If the oldest kept message is a tool result, the cut moves back to its tool call, so a few extra messages can be kept. Kept messages are sent verbatim with no size cap, so 20 very large messages can still exceed a small model's context window
 2. **Extract messages**: Collect messages from the previous kept boundary (or session start) up to the cut point
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
@@ -453,7 +453,7 @@ See `SessionBeforeTreeEvent` and `TreePreparation` in the types file.
 
 ## Settings
 
-Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`:
+Configure compaction in `~/.config/pi/agent/settings.json` or `<project-dir>/.pi/settings.json`:
 
 ```json
 {

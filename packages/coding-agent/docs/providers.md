@@ -20,7 +20,7 @@ Use `/login` in interactive mode, then select a provider:
 - Claude Pro/Max
 - GitHub Copilot
 
-Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json` and auto-refresh when expired.
+Use `/logout` to clear credentials. Tokens are stored in `~/.config/pi/agent/auth.json` and auto-refresh when expired.
 
 ### OpenAI Codex
 
@@ -90,7 +90,7 @@ Reference for environment variables and `auth.json` keys: [`const envMap`](https
 
 #### Auth File
 
-Store credentials in `~/.pi/agent/auth.json`:
+Store credentials in `~/.config/pi/agent/auth.json`:
 
 ```json
 {
@@ -271,7 +271,7 @@ Set the service-account JSON file to user-only permissions. A stored provider en
 
 ### Second OpenAI API account
 
-For fallback, add `openai-secondary` to `~/.pi/agent/models.json`, with each same-ID model you intend to use. For example, replace `YOUR_MODEL_ID` with an actual model ID available to both accounts, and configure its model metadata as needed (see [models.md](models.md)):
+For fallback, add `openai-secondary` to `~/.config/pi/agent/models.json`, with each same-ID model you intend to use. For example, replace `YOUR_MODEL_ID` with an actual model ID available to both accounts, and configure its model metadata as needed (see [models.md](models.md)):
 
 ```json
 {
@@ -285,7 +285,7 @@ For fallback, add `openai-secondary` to `~/.pi/agent/models.json`, with each sam
 }
 ```
 
-Store a separate credential under `openai-secondary` in `~/.pi/agent/auth.json`; configure the primary `openai` credential separately. For example, supply the secondary key via an environment variable, not a literal secret:
+Store a separate credential under `openai-secondary` in `~/.config/pi/agent/auth.json`; configure the primary `openai` credential separately. For example, supply the secondary key via an environment variable, not a literal secret:
 
 ```json
 {

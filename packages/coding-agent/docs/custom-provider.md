@@ -359,7 +359,7 @@ interface OAuthLoginCallbacks {
 
 ### OAuthCredentials
 
-Credentials are persisted in `~/.pi/agent/auth.json`:
+Credentials are persisted in `~/.config/pi/agent/auth.json`:
 
 ```typescript
 interface OAuthCredentials {
