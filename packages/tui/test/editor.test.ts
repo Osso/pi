@@ -1876,6 +1876,17 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "hello FIRSTworld");
 		});
 
+		it("yank-pop replaces a yank that joined the next character into one flag", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			for (const key of ["z", "\x15", "🇺", "\x15", "🇸", "\x01"]) editor.handleInput(key);
+
+			editor.handleInput("\x19"); // Ctrl+Y yanks 🇺, which joins 🇸 into one flag
+			assert.strictEqual(editor.getText(), "🇺🇸");
+			editor.handleInput("\x1by"); // Alt+Y
+
+			assert.strictEqual(editor.getText(), "z🇸");
+		});
+
 		it("multiline yank and yank-pop in middle of text", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

@@ -345,6 +345,8 @@ export class Editor implements Component, Focusable {
 	// Kill ring for Emacs-style kill/yank operations
 	private killRing = new KillRing();
 	private lastAction: "kill" | "yank" | "type-word" | null = null;
+	/** Column where the last yank ended; the cursor can sit earlier when the yank joined graphemes. */
+	private yankEndCol = 0;
 
 	// Character jump mode
 	private jumpMode: "forward" | "backward" | null = null;
@@ -2165,7 +2167,8 @@ export class Editor implements Component, Focusable {
 			const before = currentLine.slice(0, this.state.cursorCol);
 			const after = currentLine.slice(this.state.cursorCol);
 			this.state.lines[this.state.cursorLine] = before + text + after;
-			this.setCursorCol(this.state.cursorCol + text.length);
+			this.yankEndCol = this.state.cursorCol + text.length;
+			this.setCursorCol(this.yankEndCol);
 		} else {
 			// Multi-line insert
 			const currentLine = this.state.lines[this.state.cursorLine] || "";
@@ -2184,9 +2187,9 @@ export class Editor implements Component, Focusable {
 			const lastLineIndex = this.state.cursorLine + lines.length - 1;
 			this.state.lines.splice(lastLineIndex, 0, (lines[lines.length - 1] || "") + after);
 
-			// Update cursor position
 			this.state.cursorLine = lastLineIndex;
-			this.setCursorCol((lines[lines.length - 1] || "").length);
+			this.yankEndCol = (lines[lines.length - 1] || "").length;
+			this.setCursorCol(this.yankEndCol);
 		}
 
 		this.notifyTextChanged();
@@ -2203,20 +2206,18 @@ export class Editor implements Component, Focusable {
 		const yankLines = yankedText.split("\n");
 
 		if (yankLines.length === 1) {
-			// Single line - delete backward from cursor
+			// Single line - delete backward from where the yank ended
 			const currentLine = this.state.lines[this.state.cursorLine] || "";
-			const deleteLen = yankedText.length;
-			const before = currentLine.slice(0, this.state.cursorCol - deleteLen);
-			const after = currentLine.slice(this.state.cursorCol);
-			this.state.lines[this.state.cursorLine] = before + after;
-			this.setCursorCol(this.state.cursorCol - deleteLen);
+			const startCol = this.yankEndCol - yankedText.length;
+			this.state.lines[this.state.cursorLine] = currentLine.slice(0, startCol) + currentLine.slice(this.yankEndCol);
+			this.setCursorCol(startCol);
 		} else {
 			// Multi-line delete - cursor is at end of last yanked line
 			const startLine = this.state.cursorLine - (yankLines.length - 1);
 			const startCol = (this.state.lines[startLine] || "").length - (yankLines[0] || "").length;
 
 			// Get text after cursor on current line
-			const afterCursor = (this.state.lines[this.state.cursorLine] || "").slice(this.state.cursorCol);
+			const afterCursor = (this.state.lines[this.state.cursorLine] || "").slice(this.yankEndCol);
 
 			// Get text before yank start position
 			const beforeYank = (this.state.lines[startLine] || "").slice(0, startCol);

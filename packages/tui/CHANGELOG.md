@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Alt+Y replaces the previous yank correctly when that yank joined the following character into one grapheme, such as a flag.
 - Ctrl+K and Alt+D at the end of a line no longer leave the cursor inside a flag or other grapheme formed by joining the lines.
 - The editor expands only the exact marker it inserted for a large paste; a later paste or typed text that reuses the paste number stays literal.
 - Fuzzy matching folds Greek final sigma, so an uppercase query such as `ΟΣ` matches `ΟΣΛΟ`
