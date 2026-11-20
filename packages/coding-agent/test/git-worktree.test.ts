@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GitExec, resolveWorktree, WorktreeStartupError } from "../src/utils/git-worktree.ts";
 
 function createGitExec(results: Array<{ stdout?: string; stderr?: string; reject?: Error }>) {
@@ -65,8 +69,8 @@ describe("resolveWorktree", () => {
 		expect(git.calls.map((call) => call.args)).toEqual([
 			["rev-parse", "--show-toplevel"],
 			["worktree", "list", "--porcelain"],
-			["rev-parse", "--verify", "origin/main"],
-			["worktree", "add", "/repo/project-feature", "origin/main"],
+			["rev-parse", "--verify", "refs/remotes/origin/main"],
+			["worktree", "add", "/repo/project-feature", "refs/remotes/origin/main"],
 		]);
 	});
 
@@ -86,7 +90,7 @@ describe("resolveWorktree", () => {
 			"worktree",
 			"add",
 			"/repo/project-feature",
-			"origin/master",
+			"refs/remotes/origin/master",
 		]);
 	});
 
@@ -129,5 +133,59 @@ describe("resolveWorktree", () => {
 		await expect(resolveWorktree("feature", { cwd: "/repo/project", exec: git.exec })).rejects.toThrow(
 			"fatal: 'feature' is already checked out",
 		);
+	});
+});
+
+describe("resolveWorktree with real git", () => {
+	const roots: string[] = [];
+	afterEach(() => {
+		for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+	});
+
+	function git(cwd: string, ...args: string[]): string {
+		const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+		return execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, env })
+			.toString()
+			.trim();
+	}
+
+	function createRepo(name: string): { repo: string; remoteCommit: string } {
+		const root = mkdtempSync(join(tmpdir(), "pi-worktree-"));
+		roots.push(root);
+		const repo = join(root, name);
+		mkdirSync(repo);
+		git(repo, "init", "-q", "-b", "trunk");
+		git(repo, "commit", "-q", "--allow-empty", "-m", "remote base");
+		const remoteCommit = git(repo, "rev-parse", "HEAD");
+		git(repo, "update-ref", "refs/remotes/origin/main", remoteCommit);
+		return { repo, remoteCommit };
+	}
+
+	it("creates from the remote-tracking ref even when a local branch is named origin/main", async () => {
+		const { repo, remoteCommit } = createRepo("project");
+		git(repo, "commit", "-q", "--allow-empty", "-m", "local only");
+		git(repo, "branch", "origin/main");
+
+		const worktree = await resolveWorktree("feature", { cwd: repo });
+
+		expect(git(worktree, "rev-parse", "HEAD")).toBe(remoteCommit);
+	});
+
+	it("does not reuse a registered worktree whose directory was deleted", async () => {
+		const { repo } = createRepo("project");
+		const worktree = await resolveWorktree("feature", { cwd: repo });
+		rmSync(worktree, { recursive: true, force: true });
+
+		await expect(resolveWorktree("feature", { cwd: repo })).rejects.toThrow(WorktreeStartupError);
+		expect(existsSync(worktree)).toBe(false);
+	});
+
+	it("keeps trailing whitespace in the repository root", async () => {
+		const { repo, remoteCommit } = createRepo("project ");
+
+		const worktree = await resolveWorktree("feature", { cwd: repo });
+
+		expect(worktree).toBe(`${repo}-feature`);
+		expect(git(worktree, "rev-parse", "HEAD")).toBe(remoteCommit);
 	});
 });

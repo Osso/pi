@@ -51,7 +51,8 @@ function formatGitError(error: unknown): string {
 async function gitOutput(exec: GitExec, args: string[], cwd: string): Promise<string> {
 	try {
 		const result = await exec(args, { cwd });
-		return outputText(result.stdout).trim();
+		// Strip only the line terminator: paths such as the repository root may end in whitespace.
+		return outputText(result.stdout).replace(/\r?\n$/, "");
 	} catch (error) {
 		if (error instanceof WorktreeStartupError) {
 			throw error;
@@ -60,24 +61,24 @@ async function gitOutput(exec: GitExec, args: string[], cwd: string): Promise<st
 	}
 }
 
+/** Paths of registered worktrees whose directory still exists; Git marks deleted ones `prunable`. */
 function parseWorktreePaths(output: string): string[] {
 	return output
-		.split(/\r?\n/)
-		.filter((line) => line.startsWith("worktree "))
-		.map((line) => line.slice("worktree ".length)) // Paths may end in whitespace; never trim them.
-		.filter((line) => line.length > 0);
+		.split(/\r?\n\r?\n/)
+		.map((record) => record.split(/\r?\n/))
+		.filter((lines) => !lines.some((line) => line.startsWith("prunable")))
+		.map((lines) => lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length) ?? "") // Paths may end in whitespace; never trim them.
+		.filter((path) => path.length > 0);
 }
 
-async function resolveBaseRef(exec: GitExec, repoRoot: string): Promise<"origin/main" | "origin/master"> {
-	try {
-		await gitOutput(exec, ["rev-parse", "--verify", "origin/main"], repoRoot);
-		return "origin/main";
-	} catch {}
-
-	try {
-		await gitOutput(exec, ["rev-parse", "--verify", "origin/master"], repoRoot);
-		return "origin/master";
-	} catch {}
+// Full ref names: a local branch named `origin/main` must not shadow the remote-tracking ref.
+async function resolveBaseRef(exec: GitExec, repoRoot: string): Promise<string> {
+	for (const ref of ["refs/remotes/origin/main", "refs/remotes/origin/master"]) {
+		try {
+			await gitOutput(exec, ["rev-parse", "--verify", ref], repoRoot);
+			return ref;
+		} catch {}
+	}
 
 	throw new WorktreeStartupError("No origin/main or origin/master ref found for worktree creation");
 }
