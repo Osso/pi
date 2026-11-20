@@ -363,7 +363,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					return { cancelled: result.cancelled };
 				},
 				switchSession: async (sessionPath, options) => {
-					return runtimeHost.switchSession(sessionPath, options);
+					const result = await runtimeHost.switchSession(sessionPath, options);
+					if (!result.cancelled) continueRestoredSession(session);
+					return result;
 				},
 				reload: async () => {
 					await runtimeHost.reload();
@@ -607,10 +609,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// Session
 			// =================================================================
 
-			case "get_session_stats": {
-				const stats = session.getSessionStats();
-				return success(id, "get_session_stats", stats);
-			}
+			case "get_session_stats":
+				return success(id, "get_session_stats", session.getSessionStats());
 
 			case "export_html": {
 				const path = await session.exportToHtml(command.outputPath);

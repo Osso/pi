@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- RPC mode continues an interrupted session after an extension command calls `ctx.switchSession()`, as the `switch_session` command and interactive mode already do.
 - `--worktree` creates from `refs/remotes/origin/main` (or `master`) so a local branch named `origin/main` cannot replace the remote base, no longer reuses a registered worktree whose directory was deleted, and keeps trailing whitespace in the repository root path.
 - `--refresh-models` retries a connection that drops while reading the OpenRouter catalog body, like other transient network failures.
 - Threshold compaction after a zero-usage reply no longer skips the check when the kept usage predates the latest compaction; it estimates the rebuilt context from content, so a large tool result still compacts before the next request.
