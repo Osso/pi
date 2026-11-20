@@ -121,6 +121,22 @@ describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 		expect(message.usage).toMatchObject({ input: 17, totalTokens: 17 });
 	});
 
+	it("reports a stream that closes before a finish reason as an error", async () => {
+		sdkStream.chunks = [
+			{ candidates: [{ index: 0, content: { role: "model", parts: [{ text: "Partial answer" }] } }] },
+		];
+
+		const response = stream();
+		const eventTypes: string[] = [];
+		for await (const event of response) eventTypes.push(event.type);
+		const message = await response.result();
+
+		expect(eventTypes.at(-1)).toBe("error");
+		expect(message.stopReason).toBe("error");
+		expect(message.errorMessage).toContain("without finishReason");
+		expect(message.content).toEqual([{ type: "text", text: "Partial answer" }]);
+	});
+
 	it.each(textParts)("preserves $name during streaming and replay", async ({ parts }) => {
 		sdkStream.chunks = [{ candidates: [{ content: { parts }, finishReason: FinishReason.STOP }] }];
 		const response = stream();

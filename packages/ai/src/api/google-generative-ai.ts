@@ -93,6 +93,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 			let currentBlock: TextContent | ThinkingContent | null = null;
 			const blocks = output.content;
 			const blockIndex = () => blocks.length - 1;
+			let finished = false;
 			for await (const chunk of googleStream) {
 				// @google/genai documents GenerateContentResponse.responseId as an output-only field
 				// used to identify each response. Keep the first non-empty one from the stream.
@@ -216,6 +217,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 				}
 
 				if (candidate?.finishReason) {
+					finished = true;
 					output.stopReason = mapStopReason(candidate.finishReason);
 					if (output.stopReason === "stop" && output.content.some((b) => b.type === "toolCall")) {
 						output.stopReason = "toolUse";
@@ -274,6 +276,8 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error("An unknown error occurred");
 			}
+			// An empty finishReason means the model has not stopped, so a stream closed before one is truncated.
+			if (!finished) throw new Error("Google stream ended without finishReason");
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
