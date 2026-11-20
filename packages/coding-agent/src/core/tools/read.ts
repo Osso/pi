@@ -28,14 +28,19 @@ const readSchema = Type.Object({
 		description: "Path to the file to read (relative or absolute)",
 	}),
 	offset: Type.Optional(
-		Type.Number({
+		Type.Integer({
 			description: "Line number to start reading from (1-indexed)",
 		}),
 	),
-	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read", minimum: 1 })),
+	limit: Type.Optional(Type.Integer({ description: "Maximum number of lines to read", minimum: 1 })),
 });
 
 export type ReadToolInput = Static<typeof readSchema>;
+
+/** The resolved path as one shell word, so the bash fallback opens the file read resolved (after `@`/`~`). */
+function shellPath(path: string): string {
+	return /^[\w./-]+$/.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
+}
 
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
@@ -438,7 +443,7 @@ function createReadToolDefinitionInternal(
 									if (firstLine === undefined) throw new Error(`Line ${startLine} is missing from ${path}`);
 									firstLineSize = formatSize(Buffer.byteLength(firstLine, "utf-8"));
 								}
-								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`;
 								details = { truncation };
 							} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
 								// Count the selected lines: truncateHead reports 0 lines for a lone empty line.

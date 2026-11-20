@@ -234,6 +234,30 @@ describe("Coding Agent Tools", () => {
 			);
 		});
 
+		it("points the bash fallback at the resolved file for an @-prefixed path", async () => {
+			const testFile = join(testDir, "long at.txt");
+			writeFileSync(testFile, `${"x".repeat(DEFAULT_MAX_BYTES + 1)}\nnext\n`);
+
+			const output = getTextOutput(await readTool.execute("read-long-at", { path: `@${testFile}` }));
+
+			expect(output).toContain(`sed -n '1p' '${testFile}' | head -c ${DEFAULT_MAX_BYTES}]`);
+		});
+
+		it("gives a whole-line continuation offset for a fractional limit from the model", async () => {
+			const testFile = join(testDir, "rows.txt");
+			writeFileSync(testFile, "alpha\nbeta\ngamma");
+			const args = validateToolArguments(readTool, {
+				type: "toolCall",
+				id: "read-fractional",
+				name: "read",
+				arguments: { path: testFile, limit: 1.5 },
+			}) as { path: string; limit: number };
+
+			const output = getTextOutput(await readTool.execute("read-fractional", args));
+
+			expect(output).toBe("alpha\n\n[2 more lines in file. Use offset=2 to continue.]");
+		});
+
 		it("should handle offset parameter", async () => {
 			const testFile = join(testDir, "offset-test.txt");
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);

@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The read tool takes whole-line `offset`/`limit` values, so a fractional limit no longer yields a fractional continuation offset, and its long-line bash fallback names the resolved file (after `@`/`~`), quoted when needed.
 - The default footer redraws when an agent lifecycle change alters its agent counts, instead of showing a stale count until another full render.
 - The agents status widget clears a finished row that expires before its first refresh tick, such as one restored on session start.
 - RPC mode continues an interrupted session after an extension command calls `ctx.switchSession()`, as the `switch_session` command and interactive mode already do.
