@@ -342,6 +342,14 @@ describe("provider error classification matrix", () => {
 			quotaExhausted: false,
 		},
 		{
+			label: "Bedrock ThrottlingException",
+			text: "Throttling error: Too many tokens, please wait before trying again.",
+			expectedKind: "rate_limited",
+			retryable: true,
+			rateLimited: true,
+			quotaExhausted: false,
+		},
+		{
 			label: "HTTP 503 transient failure",
 			text: "503 Service Unavailable",
 			expectedKind: "transient",

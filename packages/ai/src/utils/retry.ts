@@ -73,7 +73,13 @@ const NON_RETRYABLE_REASON_PATTERN = buildProviderErrorPattern([
 	"Incomplete response returned, reason: content_filter",
 ]);
 
-const RATE_LIMIT_PATTERN = buildProviderErrorPattern(["rate.?limit", "too many requests", "\\b429\\b"]);
+// "Throttling error:" is the Bedrock ThrottlingException prefix from formatBedrockError.
+const RATE_LIMIT_PATTERN = buildProviderErrorPattern([
+	"rate.?limit",
+	"too many requests",
+	"\\b429\\b",
+	"^Throttling error:",
+]);
 
 /** Per-minute account throughput exhaustion (e.g. "Request too large ... on tokens per min"). */
 const THROUGHPUT_LIMIT_PATTERN = buildProviderErrorPattern(["(?:tokens|requests) per min"]);
