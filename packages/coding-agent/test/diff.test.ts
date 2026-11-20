@@ -1,10 +1,18 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import chalk from "chalk";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderDiff } from "../src/modes/interactive/components/diff.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
 describe("renderDiff", () => {
-	beforeAll(() => initTheme("dark"));
+	const originalChalkLevel = chalk.level;
+	beforeAll(() => {
+		initTheme("dark");
+		chalk.level = 1;
+	});
+	afterAll(() => {
+		chalk.level = originalChalkLevel;
+	});
 
 	it.each([
 		{
@@ -36,5 +44,20 @@ describe("renderDiff", () => {
 
 		expect(rendered.indexOf("+83   ")).toBeLessThan(rendered.indexOf(inverseInsertion));
 		expect(rendered).toContain(inverseInsertion);
+	});
+
+	it("highlights a spacing change between words", () => {
+		const [removed, added] = renderDiff("-1 a  b\n+1 a b").split("\n");
+
+		expect(removed).toContain(theme.inverse("  "));
+		expect(added).toContain(theme.inverse(" "));
+	});
+
+	it("highlights a tab replaced by spaces", () => {
+		const [removed, added] = renderDiff("-1 a\tb\n+1 a   b").split("\n");
+
+		expect(stripAnsi(removed ?? "")).toBe("-1 a   b");
+		expect(removed).toContain(theme.inverse("   "));
+		expect(added).toContain(theme.inverse("   "));
 	});
 });

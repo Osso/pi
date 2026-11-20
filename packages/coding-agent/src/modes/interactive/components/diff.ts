@@ -25,7 +25,8 @@ function replaceTabs(text: string): string {
  * Compute word-level diff and render with inverse on changed parts.
  * Uses diffWordsWithSpace: diffWords ignores whitespace and copies shared text from the new line, which hides
  * whitespace-only changes in the removed line.
- * Strips leading whitespace from inverse to avoid highlighting indentation.
+ * Diffs the raw text and expands tabs per part, so a tab replaced by spaces is still marked.
+ * Leading whitespace of a change at the start of the text is indentation and is not inverted.
  */
 function renderIntraLineDiff(oldContent: string, newContent: string): { removedLine: string; addedLine: string } {
 	// Shared indentation stays outside the word diff, so an insertion at the start of the text cannot consume it.
@@ -34,39 +35,28 @@ function renderIntraLineDiff(oldContent: string, newContent: string): { removedL
 	while (indentLength < oldIndent.length && oldIndent[indentLength] === newContent[indentLength]) indentLength++;
 	const wordDiff = Diff.diffWordsWithSpace(oldContent.slice(indentLength), newContent.slice(indentLength));
 
-	let removedLine = oldContent.slice(0, indentLength);
+	let removedLine = replaceTabs(oldContent.slice(0, indentLength));
 	let addedLine = removedLine;
-	let isFirstRemoved = true;
-	let isFirstAdded = true;
+	let removedAtStart = true;
+	let addedAtStart = true;
+	const renderChange = (value: string, atStart: boolean): string => {
+		const leadingWs = atStart ? (value.match(/^\s*/)?.[0] ?? "") : "";
+		const changed = value.slice(leadingWs.length);
+		return replaceTabs(leadingWs) + (changed ? theme.inverse(replaceTabs(changed)) : "");
+	};
 
 	for (const part of wordDiff) {
 		if (part.removed) {
-			let value = part.value;
-			// Strip leading whitespace from the first removed part
-			if (isFirstRemoved) {
-				const leadingWs = value.match(/^(\s*)/)?.[1] || "";
-				value = value.slice(leadingWs.length);
-				removedLine += leadingWs;
-				isFirstRemoved = false;
-			}
-			if (value) {
-				removedLine += theme.inverse(value);
-			}
+			removedLine += renderChange(part.value, removedAtStart);
+			removedAtStart = false;
 		} else if (part.added) {
-			let value = part.value;
-			// Strip leading whitespace from the first added part
-			if (isFirstAdded) {
-				const leadingWs = value.match(/^(\s*)/)?.[1] || "";
-				value = value.slice(leadingWs.length);
-				addedLine += leadingWs;
-				isFirstAdded = false;
-			}
-			if (value) {
-				addedLine += theme.inverse(value);
-			}
+			addedLine += renderChange(part.value, addedAtStart);
+			addedAtStart = false;
 		} else {
-			removedLine += part.value;
-			addedLine += part.value;
+			removedLine += replaceTabs(part.value);
+			addedLine += replaceTabs(part.value);
+			removedAtStart = false;
+			addedAtStart = false;
 		}
 	}
 
@@ -130,10 +120,7 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 				const added = addedLines[0];
 				if (!removed || !added) throw new Error("Expected one removed and one added diff line");
 
-				const { removedLine, addedLine } = renderIntraLineDiff(
-					replaceTabs(removed.content),
-					replaceTabs(added.content),
-				);
+				const { removedLine, addedLine } = renderIntraLineDiff(removed.content, added.content);
 
 				result.push(theme.fg("toolDiffRemoved", `-${removed.lineNum} ${removedLine}`));
 				result.push(theme.fg("toolDiffAdded", `+${added.lineNum} ${addedLine}`));
