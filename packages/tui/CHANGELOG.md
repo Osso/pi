@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- `Input.setValue()` clears the undo history, so undo no longer restores a value from before the load (for example a previous session name in the `/resume` rename field); a paste that joins a grapheme with the following text (such as two regional indicators) no longer leaves the cursor inside it.
 - Completing an `@` path with the cursor inside the filename replaces the rest of the path instead of leaving a duplicate suffix and closing quote.
 - Down no longer gets stuck at the start of a wrapped paste marker at the end of the text; it moves the cursor past the marker.
 - Alt+Y replaces the previous yank correctly when that yank joined the following character into one grapheme, such as a flag.

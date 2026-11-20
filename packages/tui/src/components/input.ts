@@ -51,7 +51,13 @@ export class Input implements Component, Focusable {
 		return this.value;
 	}
 
+	/** Loads a new value; undo does not go back past it. */
 	setValue(value: string): void {
+		this.replaceValue(value);
+		this.undoStack.clear();
+	}
+
+	private replaceValue(value: string): void {
 		this.value = value;
 		this.cursor = graphemeStartAt(segmenter.segment(value), Math.min(this.cursor, value.length));
 	}
@@ -225,7 +231,7 @@ export class Input implements Component, Focusable {
 			const graphemeLength = lastGrapheme ? lastGrapheme.segment.length : 1;
 			const value = this.value.slice(0, this.cursor - graphemeLength) + this.value.slice(this.cursor);
 			this.cursor -= graphemeLength;
-			this.setValue(value);
+			this.replaceValue(value);
 		}
 	}
 
@@ -237,7 +243,7 @@ export class Input implements Component, Focusable {
 			const graphemes = [...segmenter.segment(afterCursor)];
 			const firstGrapheme = graphemes[0];
 			const graphemeLength = firstGrapheme ? firstGrapheme.segment.length : 1;
-			this.setValue(this.value.slice(0, this.cursor) + this.value.slice(this.cursor + graphemeLength));
+			this.replaceValue(this.value.slice(0, this.cursor) + this.value.slice(this.cursor + graphemeLength));
 		}
 	}
 
@@ -279,7 +285,7 @@ export class Input implements Component, Focusable {
 
 		const value = this.value.slice(0, deleteFrom) + this.value.slice(this.cursor);
 		this.cursor = deleteFrom;
-		this.setValue(value);
+		this.replaceValue(value);
 	}
 
 	private deleteWordForward(): void {
@@ -299,7 +305,7 @@ export class Input implements Component, Focusable {
 		this.killRing.push(deletedText, { prepend: false, accumulate: wasKill });
 		this.lastAction = "kill";
 
-		this.setValue(this.value.slice(0, this.cursor) + this.value.slice(deleteTo));
+		this.replaceValue(this.value.slice(0, this.cursor) + this.value.slice(deleteTo));
 	}
 
 	private yank(): void {
@@ -366,7 +372,8 @@ export class Input implements Component, Focusable {
 
 		// Insert at cursor position
 		this.value = this.value.slice(0, this.cursor) + cleanText + this.value.slice(this.cursor);
-		this.cursor += cleanText.length;
+		// The paste can join a grapheme with the text after it (e.g. two regional indicators).
+		this.cursor = graphemeStartAt(segmenter.segment(this.value), this.cursor + cleanText.length);
 	}
 
 	private getMaskedValue(): string {

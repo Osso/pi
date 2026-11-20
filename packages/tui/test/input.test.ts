@@ -56,6 +56,16 @@ describe("Input component", () => {
 			assert.strictEqual(input.getValue(), "a🇺🇸");
 		});
 
+		it("keeps the cursor out of the flag joined by a paste", () => {
+			const input = new Input();
+			input.setValue("🇸");
+			input.handleInput("\x01");
+			input.handleInput("\x1b[200~🇺\x1b[201~");
+			input.handleInput("a");
+
+			assert.strictEqual(input.getValue(), "a🇺🇸");
+		});
+
 		it("keeps the cursor out of the flag joined by backspace", () => {
 			const input = new Input();
 			input.setValue("🇺x🇸");
@@ -66,6 +76,17 @@ describe("Input component", () => {
 
 			assert.strictEqual(input.getValue(), "a🇺🇸");
 		});
+	});
+
+	it("does not undo past a value loaded with setValue", () => {
+		const input = new Input();
+		input.setValue("Alpha");
+		input.handleInput("X");
+		input.setValue("Beta");
+
+		input.handleInput("\x1f"); // Ctrl+- undo
+
+		assert.strictEqual(input.getValue(), "Beta");
 	});
 
 	it("pastes tmux CSI-u newlines and C1 controls as plain single-line text", () => {
