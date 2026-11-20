@@ -127,10 +127,10 @@ function registerCancelAgentTool(store: MultiAgentStore): RegisteredTool {
 }
 
 describe("bash tool background detach", () => {
-	it("keeps a fast Bash command foreground without creating a background job", async () => {
+	it("returns a completed foreground Bash command without creating a background job", async () => {
 		const cwd = await createTempDir();
 		const store = new MultiAgentStore();
-		const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 1_000 });
+		const detachRegistry = new BashToolDetachRegistry();
 		const backgroundJobs = createBackgroundJobs(cwd, store);
 		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
 
@@ -153,7 +153,7 @@ describe("bash tool background detach", () => {
 		async () => {
 			const cwd = await createTempDir();
 			const store = new MultiAgentStore();
-			const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 1_000 });
+			const detachRegistry = new BashToolDetachRegistry();
 			const tool = createBashToolDefinition(cwd, {
 				backgroundJobs: createBackgroundJobs(cwd, store),
 				detachRegistry,
@@ -313,13 +313,19 @@ describe("bash tool background detach", () => {
 
 	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();
+		const releasePath = join(cwd, "release");
 		const scriptPath = join(cwd, "emit-after-detach.mjs");
 		writeFileSync(
 			scriptPath,
 			[
+				"import { existsSync } from 'node:fs';",
+				`const releasePath = ${JSON.stringify(releasePath)};`,
 				"console.log('before-detach');",
-				"setTimeout(() => console.log('after-detach'), 60);",
-				"setTimeout(() => process.exit(0), 100);",
+				"const timer = setInterval(() => {",
+				"  if (!existsSync(releasePath)) return;",
+				"  console.log('after-detach');",
+				"  clearInterval(timer);",
+				"}, 10);",
 			].join("\n"),
 		);
 		const store = new MultiAgentStore();
@@ -330,25 +336,29 @@ describe("bash tool background detach", () => {
 
 		const resultPromise = tool.execute(
 			"tool-bash-detach",
-			{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}` },
+			{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}`, timeout: 10 },
 			undefined,
 			(partial) => updates.push(textFrom(partial)),
 			{} as never,
 		);
 
-		await waitFor(() => updates.some((update) => update.includes("before-detach")), "pre-detach output");
-		expect(detachRegistry.detachRunning()).toBe(true);
+		try {
+			await waitFor(() => updates.some((update) => update.includes("before-detach")), "pre-detach output");
+			expect(detachRegistry.detachRunning()).toBe(true);
 
-		const result = await resultPromise;
-		const resultText = textFrom(result);
-		expect(resultText).toContain("before-detach");
-		expect(resultText).toContain("Detached bash command as background job");
-		expect(resultText).not.toContain("after-detach");
+			const resultText = textFrom(await resultPromise);
+			expect(resultText).toContain("before-detach");
+			expect(resultText).toContain("Detached bash command as background job");
+			expect(resultText).not.toContain("after-detach");
+			const [job] = store.listAgents();
+			expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
+			expect(job.worker?.toolCallId).toBe("tool-bash-detach");
+		} finally {
+			writeFileSync(releasePath, "release");
+			await Promise.allSettled([resultPromise]);
+		}
 
 		const [job] = store.listAgents();
-		expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
-		expect(job.worker?.toolCallId).toBe("tool-bash-detach");
-
 		await waitFor(() => {
 			backgroundJobs.lifecycle?.observe(job.id);
 			return store.getAgent(job.id)?.lifecycle === "completed";
