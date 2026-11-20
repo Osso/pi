@@ -5,6 +5,7 @@ import type { ImagesContext, ImagesModel } from "../src/types.ts";
 const mockState = vi.hoisted(() => ({
 	lastParams: undefined as unknown,
 	lastRequestOptions: undefined as unknown,
+	response: undefined as unknown,
 }));
 
 vi.mock("openai", () => {
@@ -23,7 +24,7 @@ vi.mock("openai", () => {
 							},
 						};
 					}
-					const response = {
+					const response = (mockState.response as undefined) ?? {
 						id: "img-1",
 						usage: {
 							prompt_tokens: 12,
@@ -62,6 +63,7 @@ describe("openrouter images", () => {
 	beforeEach(() => {
 		mockState.lastParams = undefined;
 		mockState.lastRequestOptions = undefined;
+		mockState.response = undefined;
 	});
 
 	it("returns text plus images in final output", async () => {
@@ -136,5 +138,47 @@ describe("openrouter images", () => {
 
 		const output = await generateImages(model, context, { apiKey: "test" });
 		expect(output.output.some((item) => item.type === "image")).toBe(true);
+	});
+
+	const gptImageModel: ImagesModel<"openrouter-images"> = {
+		id: "openai/gpt-5-image",
+		name: "GPT-5 Image",
+		api: "openrouter-images",
+		provider: "openrouter",
+		baseUrl: "https://openrouter.ai/api/v1",
+		input: ["text"],
+		output: ["image"],
+		cost: { input: 10, output: 10, cacheRead: 1, cacheWrite: 1 },
+	};
+	const prompt: ImagesContext = { input: [{ type: "text", text: "Generate a dog" }] };
+
+	it("reports a content-filtered response as an error", async () => {
+		mockState.response = {
+			id: "img-filtered",
+			choices: [{ index: 0, finish_reason: "content_filter", message: { role: "assistant", content: null } }],
+		};
+
+		const result = await generateImages(gptImageModel, prompt, { apiKey: "test" });
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("content_filter");
+		expect(result.output).toEqual([]);
+	});
+
+	it("keeps cached_tokens as cache reads when cache writes are reported", async () => {
+		mockState.response = {
+			id: "img-cache",
+			usage: {
+				prompt_tokens: 100,
+				completion_tokens: 5,
+				total_tokens: 105,
+				prompt_tokens_details: { cached_tokens: 50, cache_write_tokens: 30 },
+			},
+			choices: [{ message: { content: null, images: [{ image_url: "data:image/png;base64,ZmFrZS1wbmc=" }] } }],
+		};
+
+		const result = await generateImages(gptImageModel, prompt, { apiKey: "test" });
+
+		expect(result.usage).toMatchObject({ input: 20, cacheRead: 50, cacheWrite: 30, output: 5, totalTokens: 105 });
 	});
 });

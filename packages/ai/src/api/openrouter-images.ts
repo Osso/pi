@@ -78,6 +78,7 @@ export const generateImages: ImagesFunction<"openrouter-images", ImagesOptions> 
 		}
 
 		const choice = imageResponse.choices[0];
+		if (choice?.finish_reason === "content_filter") throw new Error("Provider finish_reason: content_filter");
 		if (choice) {
 			const content = choice.message.content;
 			if (typeof content === "string" && content.length > 0) {
@@ -164,10 +165,9 @@ function parseUsage(
 	model: ImagesModel<"openrouter-images">,
 ) {
 	const promptTokens = rawUsage.prompt_tokens || 0;
-	const reportedCachedTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
+	// cached_tokens counts cache reads and cache_write_tokens counts writes separately (see openai-completions parseUsage).
+	const cacheReadTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
 	const cacheWriteTokens = rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
-	const cacheReadTokens =
-		cacheWriteTokens > 0 ? Math.max(0, reportedCachedTokens - cacheWriteTokens) : reportedCachedTokens;
 	const input = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
 	const output = rawUsage.completion_tokens || 0;
 	const usage = {

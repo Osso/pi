@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- OpenRouter image generation reports a `content_filter` finish as an error, and counts `cached_tokens` as cache reads separately from `cache_write_tokens`, matching chat completions usage.
 - Calling `registerBuiltInApiProviders()` again no longer routes built-in models past an API override registered earlier.
 - A dynamic provider whose `refreshModels` throws synchronously can be refreshed again later.
 - Google, Vertex and OpenRouter image requests merge model and request headers case-insensitively, so a `null` request header suppresses a model default spelled with different casing.
