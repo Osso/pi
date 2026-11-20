@@ -144,4 +144,21 @@ describe("SettingsManager - External Edit Preservation", () => {
 		const savedProjectSettings = JSON.parse(readFileSync(projectSettingsPath, "utf-8"));
 		expect(savedProjectSettings.extensions).toEqual(["./in-memory-extension.ts"]);
 	});
+	it("keeps other warning keys edited on disk when one warning is toggled", async () => {
+		const settingsPath = join(agentDir, "settings.json");
+		writeFileSync(settingsPath, JSON.stringify({ warnings: { anthropicExtraUsage: true } }));
+		const manager = SettingsManager.create(projectDir, agentDir);
+
+		const onDisk = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		onDisk.warnings.extensionNotice = false;
+		writeFileSync(settingsPath, JSON.stringify(onDisk, null, 2));
+
+		manager.setWarnings({ ...manager.getWarnings(), anthropicExtraUsage: false });
+		await manager.flush();
+
+		expect(JSON.parse(readFileSync(settingsPath, "utf-8")).warnings).toEqual({
+			anthropicExtraUsage: false,
+			extensionNotice: false,
+		});
+	});
 });

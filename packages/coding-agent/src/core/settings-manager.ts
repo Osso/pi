@@ -1423,8 +1423,8 @@ export class SettingsManager {
 	}
 
 	setWarnings(warnings: WarningSettings): void {
-		this.globalSettings.warnings = { ...warnings };
-		this.markModified("warnings");
+		this.globalSettings.warnings = { ...this.globalSettings.warnings, ...warnings };
+		for (const key of Object.keys(warnings)) this.markModified("warnings", key);
 		this.save();
 	}
 }
