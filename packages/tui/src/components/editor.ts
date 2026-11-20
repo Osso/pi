@@ -2071,10 +2071,7 @@ export class Editor implements Component, Focusable {
 		if (this.autocompleteState) this.updateAutocomplete();
 	}
 
-	/**
-	 * Scroll by a page (direction: -1 for up, 1 for down).
-	 * Moves cursor by the page size while keeping it in bounds.
-	 */
+	/** Scroll by a page (direction: -1 for up, 1 for down), keeping the cursor in bounds. */
 	private pageScroll(direction: -1 | 1): void {
 		this.lastAction = null;
 		const terminalRows = this.tui.terminal.rows;
@@ -2109,9 +2106,7 @@ export class Editor implements Component, Focusable {
 		);
 	}
 
-	/**
-	 * Yank (paste) the most recent kill ring entry at cursor position.
-	 */
+	/** Yank (paste) the most recent kill ring entry at cursor position. */
 	private yank(): void {
 		const text = this.killRing.peek();
 		if (text === undefined) return;
@@ -2148,9 +2143,7 @@ export class Editor implements Component, Focusable {
 		this.lastAction = "yank";
 	}
 
-	/**
-	 * Insert text at cursor position (used by yank operations).
-	 */
+	/** Insert text at cursor position (used by yank operations). */
 	private insertYankedText(text: string): void {
 		this.exitHistoryBrowsing();
 		const lines = text.split("\n");
@@ -2572,6 +2565,11 @@ export class Editor implements Component, Focusable {
 
 	public isShowingAutocomplete(): boolean {
 		return this.autocompleteState !== null;
+	}
+
+	/** Whether Ctrl+R history search is open; its cancel key restores the pre-search draft. */
+	public isHistorySearchActive(): boolean {
+		return this.historySearchDraft !== null;
 	}
 
 	private updateAutocomplete(): void {

@@ -52,6 +52,25 @@ describe("CustomEditor prompt history persistence", () => {
 		expect(editor.getText()).toBe("older prompt");
 	});
 
+	it("cancels Ctrl+R history search with Escape and restores the draft instead of running the app handler", () => {
+		recordPromptHistoryEntry(controlDbPath, "check tests");
+		const editor = createEditor(controlDbPath);
+		let appEscapes = 0;
+		editor.onEscape = () => {
+			appEscapes++;
+		};
+		editor.setText("check");
+
+		editor.handleInput("\x12"); // Ctrl+R
+		editor.handleInput(" t");
+		expect(editor.isHistorySearchActive()).toBe(true);
+		editor.handleInput("\x1b");
+
+		expect(editor.isHistorySearchActive()).toBe(false);
+		expect(editor.getText()).toBe("check");
+		expect(appEscapes).toBe(0);
+	});
+
 	it("does not persist history populated from rendered transcripts", () => {
 		const editor = createEditor(controlDbPath);
 

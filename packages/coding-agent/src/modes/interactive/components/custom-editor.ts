@@ -79,7 +79,7 @@ export class CustomEditor extends Editor {
 
 		// Escape/interrupt - only if autocomplete is NOT active
 		if (this.keybindings.matches(data, "app.interrupt")) {
-			if (!this.isShowingAutocomplete()) {
+			if (!this.isShowingAutocomplete() && !this.isHistorySearchActive()) {
 				// Use dynamic onEscape if set, otherwise registered handler
 				const handler = this.onEscape ?? this.actionHandlers.get("app.interrupt");
 				if (handler) {
@@ -87,7 +87,7 @@ export class CustomEditor extends Editor {
 					return;
 				}
 			}
-			// Let parent handle escape for autocomplete cancellation
+			// Let parent handle escape for autocomplete and history search cancellation
 			super.handleInput(data);
 			return;
 		}
