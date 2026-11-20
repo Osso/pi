@@ -31,6 +31,12 @@ const PASTE_MARKER_REGEX = /\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]/g;
 /** Non-global version for single-segment testing. */
 const PASTE_MARKER_SINGLE = /^\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]$/;
 
+/** The marker inserted for a large paste. Only this exact text expands, so a look-alike typed or pasted stays literal. */
+function pasteMarker(id: number, content: string): string {
+	const lineCount = content.split("\n").length;
+	return lineCount > 10 ? `[paste #${id} +${lineCount} lines]` : `[paste #${id} ${content.length} chars]`;
+}
+
 /** Check if a segment is a paste marker (i.e. was merged by segmentWithMarkers). */
 function isPasteMarker(segment: string): boolean {
 	return segment.length >= 10 && PASTE_MARKER_SINGLE.test(segment);
@@ -41,15 +47,15 @@ function isPasteMarker(segment: string): boolean {
  * within paste markers into single atomic segments.  This makes cursor
  * movement, deletion, word-wrap, etc. treat paste markers as single units.
  *
- * Only markers whose numeric ID exists in `validIds` are merged.
+ * Only markers that exactly match a stored paste are merged.
  */
 function segmentWithMarkers(
 	text: string,
 	baseSegmenter: Intl.Segmenter,
-	validIds: Set<number>,
+	pastes: ReadonlyMap<number, string>,
 ): Iterable<Intl.SegmentData> {
-	// Fast path: no paste markers in the text or no valid IDs.
-	if (validIds.size === 0 || !text.includes("[paste #")) {
+	// Fast path: no paste markers in the text or no pastes.
+	if (pastes.size === 0 || !text.includes("[paste #")) {
 		return baseSegmenter.segment(text);
 	}
 
@@ -58,7 +64,8 @@ function segmentWithMarkers(
 	for (const m of text.matchAll(PASTE_MARKER_REGEX)) {
 		if (!m[1]) continue;
 		const id = Number.parseInt(m[1], 10);
-		if (!validIds.has(id)) continue;
+		const content = pastes.get(id);
+		if (content === undefined || m[0] !== pasteMarker(id, content)) continue;
 		markers.push({ start: m.index, end: m.index + m[0].length });
 	}
 	if (markers.length === 0) {
@@ -373,14 +380,9 @@ export class Editor implements Component, Focusable {
 		this.autocompleteMaxVisible = Number.isFinite(maxVisible) ? Math.max(3, Math.min(20, Math.floor(maxVisible))) : 5;
 	}
 
-	/** Set of currently valid paste IDs, for marker-aware segmentation. */
-	private validPasteIds(): Set<number> {
-		return new Set(this.pastes.keys());
-	}
-
-	/** Segment text with paste-marker awareness, only merging markers with valid IDs. */
+	/** Segment text with paste-marker awareness, only merging markers of stored pastes. */
 	private segment(text: string, mode: "word" | "grapheme"): Iterable<Intl.SegmentData> {
-		return segmentWithMarkers(text, mode === "word" ? wordSegmenter : graphemeSegmenter, this.validPasteIds());
+		return segmentWithMarkers(text, mode === "word" ? wordSegmenter : graphemeSegmenter, this.pastes);
 	}
 
 	getPaddingX(): number {
@@ -1270,8 +1272,9 @@ export class Editor implements Component, Focusable {
 
 	// One pass, so marker-like text inside an expanded paste is never replaced by a later paste.
 	private expandPasteMarkers(text: string): string {
-		return text.replace(/\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]/g, (marker, id: string) => {
-			return this.pastes.get(Number(id)) ?? marker;
+		return text.replace(PASTE_MARKER_REGEX, (marker, id: string) => {
+			const content = this.pastes.get(Number(id));
+			return content !== undefined && marker === pasteMarker(Number(id), content) ? content : marker;
 		});
 	}
 
@@ -1473,13 +1476,7 @@ export class Editor implements Component, Focusable {
 			this.pasteCounter++;
 			const pasteId = this.pasteCounter;
 			this.pastes.set(pasteId, filteredText);
-
-			// Insert marker like "[paste #1 +123 lines]" or "[paste #1 1234 chars]"
-			const marker =
-				pastedLines.length > 10
-					? `[paste #${pasteId} +${pastedLines.length} lines]`
-					: `[paste #${pasteId} ${totalChars} chars]`;
-			this.insertTextAtCursorInternal(marker);
+			this.insertTextAtCursorInternal(pasteMarker(pasteId, filteredText));
 			return;
 		}
 

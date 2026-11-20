@@ -99,6 +99,18 @@ describe("Editor state after non-typing edits", () => {
 		assert.deepStrictEqual(submitted, [first + second]);
 	});
 
+	it("keeps a short paste that mentions an earlier paste's id literal", () => {
+		const editor = createEditor();
+		const submitted: string[] = [];
+		editor.onSubmit = (text) => submitted.push(text);
+		const large = "A".repeat(1001);
+		editor.handleInput(`\x1b[200~${large}\x1b[201~`);
+		editor.handleInput("\x1b[200~ literal [paste #1 +12 lines] end\x1b[201~");
+		editor.handleInput("\r");
+
+		assert.deepStrictEqual(submitted, [`${large} literal [paste #1 +12 lines] end`]);
+	});
+
 	it("undoes an accepted Ctrl+R history search back to the draft", () => {
 		const editor = createEditor();
 		editor.addToHistory("abc def");
