@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Calling `registerBuiltInApiProviders()` again no longer routes built-in models past an API override registered earlier.
 - A dynamic provider whose `refreshModels` throws synchronously can be refreshed again later.
 - Google, Vertex and OpenRouter image requests merge model and request headers case-insensitively, so a `null` request header suppresses a model default spelled with different casing.
 - Mistral streams that end without a `finish_reason` now finish with an error that keeps the partial content, instead of `stopReason: "stop"`.

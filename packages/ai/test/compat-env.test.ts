@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { complete, registerApiProvider, resetApiProviders } from "../src/compat.ts";
+import {
+	complete,
+	getModel,
+	registerApiProvider,
+	registerBuiltInApiProviders,
+	resetApiProviders,
+} from "../src/compat.ts";
 import type { AssistantMessage, Context, Model } from "../src/types.ts";
 import { AssistantMessageEventStream } from "../src/utils/event-stream.ts";
 
@@ -70,5 +76,25 @@ describe("compat legacy API fallback", () => {
 		await complete(model, context, { apiKey: "request-key" });
 
 		expect(capturedApiKey).toBe("request-key");
+	});
+
+	it("keeps routing built-in models to an override after the built-in APIs are registered again", async () => {
+		let overrideCalls = 0;
+		const overrideStream = () => {
+			overrideCalls++;
+			const stream = new AssistantMessageEventStream();
+			const output = message();
+			stream.push({ type: "done", reason: "stop", message: output });
+			stream.end(output);
+			return stream;
+		};
+		registerApiProvider({ api: "openai-responses", stream: overrideStream, streamSimple: overrideStream });
+		const builtinModel = getModel("openai", "gpt-4o-mini");
+
+		await complete(builtinModel, context, { apiKey: "request-key" });
+		registerBuiltInApiProviders();
+		await complete(builtinModel, context, { apiKey: "request-key" });
+
+		expect(overrideCalls).toBe(2);
 	});
 });
