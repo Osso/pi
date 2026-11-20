@@ -167,6 +167,35 @@ describe("issue #3217 scoped model ordering", () => {
 		expect(stripAnsi(selector.render(120).join("\n"))).toContain("→ faux-2");
 	});
 
+	it("ignores scoped models that are no longer available when reordering and saving", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+				{ id: "faux-3", name: "Three", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+		const [one, two] = harness.models.map((model) => `${model.provider}/${model.id}`);
+		const changes: Array<string[] | null> = [];
+		const persisted: Array<string[] | null> = [];
+		const selector = new ScopedModelsSelectorComponent(
+			{ allModels: [...harness.models], enabledModelIds: [one, "openai/logged-out", two] },
+			{
+				onChange: (ids) => void changes.push(ids),
+				onPersist: (ids) => void persisted.push(ids),
+				onCancel: () => {},
+			},
+		);
+		expect(stripAnsi(selector.render(200).join("\n"))).toContain("2/3 enabled");
+
+		selector.handleInput("\x1b[1;3B"); // Alt+Down on faux-1
+		selector.handleInput("\x1b[27;5;13~"); // save
+
+		expect(changes).toEqual([[two, one]]);
+		expect(persisted).toEqual([[two, one]]);
+	});
+
 	it("preserves scoped model order in the /model scoped tab", async () => {
 		const harness = await createHarness({
 			models: [

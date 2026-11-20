@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/scoped-models` ignores scoped models that are no longer available (for example after `/logout`); before, a hidden model blocked Alt+Up/Alt+Down at its position and could make Save clear the saved scope.
 - The footer picks up branch switches in a linked worktree of a reftable repository; it now watches the worktree's own reftable directory as well as the common one.
 - Toggling a warning in `/settings` no longer drops other `warnings` keys from `settings.json`, including keys edited on disk while Pi runs.
 - The `grep` tool limits `./*.ts` (and `!./*.ts`) globs to the search directory's top level, and matches brace globs after a fixed directory such as `pkg/{src/*.ts,test/*.js}`.

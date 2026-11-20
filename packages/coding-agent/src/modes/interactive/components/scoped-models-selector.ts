@@ -124,7 +124,8 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			this.allIds.push(fullId);
 		}
 
-		this.enabledIds = config.enabledModelIds === null ? null : [...config.enabledModelIds];
+		// A scoped model without an available model (e.g. after logout) is neither shown nor cycled.
+		this.enabledIds = config.enabledModelIds?.filter((id) => this.modelsById.has(id)) ?? null;
 		this.filteredItems = this.buildItems();
 
 		// Header
@@ -155,7 +156,6 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 	}
 
 	private buildItems(): ModelItem[] {
-		// Filter out IDs that no longer have a corresponding model (e.g., after logout)
 		const items: ModelItem[] = [];
 		for (const id of getSortedIds(this.enabledIds, this.allIds)) {
 			const model = this.modelsById.get(id);
