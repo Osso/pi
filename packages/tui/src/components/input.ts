@@ -218,7 +218,8 @@ export class Input implements Component, Focusable {
 		this.lastAction = "type-word";
 
 		this.value = this.value.slice(0, this.cursor) + char + this.value.slice(this.cursor);
-		this.cursor += char.length;
+		// Typed text can join the grapheme after it (a flag's first half); keep the cursor out of that grapheme.
+		this.cursor = graphemeStartAt(segmenter.segment(this.value), this.cursor + char.length);
 	}
 
 	private handleBackspace(): void {
@@ -425,6 +426,9 @@ export class Input implements Component, Focusable {
 					// Cursor in middle
 					startCol = Math.max(0, cursorCol - halfWidth);
 				}
+				// Keep the whole grapheme under the cursor in view; a wide one can straddle the window's end.
+				const cursorGrapheme = [...segmenter.segment(displayValue.slice(cursorDisplay))][0]?.segment ?? "";
+				startCol = Math.max(startCol, cursorCol + visibleWidth(cursorGrapheme) - scrollWidth);
 
 				visibleText = sliceByColumn(displayValue, startCol, scrollWidth, true);
 				const beforeCursor = sliceByColumn(displayValue, startCol, Math.max(0, cursorCol - startCol), true);

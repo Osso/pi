@@ -66,6 +66,16 @@ describe("Input component", () => {
 			assert.strictEqual(input.getValue(), "a🇺🇸");
 		});
 
+		it("keeps the cursor out of the flag joined by typed text", () => {
+			const input = new Input();
+			input.setValue("🇸");
+			input.handleInput("\x01");
+			input.handleInput("🇺");
+			input.handleInput("a");
+
+			assert.strictEqual(input.getValue(), "a🇺🇸");
+		});
+
 		it("keeps the cursor out of the flag joined by backspace", () => {
 			const input = new Input();
 			input.setValue("🇺x🇸");
@@ -147,6 +157,17 @@ describe("Input component", () => {
 			const [line] = input.render(width);
 			assert.ok(line);
 			assert.ok(visibleWidth(line) <= width);
+		});
+
+		it("scrolls a wide character under the cursor into a narrow window", () => {
+			const input = new Input();
+			input.setValue("a界b");
+			input.handleInput("\x01");
+			input.handleInput("\x1b[C");
+
+			const [line] = input.render(4);
+
+			assert.strictEqual(line, "> \x1b[7m界\x1b[27m");
 		});
 
 		it("masks secret input while preserving the stored value", () => {
