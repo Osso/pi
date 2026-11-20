@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- The `/login` prompt hint shows the `tui.input.submit` key that actually submits the value, instead of `tui.select.confirm`.
 - Moving the search cursor with Left/Right in the model selector and `pi config` resource selector no longer resets the highlighted row.
 - A message `tools`, `extensions` or `login` after an `@file` argument (for example `pi -p @notes.md tools`) is now sent as a prompt instead of running the command.
 - `--export-terminal` passed as the value of another option (for example `--system-prompt --export-terminal`) no longer starts a terminal export.

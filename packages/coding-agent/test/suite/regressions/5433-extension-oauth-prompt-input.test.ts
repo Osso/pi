@@ -58,6 +58,18 @@ describe("LoginDialogComponent OAuth prompts", () => {
 		await expect(secondPrompt).resolves.toBe("second-secret-demo");
 	});
 
+	test("advertises the key that submits the prompt input", async () => {
+		setKeybindings(new KeybindingsManager({ "tui.select.confirm": "ctrl+s" }));
+		const dialog = createDialog();
+
+		const prompt = dialog.showPrompt("API key:");
+		dialog.handleInput("typed-value");
+
+		expect(renderDialog(dialog).join("\n")).toContain("enter to submit");
+		dialog.handleInput("\r");
+		await expect(prompt).resolves.toBe("typed-value");
+	});
+
 	test("preserves auth instructions when showing a prompt", () => {
 		const dialog = createDialog();
 

@@ -160,11 +160,7 @@ export class LoginDialogComponent extends Container implements Focusable {
 		}
 		this.contentContainer.addChild(this.input);
 		this.contentContainer.addChild(
-			new Text(
-				`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.select.confirm", "to submit")})`,
-				1,
-				0,
-			),
+			new Text(`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.input.submit", "to submit")})`, 1, 0),
 		);
 
 		this.input.setValue("");
