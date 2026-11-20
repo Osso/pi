@@ -5,6 +5,7 @@ import { Chalk } from "chalk";
 import { Markdown, type MarkdownTheme } from "../src/components/markdown.ts";
 import { resetCapabilitiesCache, setCapabilities } from "../src/terminal-image.ts";
 import { type Component, TUI } from "../src/tui.ts";
+import { visibleWidth } from "../src/utils.ts";
 import { defaultMarkdownTheme } from "./test-themes.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
@@ -480,6 +481,29 @@ describe("Markdown component", () => {
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 			assert.ok(plainLines.some((line) => line.includes("Very long column header")));
 			assert.ok(plainLines.some((line) => line.includes("This is a much longer cell content")));
+		});
+
+		it("keeps a wide character column visible when a long cell forces wrapping", () => {
+			const markdown = new Markdown(
+				`| File | 状 |
+| --- | ---: |
+| very-long-fixture-filename.txt | 済 |`,
+				1,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const plainLines = markdown.render(36).map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
+
+			for (const line of plainLines) assert.ok(visibleWidth(line) <= 36, `Line exceeds width 36: "${line}"`);
+			assert.ok(
+				plainLines.some((line) => /│ 状 │$/.test(line)),
+				plainLines.join("\n"),
+			);
+			assert.ok(
+				plainLines.some((line) => /│ 済 │$/.test(line)),
+				plainLines.join("\n"),
+			);
 		});
 
 		it("should wrap table cells when table exceeds available width", () => {

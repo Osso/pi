@@ -600,9 +600,7 @@ export class Markdown implements Component {
 		return match ? `${match[1]} ` : undefined;
 	}
 
-	/**
-	 * Render a list with proper nesting support
-	 */
+	/** Render a list with proper nesting support */
 	private renderList(token: Tokens.List, depth: number, width: number, styleContext?: InlineStyleContext): string[] {
 		const lines: string[] = [];
 		const indent = "    ".repeat(depth);
@@ -657,9 +655,7 @@ export class Markdown implements Component {
 		return lines;
 	}
 
-	/**
-	 * Get the visible width of the longest word in a string.
-	 */
+	/** Get the visible width of the longest word in a string. */
 	private getLongestWordWidth(text: string, maxWidth?: number): number {
 		const words = text.split(/\s+/).filter((word) => word.length > 0);
 		let longest = 0;
@@ -704,8 +700,7 @@ export class Markdown implements Component {
 			return lines;
 		}
 
-		// Calculate border overhead: "│ " + (n-1) * " │ " + " │"
-		// = 2 + (n-1) * 3 + 2 = 3n + 1
+		// Border overhead: "│ " + (n-1) * " │ " + " │" = 3n + 1
 		const borderOverhead = 3 * numCols + 1;
 		const availableForCells = availableWidth - borderOverhead;
 		if (availableForCells < numCols) {
@@ -746,13 +741,16 @@ export class Markdown implements Component {
 		let minCellsWidth = minColumnWidths.reduce((a, b) => a + b, 0);
 
 		if (minCellsWidth > availableForCells) {
-			minColumnWidths = new Array(numCols).fill(1);
-			const remaining = availableForCells - numCols;
+			// Keep room for a wide (two-cell) character in each column when it fits; a narrower column drops it.
+			const wideFloors = minWordWidths.map((width) => Math.min(2, width));
+			const fitsWide = wideFloors.reduce((a, b) => a + b, 0) <= availableForCells;
+			minColumnWidths = fitsWide ? wideFloors : new Array(numCols).fill(1);
+			const remaining = availableForCells - minColumnWidths.reduce((a, b) => a + b, 0);
 
 			if (remaining > 0) {
-				const totalWeight = minWordWidths.reduce((total, width) => total + Math.max(0, width - 1), 0);
-				const growth = minWordWidths.map((width) => {
-					const weight = Math.max(0, width - 1);
+				const weights = minWordWidths.map((width, index) => Math.max(0, width - (minColumnWidths[index] ?? 1)));
+				const totalWeight = weights.reduce((total, weight) => total + weight, 0);
+				const growth = weights.map((weight) => {
 					return totalWeight > 0 ? Math.floor((weight / totalWeight) * remaining) : 0;
 				});
 
