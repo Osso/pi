@@ -25,6 +25,16 @@ describe("InMemorySessionRepo", () => {
 });
 
 describe("JsonlSessionRepo", () => {
+	it("lists only sessions whose cwd matches when two cwds share an encoded directory", async () => {
+		const root = createTempDir();
+		const repo = new JsonlSessionRepo({ fs: new NodeExecutionEnv({ cwd: root }), sessionsRoot: root });
+		await repo.create({ cwd: "/tmp/my-project", id: "project-a" });
+		await repo.create({ cwd: "/tmp/my/project", id: "project-b" });
+
+		expect((await repo.list({ cwd: "/tmp/my-project" })).map((metadata) => metadata.id)).toEqual(["project-a"]);
+		expect((await repo.list({ cwd: "/tmp/my/project" })).map((metadata) => metadata.id)).toEqual(["project-b"]);
+	});
+
 	it("stores sessions below encoded cwd directories and lists by cwd", async () => {
 		const root = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: root });

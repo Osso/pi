@@ -112,7 +112,9 @@ export class JsonlSessionRepo implements JsonlSessionRepoApi {
 			).filter((file) => file.kind !== "directory" && file.name.endsWith(".jsonl"));
 			for (const file of files) {
 				try {
-					sessions.push(await loadJsonlSessionMetadata(this.fs, file.path));
+					const metadata = await loadJsonlSessionMetadata(this.fs, file.path);
+					// Distinct cwds can encode to the same directory name, e.g. my-project and my/project.
+					if (!options.cwd || metadata.cwd === options.cwd) sessions.push(metadata);
 				} catch (error) {
 					const cause = toError(error);
 					if (!(cause instanceof SessionError) || cause.code !== "invalid_session") throw cause;

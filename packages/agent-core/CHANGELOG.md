@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- `JsonlSessionRepo.list({ cwd })` no longer returns sessions of a different cwd that encodes to the same directory name.
 - `JsonlSessionStorage` adds the missing newline before appending to a reopened session file whose last record has none.
 - Nested skill ignore files now work in directories whose names contain glob characters such as `team[1]`; the directory prefix is escaped before it is joined to each rule
 - Fixed a sequential tool call still running when the agent was aborted while a `tool_execution_start` listener ran; it now reports `Operation aborted`, as parallel calls already did
