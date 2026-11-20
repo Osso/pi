@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/compact` no longer summarizes an empty conversation when the only history before the kept messages is a hidden `!!` command; it reports nothing to compact.
 - The first launch that migrates a legacy `prompt-history.json` shows the trimmed, deduplicated entries it stored, instead of the raw legacy list with duplicates.
 - Escape cancels Ctrl+R prompt history search in the interactive editor and restores the draft, instead of running the app Escape handler while the search stays open.
 - `--model` with a raw model ID that starts with a known provider name (for example `openai/gpt-4o:extended`) applies the same provider ambiguity rules as other exact IDs: it picks the only authenticated provider or reports the ambiguity instead of taking the first catalog match.

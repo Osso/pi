@@ -395,6 +395,14 @@ describe("findCutPoint", () => {
 		];
 
 		expect(findCutPoint(entries, 0, entries.length, 2).firstKeptEntryIndex).toBe(2);
+
+		// A hidden command before a short one-turn session leaves nothing to summarize.
+		const oneTurn: SessionEntry[] = [
+			createMessageEntry(bash("pwd")),
+			createMessageEntry(createUserMessage("Say hello")),
+			createMessageEntry(createAssistantMessage("Hello")),
+		];
+		expect(prepareCompaction(oneTurn, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 })).toBeUndefined();
 	});
 
 	it("keeps the 20 most recent messages untruncated when a short nudge turn follows a long turn", () => {

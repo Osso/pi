@@ -843,7 +843,7 @@ export function prepareCompaction(
 		}
 	}
 
-	if (messagesToSummarize.length === 0 && turnPrefixMessages.length === 0) {
+	if (convertToLlm(messagesToSummarize).length === 0 && convertToLlm(turnPrefixMessages).length === 0) {
 		return undefined;
 	}
 
