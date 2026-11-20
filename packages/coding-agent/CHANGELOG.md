@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `read` counts blank lines toward the 2,000-line cap and gives the correct continuation offset when a page ends on a blank line.
 - `edit` keeps untouched line endings between separate replacement ranges, even when a replacement creates a repeated line in a file with mixed LF and CRLF.
 - `find` preserves literal trailing backslashes in POSIX filenames instead of returning them as directory paths.
 - Fixed `set_session_name` overwriting manual renames or clears persisted by another process, including renames that repeat the tool's title. The tool can correct only the name revision it last wrote. Extension API calls to `pi.setSessionName(name)` remain unconditional unless an expected revision is supplied.

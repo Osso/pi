@@ -418,18 +418,13 @@ function createReadToolDefinitionInternal(
 							if (startLine >= lineCount) {
 								throw new Error(`Offset ${offset} is beyond end of file (${lineCount} lines total)`);
 							}
-							let selectedContent: string;
-							let userLimitedLines: number | undefined;
-							// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-							if (limit !== undefined) {
-								const endLine = Math.min(startLine + limit, allLines.length);
-								selectedContent = allLines.slice(startLine, endLine).join("\n");
-								userLimitedLines = endLine - startLine;
-							} else {
-								selectedContent = allLines.slice(startLine).join("\n");
-							}
-							// Apply truncation, respecting both line and byte limits.
-							const truncation = truncateHead(selectedContent);
+							const endLine =
+								limit === undefined ? allLines.length : Math.min(startLine + limit, allLines.length);
+							const selectedLines = allLines.slice(startLine, endLine);
+							const selectedContent = selectedLines.join("\n");
+							// Give a selected blank line its terminator so truncateHead counts it as a line.
+							const endsOnBlankLine = endLine <= lineCount && selectedLines.at(-1) === "";
+							const truncation = truncateHead(endsOnBlankLine ? `${selectedContent}\n` : selectedContent);
 							let outputText: string;
 							if (truncation.firstLineExceedsLimit || firstLineCut) {
 								// First line alone exceeds the byte limit. Point the model at a bash fallback.
@@ -446,15 +441,14 @@ function createReadToolDefinitionInternal(
 								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`;
 								details = { truncation };
 							} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
-								// Count the selected lines: truncateHead reports 0 lines for a lone empty line.
-								const shownLines = userLimitedLines ?? lineCount - startLine;
-								const endLineDisplay = startLineDisplay + shownLines - 1;
+								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
 								const nextOffset = endLineDisplay + 1;
-								outputText = `${truncation.content}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+								outputText = `${selectedContent}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
 								details = {
 									truncation: {
 										...truncation,
-										outputLines: shownLines,
+										content: selectedContent,
+										outputBytes: Buffer.byteLength(selectedContent, "utf-8"),
 										truncated: true,
 										truncatedBy: "bytes",
 										totalBytes: fileSize ?? truncation.totalBytes,
@@ -476,14 +470,14 @@ function createReadToolDefinitionInternal(
 										? { ...truncation, truncatedBy: "bytes", totalBytes: fileSize ?? truncation.totalBytes }
 										: truncation,
 								};
-							} else if (userLimitedLines !== undefined && startLine + userLimitedLines < lineCount) {
+							} else if (limit !== undefined && endLine < lineCount) {
 								// User-specified limit stopped early, but the file still has more content.
-								const remaining = lineCount - (startLine + userLimitedLines);
-								const nextOffset = startLine + userLimitedLines + 1;
-								outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
+								const remaining = lineCount - endLine;
+								const nextOffset = endLine + 1;
+								outputText = `${selectedContent}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
 							} else {
 								// No truncation and no remaining user-limited content.
-								outputText = truncation.content;
+								outputText = selectedContent;
 							}
 							content = [{ type: "text", text: outputText }];
 						}
