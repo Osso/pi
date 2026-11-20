@@ -26,6 +26,14 @@ describe("SelectList", () => {
 		assert.deepEqual(list.render(80).map(stripVTControlCharacters), ["  No matching commands"]);
 	});
 
+	it("keeps multiline labels in one row without changing the selected item", () => {
+		const first = { value: "first", label: "First\r\nsecond" };
+		const list = new SelectList([first, { value: "next", label: "Next" }], 1, testTheme);
+
+		assert.deepEqual(list.render(80), ["→ First second", "  (1/2)"]);
+		assert.deepEqual(list.getSelectedItem(), first);
+	});
+
 	it("normalizes multiline descriptions to single line", () => {
 		const items = [
 			{

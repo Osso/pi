@@ -6,7 +6,7 @@ const DEFAULT_PRIMARY_COLUMN_WIDTH = 32;
 const PRIMARY_COLUMN_GAP = 2;
 const MIN_DESCRIPTION_WIDTH = 10;
 
-const normalizeToSingleLine = (text: string): string => text.replace(/[\r\n]+/g, " ").trim();
+const normalizeToSingleLine = (text: string): string => text.replace(/[\r\n]+/g, " ");
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
 export interface SelectItem {
@@ -95,7 +95,7 @@ export class SelectList implements Component {
 			if (!item) continue;
 
 			const isSelected = i === this.selectedIndex;
-			const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description) : undefined;
+			const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description).trim() : undefined;
 			// The prefix alone can be wider than a 1-column terminal.
 			const line = this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth);
 			lines.push(truncateToWidth(line, width, ""));
@@ -225,7 +225,7 @@ export class SelectList implements Component {
 	}
 
 	private getDisplayValue(item: SelectItem): string {
-		return item.label || item.value;
+		return normalizeToSingleLine(item.label || item.value);
 	}
 
 	private notifySelectionChange(): void {
