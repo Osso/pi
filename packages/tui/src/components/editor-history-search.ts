@@ -13,7 +13,16 @@ export function historySearchPreviewLine(entry: string, query: string): string {
 /** Show the first case-insensitive match of the query in reverse video. */
 export function highlightHistorySearchMatch(text: string, query: string): string {
 	if (query.length === 0) return text;
-	const matchIndex = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+	// Compare windows of the original text: lowercasing can change length (`İ` -> `i̇`), so an index into the
+	// lowercased string would not point at the match in `text`.
+	const lowerQuery = query.toLocaleLowerCase();
+	let matchIndex = -1;
+	for (let index = 0; index + query.length <= text.length; index++) {
+		if (text.slice(index, index + query.length).toLocaleLowerCase() === lowerQuery) {
+			matchIndex = index;
+			break;
+		}
+	}
 	if (matchIndex < 0) return text;
 	const matchEnd = matchIndex + query.length;
 	return `${text.slice(0, matchIndex)}\x1b[7m${text.slice(matchIndex, matchEnd)}\x1b[27m${text.slice(matchEnd)}`;

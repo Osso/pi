@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Ctrl+R history search highlights the matched text when an earlier character such as `İ` changes length when lowercased.
 - `SelectList` and `SettingsList` handle `tui.select.pageUp`/`pageDown` (a searchable `SettingsList` used to reset to the first row); `SettingsList` checks the cancel binding before its Space shortcut, and clips labels wider than the label column so values stay aligned.
 - Viewport-only repaints (same-size resize, content shrinking upward) delete Kitty images that left the repainted rows and clear an image's reserved rows before drawing it, instead of erasing the image afterwards.
 - iTerm2 inline images pass their reserved row count as the image height, so `maxHeightCells` limits the drawn image and not only the layout.
