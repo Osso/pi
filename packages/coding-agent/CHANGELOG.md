@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/reload` completion help includes context files.
 - `pi tools` and `/tools` align columns by terminal width and limit descriptions to 54 cells without splitting characters.
 - The extension inventory shows full paths when distinct extensions would otherwise have the same scope, source, and label.
 - The extension inventory aligns registration counts when a filename contains wide characters.
