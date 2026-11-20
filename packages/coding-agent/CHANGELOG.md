@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- RPC mode no longer hangs when stdin closes while a `session_start` dialog waits for a reply; the dialog is cancelled and the orderly shutdown runs.
 - Branch summaries (`/tree`) keep their file lists when no message fits the history budget, and order a compaction's file lists before the reads it kept verbatim, so a newer read no longer drops out of the 100-path cap.
 - Fixed Supervisor reminder delivery stopping for good after a check failed while its session was stopping; the failure was reported through the stale extension context, which raised an unhandled rejection and failed every later check.
 - `/scoped-models` ignores scoped models that are no longer available (for example after `/logout`); before, a hidden model blocked Alt+Up/Alt+Down at its position and could make Save clear the saved scope.

@@ -393,10 +393,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
-	const input = readRpcInputFromStartup(process.stdin, (response) => {
-		pendingExtensionRequests.get(response.id)?.resolve(response);
-		pendingExtensionRequests.delete(response.id);
-	});
+	const input = readRpcInputFromStartup(process.stdin, pendingExtensionRequests);
 	await rebindSession();
 	registerSignalHandlers();
 

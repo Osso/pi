@@ -5,20 +5,22 @@ import type { RpcExtensionUIResponse } from "./rpc-types.ts";
 /**
  * Read RPC input from process start, so a dialog opened by a `session_start` handler receives its
  * `extension_ui_response`. Until `start()`, other lines are queued and EOF is held; `start()` replays them.
+ * EOF before `start()` cancels the open startup dialogs, which can no longer be answered.
  */
 export function readRpcInputFromStartup(
 	stream: Readable,
-	resolveStartupDialog: (response: RpcExtensionUIResponse) => void,
+	pendingDialogs: Map<string, { resolve: (response: RpcExtensionUIResponse) => void }>,
 ): { start(onLine: (line: string) => void, onEnd: () => void): () => void } {
 	let queuedLines: string[] = [];
 	let inputEnded = false;
 	let handleLine = (line: string): void => {
 		const response = parseExtensionUiResponse(line);
-		if (response) resolveStartupDialog(response);
+		if (response) pendingDialogs.get(response.id)?.resolve(response);
 		else queuedLines.push(line);
 	};
 	let handleEnd = (): void => {
 		inputEnded = true;
+		for (const [id, dialog] of pendingDialogs) dialog.resolve({ type: "extension_ui_response", id, cancelled: true });
 	};
 	const detachLines = attachJsonlLineReader(stream, (line) => handleLine(line));
 	const onStreamEnd = (): void => handleEnd();
