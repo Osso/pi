@@ -82,7 +82,8 @@ async function runPrintMode(
 						reject(
 							new Error(`CLI timeout: requests=${requestMessages.length}, stdout=${stdout}, stderr=${stderr}`),
 						),
-					10_000,
+					// A loaded gate can stretch a ~1s CLI run past 10s; stay inside the 30s test timeout.
+					25_000,
 				);
 				child?.once("error", (error) => {
 					clearTimeout(timer);

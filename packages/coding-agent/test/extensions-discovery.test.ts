@@ -513,5 +513,6 @@ describe("extensions discovery", () => {
 		expect(result.errors.map((error) => error.error)).toEqual([]);
 		expect(result.extensions).toHaveLength(1);
 		expect(result.extensions[0]?.commands.has("public-api")).toBe(true);
-	});
+		// Transpiling the public API takes ~5s alone and exceeded 30s on a loaded full gate.
+	}, 90_000);
 });
