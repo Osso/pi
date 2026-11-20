@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- Fixed `--mode json` truncating queued JSONL on shutdown. The first signal lets session disposal finish and drains stdout before exit, preserving exit code 143 for `SIGTERM`. A second signal exits immediately, even if the reader is not consuming stdout, and can truncate output. The JSON schema is unchanged.
 - Fixed foreground runner-owned Bash calls sometimes omitting the final bytes written before process completion. The call now reads any remaining output after the completion marker before it reports the exit status.
 - Aborting a foreground Bash tool call now stops the shell and its process group instead of stopping only the supervising runner. Foreground teardown leaves already detached Bash jobs running.
 - Fixed `/delete` so a late child agent notification no longer recreates the parent transcript after deletion.

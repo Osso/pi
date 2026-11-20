@@ -57,18 +57,19 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	let exitCode = 0;
 	let session = runtimeHost.session;
 	let unsubscribe: (() => void) | undefined;
-	let disposal: Promise<void> | undefined;
+	let shutdownComplete: Promise<void> | undefined;
 	let shutdownSignalSeen = false;
 	const signalCleanupHandlers: Array<() => void> = [];
 
-	// Every caller waits for the one in-flight disposal, so a signal during the final disposal does not cut it off.
-	const disposeRuntime = (): Promise<void> => {
+	// Normal exit and the first signal wait for the same cleanup and output drain.
+	const disposeAndFlush = (): Promise<void> => {
 		// Stay subscribed while disposing so JSON mode still writes events from session_shutdown handlers.
-		disposal ??= (async () => {
+		shutdownComplete ??= (async () => {
 			await runtimeHost.dispose();
 			unsubscribe?.();
+			await flushRawStdout();
 		})();
-		return disposal;
+		return shutdownComplete;
 	};
 
 	const registerSignalHandlers = (): void => {
@@ -78,7 +79,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 				if (shutdownSignalSeen) process.exit(signalExitCode(signal));
 				shutdownSignalSeen = true;
 				killTrackedDetachedChildren();
-				void disposeRuntime().finally(() => {
+				void disposeAndFlush().finally(() => {
 					process.exit(signalExitCode(signal));
 				});
 			};
@@ -176,11 +177,10 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		console.error(error instanceof Error ? error.message : String(error));
 		return 1;
 	} finally {
-		// Remove the signal handlers only after disposal, so a signal during it waits instead of killing pi.
-		await disposeRuntime();
+		// A repeated signal can still exit at once if the reader stops draining stdout.
+		await disposeAndFlush();
 		for (const cleanup of signalCleanupHandlers) {
 			cleanup();
 		}
-		await flushRawStdout();
 	}
 }

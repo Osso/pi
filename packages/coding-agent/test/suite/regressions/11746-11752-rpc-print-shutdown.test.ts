@@ -9,6 +9,7 @@ import { createHeadlessPaths, createProviderServer, runWithCleanup } from "../he
 interface ShutdownRun {
 	exitCode: number | null;
 	cleanupFinished: boolean;
+	stdout: string;
 	stderr: string;
 }
 
@@ -33,8 +34,8 @@ function waitForRpcReady(proc: ChildProcess, stderr: () => string): Promise<void
  */
 async function runShutdown(
 	modeArgs: string[],
-	trigger: (child: ChildProcess, cleanupStarted: string) => void | Promise<void>,
-	extraExtensionCode = "",
+	trigger: (child: ChildProcess, cleanupStarted: string, cleanupFinished: string) => void | Promise<void>,
+	extensionCode: { startup?: string; shutdown?: string } = {},
 ): Promise<ShutdownRun> {
 	const paths = createHeadlessPaths();
 	const cacheDir = join(paths.tempDir, "compile-cache");
@@ -47,14 +48,16 @@ async function runShutdown(
 		`import { writeFileSync } from "node:fs";
 		export default function (pi) {
 			pi.on("session_shutdown", async () => {
+				${extensionCode.shutdown ?? ""}
 				writeFileSync(${JSON.stringify(startedMarker)}, "started");
 				await new Promise((resolve) => setTimeout(resolve, 1000));
 				writeFileSync(${JSON.stringify(finishedMarker)}, "done");
 			});
-			${extraExtensionCode}
+			${extensionCode.startup ?? ""}
 		}`,
 	);
 	let child: ChildProcess | undefined;
+	let childClosed: Promise<number | null> | undefined;
 	let provider: Awaited<ReturnType<typeof createProviderServer>> | undefined;
 	return runWithCleanup(
 		async () => {
@@ -100,18 +103,25 @@ async function runShutdown(
 				},
 			);
 			child = proc;
+			let stdout = "";
 			let stderr = "";
+			proc.stdout?.on("data", (chunk: Buffer) => {
+				stdout += chunk.toString();
+			});
 			proc.stderr?.on("data", (chunk: Buffer) => {
 				stderr += chunk.toString();
 			});
 			const exited = new Promise<number | null>((resolve) => proc.once("close", resolve));
+			childClosed = exited;
 			if (modeArgs.includes("rpc")) await waitForRpcReady(proc, () => stderr);
-			await trigger(proc, startedMarker);
+			await trigger(proc, startedMarker, finishedMarker);
 			const exitCode = await exited;
-			return { exitCode, cleanupFinished: existsSync(finishedMarker), stderr };
+			return { exitCode, cleanupFinished: existsSync(finishedMarker), stdout, stderr };
 		},
 		async () => {
-			if (child?.exitCode === null) child.kill("SIGKILL");
+			if (child?.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+			child?.stdout?.resume();
+			if (childClosed) await childClosed;
 			provider?.getSocket()?.destroy();
 			if (provider)
 				await new Promise<void>((resolve, reject) =>
@@ -165,6 +175,62 @@ describe("shutdown signals during cleanup (#11752)", () => {
 		expect(run.cleanupFinished, run.stderr).toBe(true);
 		expect(run.exitCode).toBe(143);
 	}, 60_000);
+
+	it.each([
+		["writes complete JSONL when SIGTERM arrives under stdout backpressure", false],
+		["exits promptly on repeated SIGTERM under stdout backpressure", true],
+	])(
+		"%s",
+		async (_scenario, repeatSignal) => {
+			const payloadPart = "known-shutdown-payload:";
+			const repetitions = 65_536;
+			const expectedPayload = payloadPart.repeat(repetitions);
+			const run = await runShutdown(
+				["--mode", "json"],
+				async (child, cleanupStarted, cleanupFinished) => {
+					child.stdout?.pause();
+					child.stdin?.end();
+					await vi.waitFor(() => expect(existsSync(cleanupStarted)).toBe(true), {
+						timeout: 20_000,
+						interval: 20,
+					});
+					child.kill("SIGTERM");
+					await vi.waitFor(() => expect(existsSync(cleanupFinished)).toBe(true), {
+						timeout: 20_000,
+						interval: 20,
+					});
+					if (repeatSignal) {
+						expect(child.exitCode).toBeNull();
+						child.kill("SIGTERM");
+						await vi.waitFor(() => expect(child.exitCode).toBe(143), { timeout: 5_000 });
+					}
+					child.stdout?.resume();
+				},
+				{ shutdown: `pi.appendEntry("shutdown-payload", ${JSON.stringify(payloadPart)}.repeat(${repetitions}));` },
+			);
+
+			expect(run.cleanupFinished, run.stderr).toBe(true);
+			expect(run.exitCode).toBe(143);
+			if (repeatSignal) return;
+
+			expect(run.stdout.endsWith("\n")).toBe(true);
+			const lines = run.stdout.split("\n");
+			const output = lines.slice(0, -1).map(
+				(line) =>
+					JSON.parse(line) as {
+						type: string;
+						entry?: { customType?: string; data?: string };
+					},
+			);
+			const payloadEvent = output.find(
+				(line) => line.type === "entry_appended" && line.entry?.customType === "shutdown-payload",
+			);
+
+			expect(payloadEvent?.entry?.data?.length).toBe(expectedPayload.length);
+			expect(payloadEvent?.entry?.data === expectedPayload).toBe(true);
+		},
+		60_000,
+	);
 });
 
 describe("idle RPC shutdown requests (#11746)", () => {
@@ -174,12 +240,14 @@ describe("idle RPC shutdown requests (#11746)", () => {
 			(child) => {
 				child.stdin?.write(`${JSON.stringify({ type: "prompt", message: "/shutdown-later" })}\n`);
 			},
-			`pi.registerCommand("shutdown-later", {
-				description: "Request shutdown from a timer",
-				handler: async (_args, ctx) => {
-					setTimeout(() => ctx.shutdown(), 300);
-				},
-			});`,
+			{
+				startup: `pi.registerCommand("shutdown-later", {
+					description: "Request shutdown from a timer",
+					handler: async (_args, ctx) => {
+						setTimeout(() => ctx.shutdown(), 300);
+					},
+				});`,
+			},
 		);
 
 		expect(run.cleanupFinished, run.stderr).toBe(true);

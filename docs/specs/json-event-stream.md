@@ -13,6 +13,7 @@ Module boundary: core CLI output projection.
 - [x] Omit `turn_end.message` and `turn_end.toolResults`; omit `agent_end.messages` while preserving `willRetry` and optional `sessionContinuation`.
 - [x] Remove only `tool_execution_end.result.content` and `.details`; retain metadata-only `result` including existing fields such as `terminate`, plus tool identity, timestamps, and error flag. Keep tool progress updates unchanged.
 - [x] Leave other session events and SDK/internal/TUI/RPC payloads unchanged; provide no compatibility mode for the old JSON wire shape.
+- [x] On the first shutdown signal, finish session disposal and drain queued JSONL to stdout before exit. Preserve exit code 143 for `SIGTERM`. A second signal must exit immediately, even if a reader is not consuming stdout, and can truncate output. This does not change the JSON schema.
 
 ## How it works
 
@@ -31,6 +32,7 @@ Module boundary: core CLI output projection.
 
 - `packages/coding-agent/test/print-mode.test.ts` — delta/block projection, completed user/assistant/tool/custom bodies, terminal retry/error metadata, unchanged progress/bash payloads, nonmutation, linear output growth, and a real faux-provider tool loop with exact `message_end` wire order.
 - `packages/coding-agent/test/rpc-jsonl.test.ts` — unchanged LF-only framing and Unicode payload handling.
+- `packages/coding-agent/test/suite/regressions/11746-11752-rpc-print-shutdown.test.ts` — runtime regression for complete JSONL after one `SIGTERM` and immediate exit after a second `SIGTERM` while stdout is blocked.
 
 Native executable validation also exercised streaming, `read`, and `end_turn` through an isolated loopback faux provider on the remote host.
 

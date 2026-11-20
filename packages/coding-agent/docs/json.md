@@ -8,6 +8,10 @@ Outputs session events as JSON lines to stdout, with lean message and lifecycle 
 
 The process exits nonzero when the final assistant message ended with an error or was aborted; the error message is also written to stderr.
 
+## Shutdown
+
+On the first shutdown signal, Pi finishes session disposal and drains queued JSONL to stdout before it exits. This can wait for the reader to consume stdout. `SIGTERM` still gives exit code 143. A second shutdown signal exits immediately, even while Pi waits for the reader, and can truncate the JSONL output. This protects output during graceful shutdown without changing the JSON schema.
+
 ## Output Format
 
 Each line is a JSON object. The first line is the session header:
