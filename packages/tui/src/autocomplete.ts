@@ -383,10 +383,10 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
 		const afterCursor = currentLine.slice(cursorCol);
 		const isQuotedPrefix = prefix.startsWith('"') || prefix.startsWith('@"');
-		const hasLeadingQuoteAfterCursor = afterCursor.startsWith('"');
-		const hasTrailingQuoteInItem = item.value.endsWith('"');
-		const adjustedAfterCursor =
-			isQuotedPrefix && hasTrailingQuoteInItem && hasLeadingQuoteAfterCursor ? afterCursor.slice(1) : afterCursor;
+		const tokenRest = isQuotedPrefix
+			? afterCursor.slice(0, afterCursor.indexOf('"') + 1)
+			: afterCursor.slice(0, afterCursor.search(/\s|$/));
+		const adjustedAfterCursor = item.value.endsWith(tokenRest) ? afterCursor.slice(tokenRest.length) : afterCursor;
 
 		// Check if we're completing a slash command (prefix starts with "/" but NOT a file path)
 		// Slash commands are at the start of the line and don't contain path separators after the first /

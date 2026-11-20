@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Completing an `@` path with the cursor inside the filename replaces the rest of the path instead of leaving a duplicate suffix and closing quote.
 - Down no longer gets stuck at the start of a wrapped paste marker at the end of the text; it moves the cursor past the marker.
 - Alt+Y replaces the previous yank correctly when that yank joined the following character into one grapheme, such as a flag.
 - Ctrl+K and Alt+D at the end of a line no longer leave the cursor inside a flag or other grapheme formed by joining the lines.

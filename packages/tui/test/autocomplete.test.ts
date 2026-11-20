@@ -615,6 +615,23 @@ describe("CombinedAutocompleteProvider", () => {
 			const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
 			assert.strictEqual(applied.lines[0], '@"my folder/test.txt" ');
 		});
+
+		test("replaces the rest of the @ path when the cursor is inside the filename", async () => {
+			setupFolder(baseDir, { files: { "my folder/test.txt": "content", "src/main.ts": "x" } });
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			for (const [line, cursorCol, value, expected] of [
+				['@"my folder/test.txt"', 14, '@"my folder/test.txt"', '@"my folder/test.txt" '],
+				["@src/main.ts", 7, "@src/main.ts", "@src/main.ts "],
+			] as const) {
+				const result = await getSuggestions(provider, [line], 0, cursorCol);
+				const item = result?.items.find((entry) => entry.value === value);
+				assert.ok(item && result, `Should suggest ${value}`);
+
+				const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
+
+				assert.strictEqual(applied.lines[0], expected);
+			}
+		});
 	});
 
 	describe("dot-slash path completion", () => {
