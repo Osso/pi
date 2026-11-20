@@ -88,6 +88,14 @@ describe("fuzzyFilter", () => {
 		assert.strictEqual(result[0], "app");
 	});
 
+	it("ranks a later consecutive match over a scattered match", () => {
+		const items = ["Hide coordination messages", "HTTP idle timeout"];
+		assert.deepStrictEqual(
+			fuzzyFilter(items, "time", (label) => label),
+			["HTTP idle timeout", "Hide coordination messages"],
+		);
+	});
+
 	it("prioritizes exact matches over longer prefix matches", () => {
 		const items = ["clone", "cl"];
 		const result = fuzzyFilter(items, "cl", (x: string) => x);

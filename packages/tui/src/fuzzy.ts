@@ -14,66 +14,51 @@ function foldCase(value: string): string {
 	return value.toLowerCase().replace(/ς/g, "σ");
 }
 
+function scorePositions(text: string, positions: readonly number[]): number {
+	let score = 0;
+	let lastMatchIndex = -1;
+	let consecutiveMatches = 0;
+
+	for (const i of positions) {
+		if (lastMatchIndex === i - 1) {
+			consecutiveMatches++;
+			score -= consecutiveMatches * 5;
+		} else {
+			consecutiveMatches = 0;
+			if (lastMatchIndex >= 0) score += (i - lastMatchIndex - 1) * 2;
+		}
+		const prevChar = text[i - 1];
+		if (prevChar === undefined || /[\s\-_./:]/.test(prevChar)) score -= 10;
+		score += i * 0.1;
+		lastMatchIndex = i;
+	}
+	return score;
+}
+
+function matchQuery(query: string, text: string): FuzzyMatch {
+	if (query.length === 0) return { matches: true, score: 0 };
+	if (query.length > text.length) return { matches: false, score: 0 };
+
+	// Score the greedy alignment and every contiguous occurrence of the query.
+	const positions: number[] = [];
+	let lastMatchIndex = -1;
+	for (const character of query.split("")) {
+		lastMatchIndex = text.indexOf(character, lastMatchIndex + 1);
+		if (lastMatchIndex === -1) return { matches: false, score: 0 };
+		positions.push(lastMatchIndex);
+	}
+	let score = scorePositions(text, positions);
+	for (let start = text.indexOf(query); start !== -1; start = text.indexOf(query, start + 1)) {
+		for (let i = 0; i < positions.length; i++) positions[i] = start + i;
+		score = Math.min(score, scorePositions(text, positions));
+	}
+	return { matches: true, score: query === text ? score - 100 : score };
+}
+
 export function fuzzyMatch(query: string, text: string): FuzzyMatch {
 	const queryLower = foldCase(query);
 	const textLower = foldCase(text);
-
-	const matchQuery = (normalizedQuery: string): FuzzyMatch => {
-		if (normalizedQuery.length === 0) {
-			return { matches: true, score: 0 };
-		}
-
-		if (normalizedQuery.length > textLower.length) {
-			return { matches: false, score: 0 };
-		}
-
-		let queryIndex = 0;
-		let score = 0;
-		let lastMatchIndex = -1;
-		let consecutiveMatches = 0;
-
-		for (let i = 0; i < textLower.length && queryIndex < normalizedQuery.length; i++) {
-			if (textLower[i] === normalizedQuery[queryIndex]) {
-				const prevChar = i > 0 ? textLower[i - 1] : undefined;
-				const isWordBoundary = prevChar === undefined || /[\s\-_./:]/.test(prevChar);
-
-				// Reward consecutive matches
-				if (lastMatchIndex === i - 1) {
-					consecutiveMatches++;
-					score -= consecutiveMatches * 5;
-				} else {
-					consecutiveMatches = 0;
-					// Penalize gaps
-					if (lastMatchIndex >= 0) {
-						score += (i - lastMatchIndex - 1) * 2;
-					}
-				}
-
-				// Reward word boundary matches
-				if (isWordBoundary) {
-					score -= 10;
-				}
-
-				// Slight penalty for later matches
-				score += i * 0.1;
-
-				lastMatchIndex = i;
-				queryIndex++;
-			}
-		}
-
-		if (queryIndex < normalizedQuery.length) {
-			return { matches: false, score: 0 };
-		}
-
-		if (normalizedQuery === textLower) {
-			score -= 100;
-		}
-
-		return { matches: true, score };
-	};
-
-	const primaryMatch = matchQuery(queryLower);
+	const primaryMatch = matchQuery(queryLower, textLower);
 	if (primaryMatch.matches) {
 		return primaryMatch;
 	}
@@ -90,7 +75,7 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch {
 		return primaryMatch;
 	}
 
-	const swappedMatch = matchQuery(swappedQuery);
+	const swappedMatch = matchQuery(swappedQuery, textLower);
 	if (!swappedMatch.matches) {
 		return primaryMatch;
 	}
