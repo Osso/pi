@@ -32,7 +32,6 @@ type StartupContext = ResumeContext & {
 	keybindings: { getError: () => string | undefined };
 	options: Record<string, undefined>;
 	init: () => Promise<void>;
-	checkTmuxKeyboardSetup: () => Promise<string | undefined>;
 	maybeWarnAboutAnthropicSubscriptionAuth: () => Promise<void>;
 	processControlMessage: () => Promise<void>;
 	getUserInput: () => Promise<string>;
@@ -76,7 +75,6 @@ describe("InteractiveMode session resume continuation", () => {
 			keybindings: { getError: () => undefined },
 			options: {},
 			init: vi.fn(async () => {}),
-			checkTmuxKeyboardSetup: vi.fn(async () => undefined),
 			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(async () => {}),
 			processControlMessage: vi.fn(async () => {}),
 			getUserInput: vi.fn(async () => {

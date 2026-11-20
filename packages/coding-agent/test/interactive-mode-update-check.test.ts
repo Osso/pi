@@ -9,7 +9,6 @@ describe("InteractiveMode update checks", () => {
 		const sentinel = new Error("stop after startup");
 		const context = {
 			checkForPackageUpdates,
-			checkTmuxKeyboardSetup: async () => undefined,
 			continueResumedSessionAtStartup: async () => undefined,
 			startResumedRunAtStartup: async () => undefined,
 			getUserInput: async () => {
