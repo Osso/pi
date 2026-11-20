@@ -273,6 +273,7 @@
 
 ### Fixed
 
+- `/scoped-models` no longer closes on a hard-coded Ctrl+C: `app.clear` empties a non-empty search and only the configured `tui.select.cancel` keys close the selector.
 - The read tool takes whole-line `offset`/`limit` values, so a fractional limit no longer yields a fractional continuation offset, and its long-line bash fallback names the resolved file (after `@`/`~`), quoted when needed.
 - The default footer redraws when an agent lifecycle change alters its agent counts, instead of showing a stale count until another full render.
 - The agents status widget clears a finished row that expires before its first refresh tick, such as one restored on session start.

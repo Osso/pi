@@ -36,6 +36,25 @@ describe("issue #3217 scoped model ordering", () => {
 		}
 	});
 
+	it("clears the search with Ctrl+C and closes only on the configured cancel keys", async () => {
+		setKeybindings(new KeybindingsManager({ "tui.select.cancel": "f10" }));
+		const harness = await createHarness({ models: [{ id: "faux-1", name: "One", reasoning: true }] });
+		harnesses.push(harness);
+		let cancels = 0;
+		const selector = new ScopedModelsSelectorComponent(
+			{ allModels: [...harness.models], enabledModelIds: null },
+			{ onChange: () => {}, onPersist: () => {}, onCancel: () => cancels++ },
+		);
+
+		selector.handleInput("o");
+		selector.handleInput("\x03");
+		expect(selector.getSearchInput().getValue()).toBe("");
+		selector.handleInput("\x03");
+		expect(cancels).toBe(0);
+		selector.handleInput("\x1b[21~");
+		expect(cancels).toBe(1);
+	});
+
 	it("persists scoped model choices with a flow-control-safe save key", async () => {
 		const harness = await createHarness({
 			models: [
