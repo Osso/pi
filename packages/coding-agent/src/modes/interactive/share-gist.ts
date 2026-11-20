@@ -20,15 +20,14 @@ export interface ShareGistHost {
 
 /** /share: export the session to HTML, upload it as a secret gist with gh, and show the viewer URL. */
 export async function shareSessionAsGist(host: ShareGistHost): Promise<void> {
-	// Check if gh is available and logged in
-	try {
-		const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
-		if (authResult.status !== 0) {
-			host.showError("GitHub CLI is not logged in. Run 'gh auth login' first.");
-			return;
-		}
-	} catch {
+	// spawnSync reports a missing gh through `error` (ENOENT); it does not throw.
+	const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
+	if (authResult.error) {
 		host.showError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+		return;
+	}
+	if (authResult.status !== 0) {
+		host.showError("GitHub CLI is not logged in. Run 'gh auth login' first.");
 		return;
 	}
 
