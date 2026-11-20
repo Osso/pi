@@ -663,6 +663,35 @@ describe("openai-codex streaming", () => {
 		expect(sawDone).toBe(true);
 	});
 
+	it("parses SSE events framed with CRLF line endings split across chunks", async () => {
+		useTempAgentDir();
+		const token = mockToken();
+		const sse = buildSSEPayload({ status: "completed" }).replaceAll("\n", "\r\n");
+		const encoder = new TextEncoder();
+		// Split after every CR so each CRLF straddles a chunk boundary.
+		const chunks = sse.split(/(?<=\r)/);
+		stubCodexFetch(
+			() =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				),
+		);
+
+		const result = await streamOpenAICodexResponses(codexModel(), sayHelloContext(), {
+			apiKey: token,
+			transport: "sse",
+		}).result();
+
+		expect(result.stopReason).toBe("stop");
+		expect(result.content.find((c) => c.type === "text")?.text).toBe("Hello");
+	});
+
 	it("reports SSE HTTP retries through onRetry", async () => {
 		useTempAgentDir();
 		const token = mockToken();

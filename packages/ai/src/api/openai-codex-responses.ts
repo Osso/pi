@@ -790,11 +790,13 @@ async function* parseSSE(
 			const { done, value } = await readSseChunkWithTimeout(reader, idleTimeoutMs, signal);
 			if (signal?.aborted) throw new Error("Request was aborted");
 			buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+			// SSE lines end in CRLF, CR or LF; a trailing CR waits for the next chunk's possible LF.
+			const heldCr = !done && buffer.endsWith("\r") ? "\r" : "";
+			buffer = buffer.slice(0, buffer.length - heldCr.length).replace(/\r\n?/g, "\n") + heldCr;
 			// EOF terminates the residual SSE frame, e.g. a final event without a trailing blank line.
 			if (done && buffer.trim()) buffer += "\n\n";
 
-			let idx = buffer.indexOf("\n\n");
-			while (idx !== -1) {
+			for (let idx = buffer.indexOf("\n\n"); idx !== -1; idx = buffer.indexOf("\n\n")) {
 				const chunk = buffer.slice(0, idx);
 				buffer = buffer.slice(idx + 2);
 
@@ -815,15 +817,12 @@ async function* parseSSE(
 						}
 					}
 				}
-				idx = buffer.indexOf("\n\n");
 			}
 			if (done) break;
 		}
 	} finally {
 		signal?.removeEventListener("abort", onAbort);
-		try {
-			await reader.cancel();
-		} catch {}
+		await reader.cancel().catch(() => {});
 		try {
 			reader.releaseLock();
 		} catch {}
