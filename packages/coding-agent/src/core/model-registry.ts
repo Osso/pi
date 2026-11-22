@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { registerOAuthProvider, resetOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import { existsSync, readFileSync } from "fs";
+import { minimatch } from "minimatch";
 import { join } from "path";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
@@ -216,6 +217,7 @@ const ProviderConfigSchema = Type.Object({
 	compat: Type.Optional(ProviderCompatSchema),
 	authHeader: Type.Optional(Type.Boolean()),
 	disabled: Type.Optional(Type.Boolean()),
+	disabledModels: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 	models: Type.Optional(Type.Array(ModelDefinitionSchema)),
 	modelOverrides: Type.Optional(Type.Record(Type.String(), ModelOverrideSchema)),
 });
@@ -271,6 +273,7 @@ interface CustomModelsResult {
 	models: Model<Api>[];
 	pools: Record<string, string[]>;
 	disabledProviders: Set<string>;
+	disabledModels: Map<string, string[]>;
 	/** Providers with baseUrl/headers/apiKey overrides for built-in models */
 	overrides: Map<string, ProviderOverride>;
 	/** Per-model overrides: provider -> modelId -> override */
@@ -283,6 +286,7 @@ function emptyCustomModelsResult(error?: string): CustomModelsResult {
 		models: [],
 		pools: {},
 		disabledProviders: new Set(),
+		disabledModels: new Map(),
 		overrides: new Map(),
 		modelOverrides: new Map(),
 		error,
@@ -367,11 +371,13 @@ export const clearApiKeyCache = clearConfigValueCache;
  * Model registry - loads and manages models, resolves API keys via AuthStorage.
  */
 export class ModelRegistry {
+	private catalogModels: Model<Api>[] = [];
 	private models: Model<Api>[] = [];
 	private providerRequestConfigs: Map<string, ProviderRequestConfig> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
 	private disabledProviders: Set<string> = new Set();
+	private disabledModels: Map<string, string[]> = new Map();
 	private loadError: string | undefined = undefined;
 	readonly authStorage: AuthStorage;
 	private modelsJsonPath: string | undefined;
@@ -419,16 +425,17 @@ export class ModelRegistry {
 		this.rebuildPools();
 	}
 
-	/**
-	 * Get any error from loading models.json (undefined if no error).
-	 */
+	/** Get any error from loading models.json (undefined if no error). */
 	getError(): string | undefined {
 		return [this.loadError, this.poolError].filter(Boolean).join("\n") || undefined;
 	}
 
 	private rebuildPools(): void {
-		const members = this.models.filter(
-			(model) => model.provider !== "pool" && !this.disabledProviders.has(model.provider),
+		const members = this.catalogModels.filter(
+			(model) =>
+				model.provider !== "pool" &&
+				!this.disabledProviders.has(model.provider) &&
+				!this.isModelDisabled(model.provider, model.id),
 		);
 		const pools = this.modelPools.configure(this.poolConfigs, members);
 		this.models = [...members, ...pools.models];
@@ -441,11 +448,13 @@ export class ModelRegistry {
 			models: customModels,
 			pools,
 			disabledProviders,
+			disabledModels,
 			overrides,
 			modelOverrides,
 			error,
 		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
 		this.disabledProviders = disabledProviders;
+		this.disabledModels = disabledModels;
 
 		if (error) {
 			this.loadError = error;
@@ -463,7 +472,7 @@ export class ModelRegistry {
 			}
 		}
 
-		this.models = combined;
+		this.catalogModels = combined;
 		this.poolConfigs = pools;
 		this.rebuildPools();
 	}
@@ -484,7 +493,6 @@ export class ModelRegistry {
 			return models.map((m) => {
 				let model = m;
 
-				// Apply provider-level baseUrl/headers/compat override
 				if (providerOverride) {
 					model = {
 						...model,
@@ -493,7 +501,6 @@ export class ModelRegistry {
 					};
 				}
 
-				// Apply per-model override
 				const modelOverride = perModelOverrides?.get(m.id);
 				if (modelOverride) {
 					model = applyModelOverride(model, modelOverride);
@@ -543,6 +550,7 @@ export class ModelRegistry {
 
 			const overrides = new Map<string, ProviderOverride>();
 			const modelOverrides = new Map<string, Map<string, ModelOverride>>();
+			const disabledModels = new Map<string, string[]>();
 			const disabledProviders = new Set(
 				Object.entries(config.providers)
 					.filter(([, providerConfig]) => providerConfig.disabled)
@@ -550,6 +558,9 @@ export class ModelRegistry {
 			);
 
 			for (const [providerName, providerConfig] of Object.entries(config.providers)) {
+				if (providerConfig.disabledModels?.length) {
+					disabledModels.set(providerName.toLowerCase(), providerConfig.disabledModels);
+				}
 				if (providerConfig.baseUrl || providerConfig.compat) {
 					overrides.set(providerName, {
 						baseUrl: providerConfig.baseUrl,
@@ -571,6 +582,7 @@ export class ModelRegistry {
 				models: this.parseModels(config),
 				pools: config.pools ?? {},
 				disabledProviders,
+				disabledModels,
 				overrides,
 				modelOverrides,
 				error: undefined,
@@ -596,16 +608,16 @@ export class ModelRegistry {
 				providerConfig.modelOverrides && Object.keys(providerConfig.modelOverrides).length > 0;
 
 			if (models.length === 0) {
-				// Override-only config: needs disabled, baseUrl, headers, compat, modelOverrides, or some combination.
 				if (
 					!providerConfig.disabled &&
+					providerConfig.disabledModels === undefined &&
 					!providerConfig.baseUrl &&
 					!providerConfig.headers &&
 					!providerConfig.compat &&
 					!hasModelOverrides
 				) {
 					throw new Error(
-						`Provider ${providerName}: must specify "disabled", "baseUrl", "headers", "compat", "modelOverrides", or "models".`,
+						`Provider ${providerName}: must specify "disabled", "disabledModels", "baseUrl", "headers", "compat", "modelOverrides", or "models".`,
 					);
 				}
 			} else if (!isBuiltIn) {
@@ -692,37 +704,46 @@ export class ModelRegistry {
 		return models;
 	}
 
-	/**
-	 * Get all models (built-in + custom).
-	 * If models.json had errors, returns only built-in models.
-	 */
+	/** Get all models (built-in + custom); config errors leave built-in models. */
 	getAll(): Model<Api>[] {
 		return this.models;
 	}
 
-	/**
-	 * Get only models that have auth configured.
-	 * This is a fast check that doesn't refresh OAuth tokens.
-	 */
+	/** Check per-model disable rules; provider-wide disablement is separate. */
+	isModelDisabled(provider: string, modelId: string): boolean {
+		const patterns = this.disabledModels.get(provider.toLowerCase());
+		if (!patterns) return false;
+		const reference = modelId.replaceAll("/", "\0");
+		return patterns.some((pattern) =>
+			minimatch(reference, pattern.replaceAll("/", "\0"), { nocase: true, nonegate: true, nocomment: true }),
+		);
+	}
+
+	/** Check if an exact ID belongs to a catalog model hidden by per-model rules. */
+	hasDisabledModelId(modelId: string): boolean {
+		if (this.disabledModels.size === 0) return false;
+		const id = modelId.toLowerCase();
+		return this.catalogModels.some(
+			(model) => model.id.toLowerCase() === id && this.isModelDisabled(model.provider, model.id),
+		);
+	}
+
+	/** Get models with configured auth without refreshing OAuth tokens. */
 	getAvailable(): Model<Api>[] {
 		return this.models.filter((m) => this.hasConfiguredAuth(m));
 	}
 
-	/**
-	 * Find a model by provider and ID.
-	 */
+	/** Find a model by provider and ID. */
 	find(provider: string, modelId: string): Model<Api> | undefined {
 		return this.models.find((m) => m.provider === provider && m.id === modelId);
 	}
 
-	/**
-	 * Get API key for a model.
-	 */
+	/** Get API key availability for a model. */
 	hasConfiguredAuth(model: Model<Api>): boolean {
 		if (model.provider === "pool") {
 			return this.modelPools.getMembers(model).some((member) => this.hasConfiguredAuth(member));
 		}
-		if (this.disabledProviders.has(model.provider)) return false;
+		if (this.disabledProviders.has(model.provider) || this.isModelDisabled(model.provider, model.id)) return false;
 		const providerApiKey = this.providerRequestConfigs.get(model.provider)?.apiKey;
 		return (
 			this.authStorage.hasAuth(model.provider) ||
@@ -878,9 +899,7 @@ export class ModelRegistry {
 		return { configured: true, source: "models_json_key" };
 	}
 
-	/**
-	 * Get display name for a provider.
-	 */
+	/** Get display name for a provider. */
 	getProviderDisplayName(provider: string): string {
 		const registeredProvider = this.registeredProviders.get(provider);
 		const oauthProvider = this.authStorage.getOAuthProviders().find((p) => p.id === provider);
@@ -894,9 +913,7 @@ export class ModelRegistry {
 		);
 	}
 
-	/**
-	 * Get API key for a provider.
-	 */
+	/** Get API key for a provider. */
 	async getApiKeyForProvider(provider: string): Promise<string | undefined> {
 		const apiKey = await this.authStorage.getApiKey(provider);
 		if (apiKey !== undefined) {
@@ -909,21 +926,13 @@ export class ModelRegistry {
 			: undefined;
 	}
 
-	/**
-	 * Check if a model is using OAuth credentials (subscription).
-	 */
+	/** Check if a model is using OAuth credentials (subscription). */
 	isUsingOAuth(model: Model<Api>): boolean {
 		const cred = this.authStorage.get(model.provider);
 		return cred?.type === "oauth";
 	}
 
-	/**
-	 * Register a provider dynamically (from extensions).
-	 *
-	 * If provider has models: replaces all existing models for this provider.
-	 * If provider has only baseUrl/headers: overrides existing models' URLs.
-	 * If provider has oauth: registers OAuth provider for /login support.
-	 */
+	/** Register a provider and replace or override its models as configured. */
 	registerProvider(providerName: string, config: ProviderConfigInput): void {
 		this.validateProviderConfig(providerName, config);
 		this.upsertRegisteredProvider(providerName, config);
@@ -931,15 +940,7 @@ export class ModelRegistry {
 		this.rebuildPools();
 	}
 
-	/**
-	 * Unregister a previously registered provider.
-	 *
-	 * Removes the provider from the registry and reloads models from disk so that
-	 * built-in models overridden by this provider are restored to their original state.
-	 * Also resets dynamic OAuth and API stream registrations before reapplying
-	 * remaining dynamic providers.
-	 * Has no effect if the provider was never registered.
-	 */
+	/** Remove a dynamic provider and reload registry models; no-op if it was not registered. */
 	unregisterProvider(providerName: string): void {
 		if (!this.registeredProviders.has(providerName)) return;
 		this.registeredProviders.delete(providerName);
@@ -990,9 +991,7 @@ export class ModelRegistry {
 	}
 
 	private applyProviderConfig(providerName: string, config: ProviderConfigInput): void {
-		// Register OAuth provider if provided
 		if (config.oauth) {
-			// Ensure the OAuth provider ID matches the provider name
 			const oauthProvider: OAuthProviderInterface = {
 				...config.oauth,
 				id: providerName,
@@ -1019,9 +1018,8 @@ export class ModelRegistry {
 
 		if (config.models && config.models.length > 0) {
 			// Full replacement: remove existing models for this provider
-			this.models = this.models.filter((m) => m.provider !== providerName);
+			this.catalogModels = this.catalogModels.filter((m) => m.provider !== providerName);
 
-			// Parse and add new models
 			for (const modelDef of config.models) {
 				const api = modelDef.api || config.api;
 				const baseUrl = modelDef.baseUrl ?? config.baseUrl;
@@ -1030,7 +1028,7 @@ export class ModelRegistry {
 				}
 				this.storeModelHeaders(providerName, modelDef.id, modelDef.headers);
 
-				this.models.push({
+				this.catalogModels.push({
 					id: modelDef.id,
 					name: modelDef.name,
 					api: api as Api,
@@ -1051,12 +1049,12 @@ export class ModelRegistry {
 			if (config.oauth?.modifyModels) {
 				const cred = this.authStorage.get(providerName);
 				if (cred?.type === "oauth") {
-					this.models = config.oauth.modifyModels(this.models, cred);
+					this.catalogModels = config.oauth.modifyModels(this.catalogModels, cred);
 				}
 			}
 		} else if (config.baseUrl || config.headers) {
 			// Override-only: update baseUrl for existing models. Request headers are resolved per request.
-			this.models = this.models.map((m) => {
+			this.catalogModels = this.catalogModels.map((m) => {
 				if (m.provider !== providerName) return m;
 				return {
 					...m,

@@ -1,3 +1,16 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ModelRegistry } from "../../core/model-registry.ts";
+
+export function listSelectableModels(
+	modelRegistry: ModelRegistry,
+	scopedModels: ReadonlyArray<{ model: Model<Api> }>,
+): Model<Api>[] {
+	if (scopedModels.length === 0) return modelRegistry.getAvailable();
+	return scopedModels
+		.map(({ model }) => model)
+		.filter(({ provider, id }) => !modelRegistry.isModelDisabled(provider, id));
+}
+
 export interface ModelSearchItem {
 	id: string;
 	provider: string;

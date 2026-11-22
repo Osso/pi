@@ -270,6 +270,7 @@
 - Added an interactive Supervisor session configured by `supervisor.sessionId` and optional `supervisor.host`. Typed requests and replies use the relay for remote sessions; requests fail explicitly without a configured session ID.
 - Added Supervisor `inspect_session` for bounded local or remote session evidence, and Supervisor answers or escalation for `ask_questions`.
 - Added a compact tag line to periodic-checks audit reports. Interactive chat shows a delivered report only as `[periodic-checks: <fact> · <fact> · …]`; the full report stays in the transcript and model context.
+- Added `providers.<provider>.disabledModels` in `models.json`. Model IDs that match its globs are excluded from `/model`, `--list-models`, and pools. Explicit `--model` selection reports them as not found.
 
 ### Fixed
 

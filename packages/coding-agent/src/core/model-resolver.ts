@@ -386,6 +386,59 @@ function chooseExactModel(
 	};
 }
 
+function notFoundCliModel(display: string, warning?: string): ResolveCliModelResult {
+	return {
+		model: undefined,
+		thinkingLevel: undefined,
+		warning,
+		error: `Model "${display}" not found. Use --list-models to see available models.`,
+	};
+}
+
+function disabledModelIds(modelId: string): string[] {
+	const colon = modelId.lastIndexOf(":");
+	if (colon === -1 || !isValidThinkingLevel(modelId.slice(colon + 1))) return [modelId];
+	return [modelId, modelId.slice(0, colon)];
+}
+
+function isDisabledThinkingBaseId(provider: string, modelId: string, modelRegistry: ModelRegistry): boolean {
+	const colon = modelId.lastIndexOf(":");
+	if (colon === -1 || !isValidThinkingLevel(modelId.slice(colon + 1))) return false;
+
+	const baseId = modelId.slice(0, colon);
+	if (!modelRegistry.isModelDisabled(provider, baseId)) return false;
+
+	const providerId = provider.toLowerCase();
+	const literalId = modelId.toLowerCase();
+	return !modelRegistry
+		.getAll()
+		.some((model) => model.provider.toLowerCase() === providerId && model.id.toLowerCase() === literalId);
+}
+
+function findDisabledExplicitCliModel(
+	cliProvider: string | undefined,
+	cliModel: string,
+	modelRegistry: ModelRegistry,
+): string | undefined {
+	let provider = cliProvider;
+	let modelId = cliModel;
+	if (cliProvider) {
+		const prefix = `${cliProvider}/`;
+		if (cliModel.toLowerCase().startsWith(prefix.toLowerCase())) modelId = cliModel.slice(prefix.length);
+	} else {
+		const slashIndex = cliModel.indexOf("/");
+		if (slashIndex === -1) return undefined;
+		provider = cliModel.slice(0, slashIndex);
+		modelId = cliModel.slice(slashIndex + 1);
+	}
+
+	if (!provider) return undefined;
+	const isDisabled =
+		modelRegistry.isModelDisabled(provider, modelId) || isDisabledThinkingBaseId(provider, modelId, modelRegistry);
+	if (!isDisabled) return undefined;
+	return `${provider.toLowerCase()}/${modelId}`;
+}
+
 /**
  * Resolve a single model from CLI flags.
  *
@@ -408,6 +461,9 @@ export function resolveCliModel(options: {
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
 	}
+
+	const disabledDisplay = findDisabledExplicitCliModel(cliProvider, cliModel, modelRegistry);
+	if (disabledDisplay) return notFoundCliModel(disabledDisplay);
 
 	// Important: use *all* models here, not just models with pre-configured auth.
 	// This allows "--api-key" to be used for first-time setup.
@@ -475,9 +531,13 @@ export function resolveCliModel(options: {
 		if (choice.model && !byBaseId) {
 			return { model: choice.model, warning: undefined, thinkingLevel: undefined, error: undefined };
 		}
-		if (choice.model) provider = choice.model.provider;
-		else if (choice.error)
+		if (choice.model) {
+			provider = choice.model.provider;
+		} else if (choice.error) {
 			return { model: undefined, warning: undefined, thinkingLevel: undefined, error: choice.error };
+		} else if (disabledModelIds(cliModel).some((id) => modelRegistry.hasDisabledModelId(id))) {
+			return notFoundCliModel(cliModel);
+		}
 	}
 
 	if (cliProvider && provider) {
@@ -578,12 +638,7 @@ export function resolveCliModel(options: {
 	}
 
 	const display = provider ? `${provider}/${pattern}` : cliModel;
-	return {
-		model: undefined,
-		thinkingLevel: undefined,
-		warning,
-		error: `Model "${display}" not found. Use --list-models to see available models.`,
-	};
+	return notFoundCliModel(display, warning);
 }
 
 export interface InitialModelResult {

@@ -55,7 +55,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private onCancelCallback: () => void;
 	private errorMessage?: string;
 	private tui: TUI;
-	private scopedModels: ReadonlyArray<ScopedModelItem>;
+	private readonly scopedModels: ReadonlyArray<ScopedModelItem>;
 	private scope: ModelScope = "all";
 	private scopeText?: Text;
 	private scopeHintText?: Text;
@@ -162,15 +162,12 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		}
 
 		this.allModels = this.sortModels(models);
-		this.scopedModels = this.scopedModels.map((scoped) => {
-			const refreshed = this.modelRegistry.find(scoped.model.provider, scoped.model.id);
-			return refreshed ? { ...scoped, model: refreshed } : scoped;
+		this.scopedModelItems = this.scopedModels.flatMap(({ model }) => {
+			const { provider, id } = model;
+			if (this.modelRegistry.isModelDisabled(provider, id)) return [];
+			const refreshed = this.modelRegistry.find(provider, id) ?? model;
+			return [{ provider, id, model: refreshed }];
 		});
-		this.scopedModelItems = this.scopedModels.map((scoped) => ({
-			provider: scoped.model.provider,
-			id: scoped.model.id,
-			model: scoped.model,
-		}));
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 		this.filteredModels = this.activeModels;
 		const currentIndex = this.filteredModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
@@ -285,7 +282,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	handleInput(keyData: string): void {
 		const kb = getKeybindings();
 		if (kb.matches(keyData, "tui.input.tab")) {
-			if (this.scopedModelItems.length > 0) {
+			if (this.scopeText) {
 				const nextScope: ModelScope = this.scope === "all" ? "scoped" : "all";
 				this.setScope(nextScope);
 				if (this.scopeHintText) {

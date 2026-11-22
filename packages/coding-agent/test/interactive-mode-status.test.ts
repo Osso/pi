@@ -3022,6 +3022,7 @@ describe("InteractiveMode selected-session model routing", () => {
 					getAvailable: vi.fn().mockResolvedValue([model]),
 					getError: vi.fn().mockReturnValue(undefined),
 					find: vi.fn().mockReturnValue(model),
+					isModelDisabled: () => false,
 				},
 				scopedModels: [{ model }],
 				setModel: childSetModel,
@@ -3054,7 +3055,10 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 		type FakeInteractiveMode = {
 			session: {
 				scopedModels: Array<{ model: TestModel }>;
-				modelRegistry: { getAvailable: () => TestModel[] };
+				modelRegistry: {
+					getAvailable: () => TestModel[];
+					isModelDisabled: (provider: string, id: string) => boolean;
+				};
 				promptTemplates: [];
 				extensionRunner: { getRegisteredCommands: () => [] };
 				resourceLoader: { getSkills: () => { skills: [] } };
@@ -3073,11 +3077,15 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 		const models = [
 			{ id: "gpt-5.2-codex", provider: "github-copilot", name: "GPT-5.2 Codex" },
 			{ id: "gpt-5.5", provider: "openai-codex", name: "GPT-5.5" },
+			{ id: "gpt-5.4", provider: "openai-codex", name: "GPT-5.4" },
 		];
 		const fakeThis: FakeInteractiveMode = {
 			session: {
-				scopedModels: [],
-				modelRegistry: { getAvailable: () => models },
+				scopedModels: models.map((model) => ({ model })),
+				modelRegistry: {
+					getAvailable: () => models,
+					isModelDisabled: (provider, id) => provider === "openai-codex" && id === "gpt-5.4",
+				},
 				promptTemplates: [],
 				extensionRunner: { getRegisteredCommands: () => [] },
 				resourceLoader: { getSkills: () => ({ skills: [] }) },
@@ -3104,9 +3112,10 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 		// exact provider ("codex" + "gpt") ahead of the reverse-order id match.
 		expect(await suggest("/model codex gpt")).toEqual(["openai-codex/gpt-5.5", "github-copilot/gpt-5.2-codex"]);
 
-		// A version that does not exist must not fuzzily match a nearby version
-		// (no candidates match, so the provider yields no suggestions).
+		// A disabled model must not appear even if the current scope still contains it.
 		expect(await suggest("/model gpt-5.4")).toBeUndefined();
+		// A version that does not exist must not fuzzily match a nearby version.
+		expect(await suggest("/model gpt-5.3")).toBeUndefined();
 	});
 });
 

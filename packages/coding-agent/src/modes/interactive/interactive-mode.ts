@@ -204,7 +204,7 @@ import { formatHotkeysMarkdown } from "./hotkeys-help.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { type Expandable, ExpandableText, renderLoadedResources } from "./loaded-resources.ts";
 import { LoginFlow, type LoginFlowHost } from "./login-flow.ts";
-import { getModelSearchCandidates } from "./model-search.ts";
+import { getModelSearchCandidates, listSelectableModels } from "./model-search.ts";
 import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
 import { shareSessionAsGist } from "./share-gist.ts";
 import {
@@ -781,11 +781,7 @@ export class InteractiveMode {
 		const modelCommand = slashCommands.find((command) => command.name === "model");
 		if (modelCommand) {
 			modelCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
-				// Get available models (scoped or from registry)
-				const models =
-					this.session.scopedModels.length > 0
-						? this.session.scopedModels.map((s) => s.model)
-						: this.session.modelRegistry.getAvailable();
+				const models = listSelectableModels(this.session.modelRegistry, this.session.scopedModels);
 
 				if (models.length === 0) return null;
 
@@ -5297,14 +5293,10 @@ export class InteractiveMode {
 	}
 
 	private async getModelCandidates(): Promise<Model<Api>[]> {
-		const target = this.resolveViewedSessionTarget();
-		if (target.scopedModels.length > 0) {
-			return target.scopedModels.map((scoped) => scoped.model);
-		}
-
-		target.modelRegistry.refresh();
+		const { modelRegistry, scopedModels } = this.resolveViewedSessionTarget();
+		modelRegistry.refresh();
 		try {
-			return await target.modelRegistry.getAvailable();
+			return listSelectableModels(modelRegistry, scopedModels);
 		} catch {
 			return [];
 		}

@@ -66,6 +66,19 @@ const mockOpenRouterModels: Model<"anthropic-messages">[] = [
 
 const allModels = [...mockModels, ...mockOpenRouterModels];
 
+type CliRegistry = Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+function createCliRegistryStub(
+	overrides: Pick<CliRegistry, "getAll"> & Partial<Pick<CliRegistry, "hasConfiguredAuth">>,
+): CliRegistry {
+	return {
+		hasConfiguredAuth: () => false,
+		isModelDisabled: () => false,
+		hasDisabledModelId: () => false,
+		...overrides,
+	} as unknown as CliRegistry;
+}
+
 describe("parseModelPattern", () => {
 	describe("simple patterns without colons", () => {
 		test("exact match returns model with undefined thinking level", () => {
@@ -264,9 +277,9 @@ describe("resolveModelScopeWithDiagnostics", () => {
 
 describe("resolveCliModel", () => {
 	test("resolves --model provider/id without --provider", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o",
@@ -279,9 +292,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("resolves fuzzy patterns within an explicit provider", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -295,10 +308,10 @@ describe("resolveCliModel", () => {
 	});
 
 	test("supports --model <pattern>:<thinking> (without explicit --thinking)", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
 			hasConfiguredAuth: () => true,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "sonnet:high",
@@ -317,10 +330,10 @@ describe("resolveCliModel", () => {
 			name: "Claude Sonnet 5",
 			provider: "amazon-bedrock",
 		};
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [gatewayModel, ...mockModels],
 			hasConfiguredAuth: (model: { provider: string }) => model.provider === "anthropic",
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({ cliModel: "sonnet:high", modelRegistry: registry });
 
@@ -330,9 +343,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("prefers exact model id match over provider inference (OpenRouter-style ids)", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o:extended",
@@ -345,9 +358,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("does not strip invalid :suffix as thinking level in --model (treat as raw id)", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -361,9 +374,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("allows custom model ids for explicit providers without double prefixing", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliProvider: "openrouter",
@@ -377,9 +390,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("returns a clear error when there are no models", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [],
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -400,10 +413,10 @@ describe("resolveCliModel", () => {
 		const resolve = (authenticated: string[]) =>
 			resolveCliModel({
 				cliModel: "openai/gpt-4o:extended",
-				modelRegistry: {
+				modelRegistry: createCliRegistryStub({
 					getAll: () => [mockModels[1], shared("openrouter"), shared("custom-gateway")],
 					hasConfiguredAuth: (model: { provider: string }) => authenticated.includes(model.provider),
-				} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"],
+				}),
 			});
 
 		const sole = resolve(["custom-gateway"]);
@@ -428,10 +441,10 @@ describe("resolveCliModel", () => {
 			name: "GPT 5.6 Sol",
 			provider: "openai-codex",
 		};
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [azureModel, codexModel],
 			hasConfiguredAuth: (model: { provider: string }) => model.provider === "openai-codex",
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "gpt-5.6-sol",
@@ -456,10 +469,10 @@ describe("resolveCliModel", () => {
 			name: "GPT 5.6 Sol",
 			provider: "openai-codex",
 		};
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [azureModel, codexModel],
 			hasConfiguredAuth: () => false,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "gpt-5.6-sol",
@@ -482,10 +495,10 @@ describe("resolveCliModel", () => {
 			reasoning: true,
 		});
 		const registryWithAuth = (authenticated: string[]) =>
-			({
+			createCliRegistryStub({
 				getAll: () => [sharedModel("openai"), sharedModel("openai-codex")],
 				hasConfiguredAuth: (model: { provider: string }) => authenticated.includes(model.provider),
-			}) as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 		const ambiguous = resolveCliModel({
 			cliModel: "gpt-5.6-sol:high",
@@ -530,10 +543,10 @@ describe("resolveCliModel", () => {
 			contextWindow: 128000,
 			maxTokens: 8192,
 		};
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [...allModels, zaiModel, gatewayModel],
 			hasConfiguredAuth: () => true,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "zai/glm-5",
@@ -570,10 +583,10 @@ describe("resolveCliModel", () => {
 			contextWindow: 128000,
 			maxTokens: 8192,
 		};
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => [...allModels, commandcodeModel, xiaomiModel],
 			hasConfiguredAuth: (model: Model<"anthropic-messages">) => model.provider === "commandcode",
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		for (const [cliModel, thinkingLevel] of [
 			["xiaomi/mimo-v2.5-pro", undefined],
@@ -589,9 +602,9 @@ describe("resolveCliModel", () => {
 	});
 
 	test("resolves provider-prefixed fuzzy patterns (openrouter/qwen -> openrouter model)", () => {
-		const registry = {
+		const registry = createCliRegistryStub({
 			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		});
 
 		const result = resolveCliModel({
 			cliModel: "openrouter/qwen",
@@ -622,9 +635,9 @@ describe("resolveCliModel", () => {
 		const modelsWithNeuralwatt = [...allModels, neuralwattModel];
 
 		test("strips :thinking suffix from custom model id in fallback path", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:high",
@@ -640,9 +653,9 @@ describe("resolveCliModel", () => {
 		});
 
 		test("custom model without thinking suffix works normally in fallback path", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8",
@@ -656,9 +669,9 @@ describe("resolveCliModel", () => {
 		});
 
 		test("all valid thinking levels work in fallback path", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			for (const level of ["off", "minimal", "low", "medium", "high", "xhigh"]) {
 				const result = resolveCliModel({
@@ -673,9 +686,9 @@ describe("resolveCliModel", () => {
 		});
 
 		test("invalid thinking suffix on custom model is treated as part of model id", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:banana",
@@ -690,9 +703,9 @@ describe("resolveCliModel", () => {
 		});
 
 		test("explicit --provider with custom model:thinking strips suffix correctly", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			const result = resolveCliModel({
 				cliProvider: "neuralwatt",
@@ -707,9 +720,9 @@ describe("resolveCliModel", () => {
 		});
 
 		test("with explicit --thinking, :suffix is kept as part of model id", () => {
-			const registry = {
+			const registry = createCliRegistryStub({
 				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			});
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:high",
@@ -779,9 +792,7 @@ describe("default model selection", () => {
 	});
 
 	test("findInitialModel accepts explicit provider custom model ids", async () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+		const registry = createCliRegistryStub({ getAll: () => allModels });
 
 		const result = await findInitialModel({
 			cliProvider: "openrouter",

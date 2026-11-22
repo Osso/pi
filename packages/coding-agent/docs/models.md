@@ -11,6 +11,8 @@ Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.confi
 - [Model Configuration](#model-configuration)
 - [Model Pools](#model-pools)
 - [Overriding Built-in Providers](#overriding-built-in-providers)
+- [Disabling Models](#disabling-models)
+- [Disabling a Provider](#disabling-a-provider)
 - [Per-model Overrides](#per-model-overrides)
 - [Anthropic Messages Compatibility](#anthropic-messages-compatibility)
 - [OpenAI Compatibility](#openai-compatibility)
@@ -142,6 +144,7 @@ Set `api` at provider level (default for all models) or model level (override pe
 | `models` | Array of model configurations |
 | `modelOverrides` | Per-model overrides for built-in models on this provider |
 | `disabled` | Set `true` to remove all models of this provider and reject every request to it, even when a credential exists |
+| `disabledModels` | Optional list of model-ID globs to remove from this provider |
 
 For providers with `models`, non-built-in provider configs need `baseUrl` and an `api` value at either provider or model level. `apiKey` is not required to load the file: models become available when auth is configured through `/login`/`auth.json`, CLI `--api-key`, or provider `apiKey`. If no auth is configured, the models load but stay unavailable in `/model` and `--list-models`.
 
@@ -339,6 +342,27 @@ Merge semantics:
 - Custom models are upserted by `id` within the provider.
 - If a custom model `id` matches a built-in model `id`, the custom model replaces that built-in model.
 - If a custom model `id` is new, it is added alongside built-in models.
+
+## Disabling Models
+
+Set `disabledModels` on a provider to exclude model IDs that match any of the listed globs. Patterns match full IDs, including any namespace, and ignore case. They do not match display names.
+
+This example excludes versioned Gemini 2 models and Gemini 3 models through 3.8 on Google Vertex and OpenRouter. It does not exclude Gemini 4 Neon or Hydrogen.
+
+```json
+{
+  "providers": {
+    "google-vertex": {
+      "disabledModels": ["gemini-2-*", "gemini-2.*", "gemini-3-*", "gemini-3.[0-8]-*"]
+    },
+    "openrouter": {
+      "disabledModels": ["google/gemini-2-*", "google/gemini-2.*", "google/gemini-3-*", "google/gemini-3.[0-8]-*"]
+    }
+  }
+}
+```
+
+To exclude unversioned aliases, add their exact IDs separately. Matching models disappear from `/model`, `--list-models`, and pools. Selecting a disabled model with `--model` reports it as not found. A pool with no resolved members is skipped and reported as a configuration error.
 
 ## Disabling a Provider
 
