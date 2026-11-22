@@ -422,6 +422,7 @@ export function listPendingTerminalNotifications(
 	if (firstNotificationByAgent.size === 0) return [];
 	const persistedAgents = readMultiAgentAgents(controlDbPath, sessionPath, [...firstNotificationByAgent.keys()]);
 	return persistedAgents.flatMap((agent) => {
+		if (agent.exploreConsultation) return [];
 		const notification = firstNotificationByAgent.get(agent.id);
 		// An aborted agent's notice is recorded as failed (publishTerminalOutboxSnapshot).
 		const noticeLifecycle = agent.lifecycle === "aborted" ? "failed" : agent.lifecycle;
@@ -457,7 +458,7 @@ export async function waitForAgentOrCoordination(
 	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
 	return new WaitAgentsWakeWatcher(
 		store,
-		readActiveMultiAgentAgents(controlDbPath, sessionPath),
+		readActiveMultiAgentAgents(controlDbPath, sessionPath).filter((agent) => !agent.exploreConsultation),
 		controlDbPath,
 		sessionPath,
 		signal,

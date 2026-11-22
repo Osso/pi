@@ -70,6 +70,8 @@ export interface AgentNode {
 	agentType: string;
 	/** How the agent entered the store; absent means spawned as a child agent. */
 	origin?: "attached" | "spawned";
+	/** A read-only explore agent requested by its direct parent. */
+	exploreConsultation?: true;
 	lifecycle: AgentLifecycleState;
 	revision: number;
 	createdAt: string;

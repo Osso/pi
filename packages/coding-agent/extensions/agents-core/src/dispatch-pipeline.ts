@@ -170,6 +170,7 @@ export async function runAgentSession(
 		await settleDescendantsBeforeTerminalization(store, running.agent.id, reservedRuntime.abortController.signal);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
+		await drainExploreConsultationResult(store, running.agent.id, activeSession);
 		while (true) {
 			const summary = readCurrentChildAssistantText(activeSession.messages, previousMessages);
 			const result = summary ? { summary } : undefined;
@@ -207,6 +208,16 @@ export async function runAgentSession(
 		handles?.delete(running.agent.id);
 		await childSession?.dispose?.();
 	}
+}
+
+async function drainExploreConsultationResult(
+	store: MultiAgentStore,
+	parentId: string,
+	session: ChildAgentSession,
+): Promise<void> {
+	// A recovered requester may finish its prompt before its restored consultation finishes.
+	const hasConsultation = store.listDescendants(parentId).some((agent) => agent.exploreConsultation);
+	if (hasConsultation) await session.drainRuntimeCoordination?.();
 }
 
 export async function settleDescendantsBeforeTerminalization(

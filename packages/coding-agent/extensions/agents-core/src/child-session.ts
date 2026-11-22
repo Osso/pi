@@ -35,8 +35,12 @@ function trackFinishedToolCalls(
  * The runtime mailbox can start a turn first (restart recovery delivering pending steering): queue the
  * prompt behind that turn instead of failing the child, then wait until the session is idle.
  */
-async function promptChildTurn(session: UnboundChildAgentSession, text: string): Promise<void> {
-	await session.prompt(text, { streamingBehavior: "followUp" });
+async function promptChildTurn(
+	session: UnboundChildAgentSession,
+	text: string,
+	expandPromptTemplates: boolean,
+): Promise<void> {
+	await session.prompt(text, { streamingBehavior: "followUp", expandPromptTemplates });
 	await session.agent.waitForIdle();
 	// The agent is idle while the session waits to retry a failed request; the dispatch has not ended yet.
 	while (session.isDispatching) await nextAgentSettled(session);
@@ -52,7 +56,10 @@ function nextAgentSettled(session: UnboundChildAgentSession): Promise<void> {
 	});
 }
 
-export function bindProductionChildSession(session: UnboundChildAgentSession): LiveChildAgentSession {
+export function bindProductionChildSession(
+	session: UnboundChildAgentSession,
+	expandPromptTemplates = true,
+): LiveChildAgentSession {
 	return {
 		finishedToolCalls: trackFinishedToolCalls(session),
 		abort: () => session.abort?.(),
@@ -78,7 +85,7 @@ export function bindProductionChildSession(session: UnboundChildAgentSession): L
 		setModel: session.setModel.bind(session),
 		setThinkingLevel: session.setThinkingLevel.bind(session),
 		cycleModel: session.cycleModel.bind(session),
-		prompt: (text) => promptChildTurn(session, text),
+		prompt: (text) => promptChildTurn(session, text, expandPromptTemplates),
 		subscribe: session.subscribe.bind(session),
 		get transcript() {
 			return session.transcript;

@@ -246,7 +246,6 @@ const productionChildExcludedTools = [
 	"close_agent",
 	"set_agent_model",
 	"rename_agent",
-	"spawn_agent",
 	"steer_agent",
 	"wait_agent",
 	"ask_supervisor",
@@ -2634,11 +2633,13 @@ describe("multi-agent extension tools", () => {
 		);
 	});
 
-	it("rejects nested agent orchestration through direct tools", async () => {
+	it("rejects direct orchestration without a registered child identity", async () => {
 		const harness = createMultiAgentHarness({ ctx: { multiAgentAgentId: "agent_child" } });
 
+		await expect(
+			harness.call("spawn_agent", { agentType: "explore", context: "fresh", prompt: "Review the task" }),
+		).rejects.toThrow("unavailable from child agent runtimes");
 		for (const [toolName, params] of [
-			["spawn_agent", { context: "fresh", displayName: "Nested", prompt: "do work" }],
 			["attach_session_agent", { sessionId: "saved-session" }],
 			["wait_agent", {}],
 		] as const) {
@@ -2662,7 +2663,7 @@ describe("multi-agent extension tools", () => {
 		} as ExtensionContext;
 
 		for (const request of [
-			{ method: "agents.spawn", params: { context: "fresh", displayName: "Nested", prompt: "do work" } },
+			{ method: "agents.spawn", params: { agentType: "explore", context: "fresh", prompt: "Review the task" } },
 			{ method: "agents.attachSession", params: { sessionId: "saved-session" } },
 			{ method: "agents.wait", params: {} },
 		]) {

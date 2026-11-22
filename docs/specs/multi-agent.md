@@ -51,14 +51,20 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       trace for a persisted supervisor store; trace collection is also read-only and never repairs or infers state.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
-- [x] Only the supervisor runtime can orchestrate or inspect agents. Current runtime role and explicit
-      child identity determine this authorization; historical `is_subagent` transcript provenance does not
-      classify a session opened as the main orchestrator. Child/subagent runtimes reject
-      `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Pyrun `agents.spawn`,
-      `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
-      and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
-      `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
-      direct child communication through `contact_parent` and `send_agent_message`.
+- [x] Current runtime role and explicit child identity determine delegation authorization; historical
+      `is_subagent` transcript provenance does not classify a session opened as the main orchestrator.
+      Regular spawned and attached subagents may call model-facing `spawn_agent` only with an explicit
+      `agentType: "explore"`. Omitted or other types and an explicit parent different from the exact
+      requesting child are rejected before creating an agent row. Main-session behavior is unchanged.
+- [x] Each regular child may have at most one active consultation. Its `spawn_agent` call waits until
+      that consultation settles. The consultation is read-only and cannot spawn or delegate recursively.
+      The persisted completion notice goes only to the exact requesting child, including after
+      supervisor restart. Main-session `wait_agent` cannot consume that notice.
+- [x] Other child delegation remains unchanged: child runtimes reject `attach_session_agent`, `wait_agent`,
+      `/bg`, and the Pyrun `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before
+      rows are created. Production child and attached sessions exclude `attach_session_agent`, `wait_agent`,
+      `agent_viewer`, `steer_agent`, and `close_agent`, while retaining direct child communication through
+      `contact_parent` and `send_agent_message`.
 - [x] Child runtimes can observe, but not control, their parent: read-only `list_agents` lists the
       parent's agent store, and child-only `search_parent_session_history` searches the direct parent's
       persisted active branch with the same matching, context, and pagination as
@@ -114,7 +120,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       or a new lifecycle state. This validates structural report presence, not semantic quality.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
-- [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
+- [x] `spawn_agent` uses the supervisor's orchestration runtime to construct the executable child session
       before persisting the agent row. Successful construction persists `running` revision 1; interruption or
       failure persists `failed` revision 1. Dormant promptless session attachment remains the explicit
       non-executable operation.
@@ -123,7 +129,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       cleanup emits `session_shutdown` before disposal so extension-owned resources stop before context invalidation;
       this child-local teardown does not interrupt parent or sibling dispatches.
 - [x] `spawn_agent` accepts an optional `context` value of `"fresh"` or `"inherit"`. Omitted context
-      defaults to `"inherit"`, unless the selected agent-type profile configures another default. `"fresh"`
+      defaults to `"inherit"` for main callers and `"fresh"` for child consultations, unless the profile configures another default. `"fresh"`
       creates a new child transcript containing only the appended assignment. `"inherit"` forks a persisted parent
       transcript immediately before the entire unresolved parent turn containing the active direct
       `spawn_agent` call or its enclosing `pyrun_eval` call, preserving only completed prior turns before
@@ -138,9 +144,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` provide the other defaults.
       If an allowlisted optional tool is not registered because its executable is unavailable, the child exposes
       the remaining registered tools only. When a profile specifies `tools`, production child and attached sessions expose only those registered tool
-      names plus `ask_questions`, `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
+      names plus `ask_questions`, `contact_parent`, `send_agent_message`, and `end_turn`, subject to the
+      child consultation exception above. `spawn_agent` rejects a non-empty explicit
       `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
-      configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.
+      configured profile keys; in main sessions, omitted or blank `agentType` still defaults to `default` and inherits the parent model.
 - [x] A spawned child starts at its profile's thinking level when set, including `off`; otherwise at `medium`,
       independent of the parent's current effort. Non-reasoning models clamp to `off`. Spawn records the profile or
       inherited model and this level on the agent (`packages/coding-agent/test/multi-agent-extension.test.ts`).
@@ -305,8 +312,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - Runtime roles are typed and exclusive. An orchestration-capable main runtime must receive a
   non-null execution capability and validate it before orchestration tools or the main runtime
   listener become visible; construction fails before either is exposed when capability is absent.
-  A child runtime is address-scoped execution only and can never receive that capability or expose
-  orchestration commands. Non-AgentSession help/inventory startup remains outside this invariant.
+  A child runtime is address-scoped and never receives that capability. Its only delegation command
+  is the restricted `spawn_agent` consultation described above. Non-AgentSession help/inventory startup
+  remains outside this invariant.
 - Every lifecycle mutation validates the persisted owner session/agent and exact Linux process
   identity `(pid, /proc/<pid>/stat startTimeTicks)`. Missing, dead, foreign, or partially matching
   ownership fails the mutation; terminal retries are accepted only as an idempotent replay of the
@@ -725,6 +733,11 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/suite/child-explore-consultation.test.ts` — spawned and attached
+  child authorization, one-at-a-time admission, read-only nonrecursive consultation, blocking completion,
+  exact-parent result delivery, main wait isolation, and supervisor restart while a consultation is live.
+  `test/multi-agent-extension.test.ts` covers the unchanged child orchestration denials, including Pyrun.
 
 - `packages/coding-agent/test/child-report.test.ts` — report eligibility and current-dispatch extraction.
 - `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` — real-process coverage

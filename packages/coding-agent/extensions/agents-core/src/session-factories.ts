@@ -24,6 +24,7 @@ import {
 } from "./contracts.ts";
 
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
+const EXPLORE_CONSULTATION_TOOLS = ["read", "grep", "find", "ls", "outline", "symbol", "references", "end_turn"];
 const artifactRootsByStore = new WeakMap<MultiAgentStore, string>();
 
 function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
@@ -166,37 +167,19 @@ export function createProductionChildAgentSessionFactory(
 			ctx,
 			options,
 		});
-		const profile = resolveChildAgentProfile(agent, ctx);
 		const sessionStartEvent = parentSessionFile
 			? { type: "session_start" as const, reason: "fork" as const, previousSessionFile: parentSessionFile }
 			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
-			agentDir: options.agentDir,
-			customTools: createChildTools(
-				agent,
-				options.browserAgentConfigRoot,
-				ctx.settingsManager?.getAgentProfile(agent.agentType)?.implementAs,
-			),
-			cwd: agent.cwd,
-			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
-			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
-			model: profile.model ?? ctx.model,
-			modelRegistry: ctx.modelRegistry,
-			tools: resolveChildAgentTools(agent.agentType, profile.tools),
-			multiAgentAgentId: agent.id,
-			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
-			multiAgentRequiresAgentId: true,
-			multiAgentRuntimeRole: "child",
-			multiAgentStore: options.multiAgentStore,
+			...childSessionOptions(options, agent, ctx),
 			sessionManager,
 			sessionStartEvent,
-			thinkingLevel: profile.thinkingLevel,
 		});
 
 		await result.session.bindExtensions({});
 		sessionManager.persistForRecovery();
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
-		return bindProductionChildSession(result.session);
+		return bindProductionChildSession(result.session, !agent.exploreConsultation);
 	};
 	factory[productionChildSessionFactoryMarker] = true;
 	return factory;
@@ -227,37 +210,19 @@ export function createProductionAttachedSessionFactory(
 			);
 		}
 		sessionManager.setMetadataControlDbPath(ctx.controlDbPath);
-		const profile = resolveChildAgentProfile(agent, ctx);
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
 		const sessionStartEvent = parentSessionFile
 			? { type: "session_start" as const, reason: "resume" as const, previousSessionFile: parentSessionFile }
 			: { type: "session_start" as const, reason: "resume" as const };
 		const result = await options.createSession({
-			agentDir: options.agentDir,
-			customTools: createChildTools(
-				agent,
-				options.browserAgentConfigRoot,
-				ctx.settingsManager?.getAgentProfile(agent.agentType)?.implementAs,
-			),
-			cwd: agent.cwd,
-			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
-			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
-			model: profile.model ?? ctx.model,
-			modelRegistry: ctx.modelRegistry,
-			tools: resolveChildAgentTools(agent.agentType, profile.tools),
-			multiAgentAgentId: agent.id,
-			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
-			multiAgentRequiresAgentId: true,
-			multiAgentRuntimeRole: "child",
-			multiAgentStore: options.multiAgentStore,
+			...childSessionOptions(options, agent, ctx),
 			sessionManager,
 			sessionStartEvent,
-			thinkingLevel: profile.thinkingLevel,
 		});
 
 		await result.session.bindExtensions({});
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
-		return bindProductionChildSession(result.session);
+		return bindProductionChildSession(result.session, !agent.exploreConsultation);
 	};
 }
 
@@ -272,9 +237,38 @@ export function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionCon
 	};
 }
 
-function resolveChildAgentTools(agentType: string, tools: string[] | undefined): string[] | undefined {
+function childSessionOptions(
+	options: Omit<ProductionChildAgentSessionFactoryOptions, "createSessionManager">,
+	agent: AgentSnapshot,
+	ctx: ExtensionContext,
+): CreateAgentSessionOptions {
+	const profile = resolveChildAgentProfile(agent, ctx);
+	return {
+		agentDir: options.agentDir,
+		customTools: createChildTools(
+			agent,
+			options.browserAgentConfigRoot,
+			ctx.settingsManager?.getAgentProfile(agent.agentType)?.implementAs,
+		),
+		cwd: agent.cwd,
+		excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
+		extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
+		model: profile.model ?? ctx.model,
+		modelRegistry: ctx.modelRegistry,
+		tools: resolveChildAgentTools(agent, profile.tools),
+		multiAgentAgentId: agent.id,
+		multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
+		multiAgentRequiresAgentId: true,
+		multiAgentRuntimeRole: "child",
+		multiAgentStore: options.multiAgentStore,
+		thinkingLevel: profile.thinkingLevel,
+	};
+}
+
+function resolveChildAgentTools(agent: AgentSnapshot, tools: string[] | undefined): string[] | undefined {
+	if (agent.exploreConsultation) return EXPLORE_CONSULTATION_TOOLS.filter((name) => !tools || tools.includes(name));
 	if (!tools) return undefined;
 	const requiredTools =
-		agentType === "browser" ? [...CHILD_AGENT_CONTROL_TOOL_NAMES, "read"] : CHILD_AGENT_CONTROL_TOOL_NAMES;
+		agent.agentType === "browser" ? [...CHILD_AGENT_CONTROL_TOOL_NAMES, "read"] : CHILD_AGENT_CONTROL_TOOL_NAMES;
 	return [...new Set([...tools, ...requiredTools])];
 }

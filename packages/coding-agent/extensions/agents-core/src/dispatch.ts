@@ -4,7 +4,7 @@ import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import type { AgentToolResult, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import type { OwnedLifecycleCommandInput } from "../../../src/core/lifecycle-coordinator.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
-import type { AgentSnapshot, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { ActiveAgentDispatches, BackgroundSessionHandles, OwnedAgentRuntime } from "./contracts.ts";
 import {
 	type AgentDesktopNotifier,
@@ -16,6 +16,7 @@ import {
 	MAX_GOAL_OBJECTIVE_CHARS,
 	type ResolvedAgentProfile,
 	requireSpawnAgentParams,
+	type SpawnAgentParams,
 } from "./contracts.ts";
 import type { WaitingDesktopNotificationHandles } from "./dispatch-pipeline.ts";
 import {
@@ -234,6 +235,50 @@ export function isChildAgentRuntime(ctx: ExtensionContext): boolean {
 	return ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true;
 }
 
+const startingConsultations = new WeakMap<MultiAgentStore, Set<string>>();
+
+function requireConsultationParent(store: MultiAgentStore, ctx: ExtensionContext, params: SpawnAgentParams): string {
+	const parent = ctx.multiAgentAgentId ? store.getAgent(ctx.multiAgentAgentId) : undefined;
+	if (!parent || parent.exploreConsultation) {
+		throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
+	}
+	if (!isActiveLifecycle(parent.lifecycle) || parent.lifecycle === "cancelling") {
+		throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
+	}
+	if (params.agentType?.trim() !== "explore") {
+		throw new Error("Child agents can only spawn explore consultations.");
+	}
+	if (params.parentId !== undefined && params.parentId !== parent.id) {
+		throw new Error("Explore consultations must belong to the requesting child.");
+	}
+	return parent.id;
+}
+
+async function runExploreConsultation(
+	store: MultiAgentStore,
+	parentId: string,
+	dispatches: ActiveAgentDispatches,
+	spawn: () => Promise<AgentToolResult<AgentToolDetails>>,
+): Promise<AgentToolResult<AgentToolDetails>> {
+	const starting = startingConsultations.get(store) ?? new Set<string>();
+	startingConsultations.set(store, starting);
+	const alreadyRunning = store
+		.listActiveAgents()
+		.some((agent) => agent.parentId === parentId && agent.exploreConsultation);
+	if (starting.has(parentId) || alreadyRunning) {
+		throw new Error("This child already has an active explore consultation.");
+	}
+	starting.add(parentId);
+	let launched: AgentToolResult<AgentToolDetails>;
+	try {
+		launched = await spawn();
+	} finally {
+		starting.delete(parentId);
+	}
+	if (launched.details.dispatched) await dispatches.get(launched.details.agent.id);
+	return launched;
+}
+
 export async function spawnAgent(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory | undefined,
@@ -247,13 +292,52 @@ export async function spawnAgent(
 	activeToolCallId?: string,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	requireSpawnAgentParams(params);
-	if (isChildAgentRuntime(ctx)) {
-		return result(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
-			agent: emptyAgent("spawn_agent"),
-			dispatched: false,
-			prompt: params.prompt,
+	const consultationParent = isChildAgentRuntime(ctx) ? requireConsultationParent(store, ctx, params) : undefined;
+	const spawn = () =>
+		dispatchSpawnAgent({
+			store,
+			createChildSession,
+			dispatches,
+			ownerships,
+			params,
+			ctx,
+			desktopNotifier,
+			waitingDesktopNotifications,
+			handles,
+			activeToolCallId,
+			consultationParent,
 		});
-	}
+	return consultationParent ? runExploreConsultation(store, consultationParent, dispatches, spawn) : spawn();
+}
+
+interface SpawnDispatchInput {
+	store: MultiAgentStore;
+	createChildSession: ChildAgentSessionFactory | undefined;
+	dispatches: ActiveAgentDispatches;
+	ownerships: Map<string, OwnedAgentRuntime>;
+	params: SpawnAgentParams;
+	ctx: ExtensionContext;
+	desktopNotifier: AgentDesktopNotifier;
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
+	handles?: BackgroundSessionHandles;
+	activeToolCallId?: string;
+	consultationParent?: string;
+}
+
+async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolResult<AgentToolDetails>> {
+	const {
+		store,
+		createChildSession,
+		dispatches,
+		ownerships,
+		params,
+		ctx,
+		desktopNotifier,
+		waitingDesktopNotifications,
+		handles,
+		activeToolCallId,
+		consultationParent,
+	} = input;
 	if (isProductionChildSessionFactory(createChildSession)) {
 		const validation = validateGoalObjective(params.prompt);
 		if (!validation.ok) {
@@ -275,7 +359,7 @@ export async function spawnAgent(
 	const displayName = params.displayName?.trim() || requestedAgentType || "Agent";
 	const agentType = requestedAgentType || "default";
 	const profile = requireConfiguredAgentProfile(agentType, requestedAgentType, ctx);
-	const context = params.context ?? profile?.context ?? "inherit";
+	const context = params.context ?? profile?.context ?? (consultationParent ? "fresh" : "inherit");
 	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
 		return result("spawn_agent requires a persisted supervisor session.", {
@@ -289,42 +373,41 @@ export async function spawnAgent(
 		cwd: ctx.cwd,
 		displayName,
 		model: spawnModelMetadata(profile, ctx),
-		parentId: params.parentId,
+		parentId: consultationParent ?? params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
+	if (consultationParent) prepared = { ...prepared, exploreConsultation: true };
 	const abortController = new AbortController();
-	let childSession: ChildAgentSession | undefined;
-	if (createChildSession) {
-		try {
-			childSession = await createChildSession({
-				activeToolCallId,
-				agent: prepared,
-				context,
-				ctx,
-				prompt: params.prompt,
-				signal: abortController.signal,
-			});
-		} catch (error) {
-			const runtimeError = {
-				code: "runtime_spawn_failed",
-				message: error instanceof Error ? error.message : String(error),
-			};
-			const failed = coordinator.commitFailedChild(prepared, runtimeError);
-			if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
-			return result(`spawn_agent failed to construct child session: ${runtimeError.message}`, {
-				agent: failed.ok ? failed.agent : prepared,
-				dispatched: false,
-				prompt: params.prompt,
-			});
-		}
-		if (childSession.transcript) prepared = { ...prepared, transcript: childSession.transcript };
+	let childSession: ChildAgentSession;
+	try {
+		childSession = await createChildSession({
+			activeToolCallId,
+			agent: prepared,
+			context,
+			ctx,
+			prompt: params.prompt,
+			signal: abortController.signal,
+		});
+	} catch (error) {
+		const runtimeError = {
+			code: "runtime_spawn_failed",
+			message: error instanceof Error ? error.message : String(error),
+		};
+		const failed = coordinator.commitFailedChild(prepared, runtimeError);
+		if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
+		return result(`spawn_agent failed to construct child session: ${runtimeError.message}`, {
+			agent: failed.ok ? failed.agent : prepared,
+			dispatched: false,
+			prompt: params.prompt,
+		});
 	}
+	if (childSession.transcript) prepared = { ...prepared, transcript: childSession.transcript };
 	const created = coordinator.commitRunningChild(
 		prepared,
 		ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
 	);
 	if (!created.ok) {
-		await childSession?.dispose?.();
+		await childSession.dispose?.();
 		return result(`spawn_agent failed: ${created.error}`, {
 			agent: prepared,
 			dispatched: false,
@@ -336,38 +419,34 @@ export async function spawnAgent(
 	const runtime = { abortController, coordinator, lifecycle };
 	ownerships.set(created.agent.id, runtime);
 
-	if (createChildSession && childSession) {
-		const restoreGeneration = store.getRestoreGeneration();
-		const agent = startToolDispatch(
-			store,
-			dispatches,
-			created.agent,
-			() =>
-				runAgentSession(
-					store,
-					createChildSession,
-					created.agent,
-					params.prompt,
-					ctx,
-					handles,
-					childSession,
-					runtime,
-					restoreGeneration,
-				),
-			desktopNotifier,
-			waitingDesktopNotifications,
-			handles,
-			runtime,
-		);
-		releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
-		return result(`Spawned ${agent.displayName} (${agent.id}) [type: ${agent.agentType}, context: ${context}]`, {
-			agent,
-			dispatched: true,
-			prompt: params.prompt,
-		});
-	}
-
-	throw new Error("spawn_agent child session runtime invariant violated");
+	const restoreGeneration = store.getRestoreGeneration();
+	const agent = startToolDispatch(
+		store,
+		dispatches,
+		created.agent,
+		() =>
+			runAgentSession(
+				store,
+				createChildSession,
+				created.agent,
+				params.prompt,
+				ctx,
+				handles,
+				childSession,
+				runtime,
+				restoreGeneration,
+			),
+		desktopNotifier,
+		waitingDesktopNotifications,
+		handles,
+		runtime,
+	);
+	releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
+	return result(`Spawned ${agent.displayName} (${agent.id}) [type: ${agent.agentType}, context: ${context}]`, {
+		agent,
+		dispatched: true,
+		prompt: params.prompt,
+	});
 }
 
 export function releaseOwnershipAfterDispatch(

@@ -85,12 +85,16 @@ applicable command and artifact verification checks form one proof union.
 
 ## Runtime ownership and recovery
 
-The supervisor is the only orchestration authority. Child runtimes register only their agent-address
-mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
-reconciliation. Their initialized session-start hook reconciles only direct persisted descendants through
-coordinator recovery. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agent`
-calls, the equivalent Pyrun bridge methods, and `/bg`; production child sessions exclude
-those tools as a second boundary.
+The supervisor owns orchestration, with one exception: a regular child can call `spawn_agent` to
+request an `explore` consultation. The runtime derives the parent from the caller's identity. It records
+`exploreConsultation` on the agent so construction and recovery enforce the same read-only tool list.
+The tool waits for completion, and the existing terminal outbox routes findings to the requesting
+child's mailbox. Main `wait_agent` does not consume the consultation notice.
+
+Child runtimes register only their agent-address mailbox listener, never a same-PID main listener.
+Their session-start hook reconciles only direct descendants through the coordinator. They cannot
+attach sessions, call `wait_agent` or `/bg`, or use the Pyrun orchestration bridge. The
+[multi-agent contract](../../specs/multi-agent.md#core-runtime) specifies the authorization rules.
 
 At supervisor start, there are no persisted `queued` or `starting` startup rows. Child construction
 happens first; successful construction persists `running` revision 1, while interruption or failure

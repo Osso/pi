@@ -617,13 +617,14 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
-				'Context defaults to "inherit"; choose "fresh" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.',
-				'For scoped code changes, use agentType "implement"; for proof commands before completion, use agentType "verifier"; for final code review or second opinions, use agentType "reviewer".',
+				'Child agents can only request one read-only "explore" consultation at a time. Omit parentId; the tool waits for the consultation to finish and the result arrives through the mailbox.',
+				'In main sessions, context defaults to "inherit"; choose "fresh" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.',
+				'In main sessions, use agentType "implement" for scoped code changes, "verifier" for proof commands before completion, and "reviewer" for final code review or second opinions.',
 			],
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-				runtimeLifecycleMirror.bind(ctx);
+				if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 				return spawnAgent(
 					store,
 					options.createChildSession,

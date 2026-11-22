@@ -61,8 +61,9 @@ Runtime roles are exclusive:
 - An orchestration-capable main runtime requires a validated execution capability before any
   orchestration tool or main-runtime listener is registered. Missing capability fails construction
   before either becomes visible.
-- A child runtime is address-scoped execution only. It never receives execution capability and
-  rejects orchestration commands before creating lifecycle rows.
+- A child runtime is address-scoped and never receives execution capability. The only delegation
+  exception is the [restricted explore consultation](multi-agent.md#core-runtime); all other child
+  orchestration commands fail before creating lifecycle rows.
 - Help/inventory startup paths that do not construct an `AgentSession` are outside this invariant.
 
 Every lifecycle mutation must match the persisted agent and exact owner process identity

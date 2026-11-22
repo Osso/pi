@@ -124,6 +124,7 @@
 
 ### Added
 
+- Regular spawned and attached subagents can use `spawn_agent` for one read-only `explore` consultation at a time. The call waits for completion, and persisted results go only to the requesting child, including after restart. Consultations cannot delegate; other child delegation and main-session behavior remain unchanged.
 - Added the `agent_settled` extension event, fired once a run has settled with no automatic retry, auto-compaction retry, or queued continuation left (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - Added `compaction.backgroundStartTokens`: an absolute context token count that starts speculative background compaction instead of 70% of the context window. It takes effect only below the normal compaction trigger.
 - Added `/mission`, a continuous user-owned objective above the working goal. Whenever the working goal is absent, completed, cleared, or paused by the model, Pi copies the mission into a new goal that cannot be completed. Only `/mission pause` and `/mission clear` stop it; no tool can change it.

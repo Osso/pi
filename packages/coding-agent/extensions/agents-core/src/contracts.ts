@@ -116,6 +116,7 @@ export const CHILD_AGENT_CONTROL_TOOL_NAMES = [
 	"contact_parent",
 	"send_agent_message",
 	"end_turn",
+	"spawn_agent",
 ] as const;
 export const CHILD_EXCLUDED_TOOL_NAMES = [
 	...CHILD_DISABLED_AGENT_TOOL_NAMES,
