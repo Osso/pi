@@ -246,6 +246,8 @@ A terminal OpenAI or Codex quota, usage-limit, or billing-exhaustion error ends 
 
 Sandbox profiles resolve by precedence: session override, project setting, then global setting. A missing explicit profile is unsandboxed; `read-only` and `workspace-write` require bubblewrap, while `full-access` bypasses it.
 
+See [Skills](skills.md#locations) for access to registered user skill files from a sandbox.
+
 ### Supervisor
 
 | Setting | Type | Default | Description |

@@ -25,7 +25,7 @@ import {
 } from "../extensions/bwrap/src/backend.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolGate } from "../src/index.ts";
+import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolDefinition, ToolGate } from "../src/index.ts";
 
 const FS_WORKER_PATH = join(dirname(fileURLToPath(import.meta.url)), "../extensions/bwrap/src/fs-worker.cjs");
 const canExecuteBwrap =
@@ -588,6 +588,64 @@ console.log(JSON.stringify({
 			expect(result).toMatchObject({ block: true, reason: expect.stringMatching(/bubblewrap.*required/i) });
 		},
 	);
+
+	it.skipIf(!canExecuteBwrap)("allows read-only access to registered user skills", async () => {
+		const realSkillDir = join(tempDir, "real-user-skill");
+		const userSkillsDir = join(homeDir, ".pi", "agent", "skills");
+		const skillDir = join(userSkillsDir, "example-skill");
+		const skillPath = join(skillDir, "SKILL.md");
+		const siblingPath = join(skillDir, "notes.md");
+		mkdirSync(realSkillDir, { recursive: true });
+		mkdirSync(userSkillsDir, { recursive: true });
+		writeFileSync(join(realSkillDir, "SKILL.md"), "registered skill content", "utf8");
+		writeFileSync(join(realSkillDir, "notes.md"), "unregistered sibling content", "utf8");
+		symlinkSync(realSkillDir, skillDir, "dir");
+
+		const tools = new Map<string, ToolDefinition>();
+		const api = {
+			on() {},
+			getCommands: () => [
+				{
+					name: "example-skill",
+					source: "skill",
+					sourceInfo: { path: skillPath, scope: "user" },
+				},
+			],
+			registerCommand() {},
+			registerTool(tool: ToolDefinition) {
+				tools.set(tool.name, tool);
+			},
+			registerToolGate() {},
+		} as unknown as ExtensionAPI;
+		bwrapExtension(api, { bwrapCommand: "bwrap" });
+		const readTool = tools.get("read");
+		const writeTool = tools.get("write");
+		const editTool = tools.get("edit");
+		if (!readTool || !writeTool || !editTool) throw new Error("Missing sandbox file tools");
+		const context = {
+			cwd: workspaceDir,
+			settingsManager: SettingsManager.inMemory({ sandboxProfile: "read-only" }),
+		} as ExtensionContext;
+
+		const skillResult = await readTool.execute("read-skill", { path: skillPath }, undefined, undefined, context);
+		expect(skillResult.content).toEqual([{ type: "text", text: "registered skill content" }]);
+		await expect(
+			readTool.execute("read-sibling", { path: siblingPath }, undefined, undefined, context),
+		).rejects.toThrow(/escapes workspace/i);
+		await expect(
+			writeTool.execute("write-skill", { content: "modified", path: skillPath }, undefined, undefined, context),
+		).rejects.toThrow(/escapes workspace/i);
+		await expect(
+			editTool.execute(
+				"edit-skill",
+				{ edits: [{ newText: "modified", oldText: "registered skill" }], path: skillPath },
+				undefined,
+				undefined,
+				context,
+			),
+		).rejects.toThrow(/escapes workspace/i);
+		expect(readFileSync(skillPath, "utf8")).toBe("registered skill content");
+	});
 
 	it("does not enforce bwrap when no sandbox profile is explicitly configured", () => {
 		const { toolGates } = createBwrapHarness();

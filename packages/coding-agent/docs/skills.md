@@ -41,6 +41,8 @@ Discovery rules:
 
 Disable discovery with `--no-skills` (explicit `--skill` paths still load).
 
+With a sandbox active, `read` can open a registered user skill instruction file outside the workspace, including one in a symlinked user skills directory. Use the path Pi shows for the skill. This does not give other tools access to the file or grant access to neighboring files.
+
 ### Using Skills from Other Harnesses
 
 To use skills from Claude Code or OpenAI Codex, add their directories to settings:

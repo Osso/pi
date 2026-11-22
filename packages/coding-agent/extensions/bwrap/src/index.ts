@@ -5,6 +5,7 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { TSchema } from "typebox";
 import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
+import { resolveToCwd } from "../../../src/core/tools/path-utils.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/index.ts";
 import {
 	createBashToolDefinition,
@@ -24,6 +25,7 @@ import {
 	truncateHead,
 	type WriteOperations,
 } from "../../../src/index.ts";
+import { getCwdRelativePath } from "../../../src/utils/paths.ts";
 import {
 	type BwrapSandboxProfile,
 	buildBwrapInvocation,
@@ -107,16 +109,20 @@ function readSandboxParams(ctx: ExtensionContext, bwrapCommand: string): Sandbox
 interface SandboxOperationParams extends SandboxParams {
 	operation: string;
 	payload: Record<string, unknown>;
+	readOnlySkill?: string;
 	signal?: AbortSignal;
 }
 
 function buildSandboxWorkerInvocation(params: SandboxOperationParams) {
-	const workerPayload = { ...params.payload, workspace: params.cwd };
+	const { readOnlySkill } = params;
+	const workerPayload = { ...params.payload, workspace: params.cwd, readOnlySkill };
+	const readOnlyPaths = [dirname(FS_WORKER_PATH)];
+	if (readOnlySkill) readOnlyPaths.push(readOnlySkill);
 	return buildBwrapInvocation({
 		bwrapCommand: params.bwrapCommand,
 		command: ["node", FS_WORKER_PATH, params.operation, JSON.stringify(workerPayload)],
 		cwd: params.cwd,
-		extraReadOnlyPaths: [dirname(FS_WORKER_PATH)],
+		extraReadOnlyPaths: readOnlyPaths,
 		profile: params.profile,
 	});
 }
@@ -181,13 +187,13 @@ function parseSandboxWorkerResult<T>(
 
 type SandboxOperationRunner = <T>(operation: string, payload: Record<string, unknown>) => Promise<T>;
 
-function createSandboxOperationRunner(params: SandboxParams): SandboxOperationRunner {
+function createSandboxOperationRunner(params: SandboxParams & { readOnlySkill?: string }): SandboxOperationRunner {
 	return <T>(operation: string, payload: Record<string, unknown>) =>
 		runJsonInSandbox<T>({ ...params, operation, payload }).then(({ value }) => value);
 }
 
-function createReadOperations(params: SandboxParams): ReadOperations {
-	const runSandboxOperation = createSandboxOperationRunner(params);
+function createReadOperations(params: SandboxParams, readOnlySkill?: string): ReadOperations {
+	const runSandboxOperation = createSandboxOperationRunner({ ...params, readOnlySkill });
 	return {
 		access: async (path) => {
 			await runSandboxOperation<{ ok: true }>("access", { path });
@@ -359,10 +365,32 @@ function registerSandboxedTool<TParams extends TSchema, TDetails, TState>(
 	});
 }
 
+function findExternalUserSkill(pi: ExtensionAPI, path: string, cwd: string): string | undefined {
+	const requestedPath = resolveToCwd(path, cwd);
+	if (getCwdRelativePath(requestedPath, cwd) !== undefined) return undefined;
+	const skill = pi
+		.getCommands()
+		.find(
+			({ source, sourceInfo }) =>
+				source === "skill" && sourceInfo.scope === "user" && sourceInfo.path === requestedPath,
+		);
+	return skill?.sourceInfo.path;
+}
+
+function registerSandboxedReadTool(pi: ExtensionAPI, runtime: BwrapExtensionRuntime): void {
+	pi.registerTool({
+		...runtime.localTools.read,
+		async execute(id, params, signal, onUpdate, ctx) {
+			const sandbox = readSandboxParams(ctx, runtime.bwrapCommand);
+			const skillPath = sandbox ? findExternalUserSkill(pi, params.path, ctx.cwd) : undefined;
+			const operations = sandbox ? createReadOperations(sandbox, skillPath) : undefined;
+			return createReadToolDefinition(ctx.cwd, { operations }).execute(id, params, signal, onUpdate, ctx);
+		},
+	});
+}
+
 function registerStandardSandboxedTools(pi: ExtensionAPI, runtime: BwrapExtensionRuntime): void {
-	registerSandboxedTool(pi, runtime, runtime.localTools.read, createReadToolDefinition, (cwd, params) =>
-		createReadToolDefinition(cwd, { operations: createReadOperations(params) }),
-	);
+	registerSandboxedReadTool(pi, runtime);
 	registerSandboxedTool(pi, runtime, runtime.localTools.write, createWriteToolDefinition, (cwd, params) =>
 		createWriteToolDefinition(cwd, { operations: createWriteOperations(params) }),
 	);
@@ -431,7 +459,7 @@ function registerBeforeAgentStartHandler(pi: ExtensionAPI): void {
 		if (!profile) return;
 		const localLine = `Current working directory: ${ctx.cwd}`;
 		const sandboxLine = isSandboxPlatformSupported()
-			? `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun executes inside the sandbox without Pi bridge capabilities)`
+			? `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted by default; read can open registered user skill files read-only; Pyrun executes inside the sandbox without Pi bridge capabilities)`
 			: `Current working directory: ${ctx.cwd} (bubblewrap sandbox profile ${profile} is unsupported on ${process.platform}; Linux only; tools are blocked, not sandboxed)`;
 		const systemPrompt = event.systemPrompt.includes(localLine)
 			? event.systemPrompt.replace(localLine, sandboxLine)

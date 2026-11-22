@@ -44,6 +44,7 @@ async function readNearestExistingRealPath(targetPath) {
 
 async function resolveWorkspacePathWithFilesystemChecks(value, options = {}) {
 	const resolved = path.resolve(value || workspace);
+	if (resolved === payload.readOnlySkill && (await fs.lstat(resolved)).isFile()) return resolved;
 	if (!isInsideWorkspace(resolved, workspace)) throw new Error(`sandbox path escapes workspace: ${value}`);
 	const realWorkspace = await fs.realpath(workspace);
 	try {

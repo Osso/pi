@@ -27,7 +27,8 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - [x] Mount resolved runtime executables, including canonical targets of symlinked runner commands, absolute shebang interpreters, Python virtual-environment metadata/site-packages, external base-runtime paths, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; never propagate arbitrary inherited `PYTHONPATH` entries.
 - [x] Provide sandbox-local `HOME`, `TMPDIR`, and `XDG_CONFIG_HOME`.
 - [x] Use `--clearenv` and an explicit filtered environment so provider keys and other host credentials are not passed into sandboxed workers by default.
-- [x] Reject file-worker paths and symlinks that escape the active workspace.
+- [x] Reject file-worker paths and symlinks that escape the active workspace, except for the scoped `read` requirement below.
+- [x] Permit sandboxed `read` to access an exact outside-workspace instruction file registered by Pi as a user skill, including files in a configured shared or symlinked user skill tree. Mount only the requested file read-only for that request. Do not grant access to neighboring files, writes, or command runners. The workspace/project symlink boundary is otherwise unchanged.
 
 ### Tool routing
 

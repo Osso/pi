@@ -33,6 +33,8 @@ Session overrides are stored in the host's control-session SQLite database, not 
 
 The extension overrides the built-in file tools with same-name tool registrations, following the Gondolin extension pattern. File operations execute small Node workers inside bwrap to preserve the built-in result shapes while keeping filesystem access inside the sandbox. The worker rejects lexical path escapes and symlinks that resolve outside the active workspace for read/write/stat/readdir/access/find/grep operations. `bash` and `user_bash` use a `BashOperations` backend that spawns the requested shell command through bwrap.
 
+For a `read` of an exact path registered as a user skill, the extension mounts that file read-only in the file worker. Other files in the skill directory stay outside the mount, and other tools do not receive it.
+
 Pyrun remains a default-loaded first-party extension. Under a sandbox-required profile, `pyrun_eval` starts its canonical runner through the bwrap backend rather than being blocked. Its Pi bridge is disabled: it receives no Pi capability snapshot and cannot make bridge requests. Outside a sandbox-required profile it retains normal local runner and Pi bridge behavior.
 
 ## Loading
