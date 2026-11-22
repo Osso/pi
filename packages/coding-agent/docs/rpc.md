@@ -1471,7 +1471,9 @@ Created by the `bash` RPC command (not by LLM tool calls):
 
 ## Typed Node.js client
 
-`RpcClient` starts a child Pi process and provides typed helpers for the RPC protocol. Use `send()` when a test or integration needs a raw typed command instead of a convenience method:
+`RpcClient` starts a child Pi process and provides typed helpers for the RPC protocol. `promptAndWait()` starts collecting events before it sends the prompt. If the prompt fails, it reports the prompt error even if event collection timed out while awaiting the response. If the prompt succeeds but collection times out, it reports the collection timeout.
+
+Use `send()` when a test or integration needs a raw typed command instead of a convenience method:
 
 ```typescript
 import { RpcClient } from "@earendil-works/pi-coding-agent";

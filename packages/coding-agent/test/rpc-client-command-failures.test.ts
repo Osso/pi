@@ -14,6 +14,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 }
 `;
 
+const DELAYED_REJECTING_SERVER = `
+import { createInterface } from "node:readline";
+for await (const line of createInterface({ input: process.stdin })) {
+	const command = JSON.parse(line);
+	const response = { type: "response", id: command.id, command: command.type, success: false, error: "rejected " + command.type };
+	setTimeout(() => process.stdout.write(JSON.stringify(response) + "\\n"), Number(process.env.SERVER_DELAY_MS));
+}
+`;
+
+const SUCCESS_WITHOUT_SETTLED_SERVER = `
+import { createInterface } from "node:readline";
+for await (const line of createInterface({ input: process.stdin })) {
+	const command = JSON.parse(line);
+	const response = { type: "response", id: command.id, command: command.type, success: true };
+	process.stdout.write(JSON.stringify(response) + "\\n");
+}
+`;
+
 let client: RpcClient | undefined;
 let tempDir: string | undefined;
 
@@ -24,13 +42,17 @@ afterEach(async () => {
 	tempDir = undefined;
 });
 
-async function startRejectingClient(): Promise<RpcClient> {
+async function startClient(server: string, env?: Record<string, string>): Promise<RpcClient> {
 	tempDir = mkdtempSync(join(tmpdir(), "pi-rpc-client-failures-"));
 	const cliPath = join(tempDir, "server.mjs");
-	writeFileSync(cliPath, REJECTING_SERVER);
-	client = new RpcClient({ cliPath });
+	writeFileSync(cliPath, server);
+	client = new RpcClient({ cliPath, env });
 	await client.start();
 	return client;
+}
+
+async function startRejectingClient(): Promise<RpcClient> {
+	return startClient(REJECTING_SERVER);
 }
 
 describe("RpcClient command failures", () => {
@@ -53,10 +75,20 @@ describe("RpcClient command failures", () => {
 		await expect(call(rpc)).rejects.toThrow(`rejected ${command}`);
 	});
 
-	test("promptAndWait rejects with the server error", async () => {
-		const rpc = await startRejectingClient();
-		await expect(rpc.promptAndWait("/no-such-command", undefined, 50)).rejects.toThrow("rejected prompt");
-		// The event collector times out after the prompt failed; that must not surface as an unhandled rejection.
-		await new Promise((resolve) => setTimeout(resolve, 100));
+	test("promptAndWait preserves the prompt error when the collector times out first", async () => {
+		const rpc = await startClient(DELAYED_REJECTING_SERVER, { SERVER_DELAY_MS: "100" });
+		await expect(rpc.promptAndWait("/no-such-command", undefined, 20)).rejects.toThrow("rejected prompt");
+	});
+
+	test("promptAndWait cancels collection after a prompt error", async () => {
+		const rpc = await startClient(DELAYED_REJECTING_SERVER, { SERVER_DELAY_MS: "20" });
+		await expect(rpc.promptAndWait("/no-such-command", undefined, 250)).rejects.toThrow("rejected prompt");
+		// Wait beyond the collector deadline; its cancelled timeout must not reject later.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+	});
+
+	test("promptAndWait surfaces the collector timeout after a successful prompt", async () => {
+		const rpc = await startClient(SUCCESS_WITHOUT_SETTLED_SERVER);
+		await expect(rpc.promptAndWait("hello", undefined, 20)).rejects.toThrow("Timeout collecting events");
 	});
 });

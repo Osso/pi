@@ -490,7 +490,15 @@ export class RpcClient {
 	 * Collect events until agent becomes idle.
 	 */
 	collectEvents(timeout = 60000): Promise<AgentSessionEvent[]> {
-		return new Promise((resolve, reject) => {
+		return this.createEventCollector(timeout).promise;
+	}
+
+	private createEventCollector(timeout: number): {
+		promise: Promise<AgentSessionEvent[]>;
+		cancel: () => void;
+	} {
+		let cleanup = (): void => {};
+		const promise = new Promise<AgentSessionEvent[]>((resolve, reject) => {
 			const events: AgentSessionEvent[] = [];
 			const timer = setTimeout(() => {
 				unsubscribe();
@@ -505,20 +513,34 @@ export class RpcClient {
 					resolve(events);
 				}
 			});
+			cleanup = () => {
+				clearTimeout(timer);
+				unsubscribe();
+			};
 		});
+		return { promise, cancel: () => cleanup() };
 	}
 
 	/**
 	 * Send prompt and wait for completion, returning all events.
 	 */
 	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<AgentSessionEvent[]> {
-		const eventsPromise = this.collectEvents(timeout);
-		// A rejected prompt never reaches agent_settled; keep the collector's later timeout from going unhandled.
-		await this.prompt(message, images).catch((error: unknown) => {
-			eventsPromise.catch(() => {});
+		const collector = this.createEventCollector(timeout);
+		const eventsResult = collector.promise.then(
+			(events) => ({ events }),
+			(error: unknown) => ({ error }),
+		);
+
+		try {
+			await this.prompt(message, images);
+		} catch (error: unknown) {
+			collector.cancel();
 			throw error;
-		});
-		return eventsPromise;
+		}
+
+		const result = await eventsResult;
+		if ("error" in result) throw result.error;
+		return result.events;
 	}
 
 	// =========================================================================
