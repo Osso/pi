@@ -24,7 +24,7 @@ type FakeExtensionRunner = {
 
 type FakeSession = {
 	sessionManager: { getHeader: () => object | undefined };
-	agent: { waitForIdle: () => Promise<void> };
+	agent: { waitForIdle: () => Promise<void>; subscribe: () => () => void };
 	state: { messages: AgentMessage[] };
 	extensionRunner: FakeExtensionRunner;
 	bindExtensions: ReturnType<typeof vi.fn>;
@@ -85,7 +85,7 @@ function createRuntimeHost(messages: AssistantMessage | AgentMessage[]): FakeRun
 
 	const session: FakeSession = {
 		sessionManager: { getHeader: () => undefined },
-		agent: { waitForIdle: async () => {} },
+		agent: { waitForIdle: async () => {}, subscribe: () => () => {} },
 		state,
 		extensionRunner,
 		bindExtensions: vi.fn(async () => {}),
@@ -721,6 +721,45 @@ describe("runPrintMode", () => {
 			expect(harness.faux.state.callCount).toBe(1);
 			expect(commandRuns).toEqual(finalInput === "/local-only" ? ["local-only"] : []);
 			expect(output.join("")).toBe("");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("does not start model work in JSON mode while stdout is blocked", async () => {
+		const harness = await createHarness();
+		try {
+			const answer = (text: string) =>
+				fauxAssistantMessage([fauxText(text), fauxToolCall("end_turn", { reason: "finished" })], {
+					stopReason: "toolUse",
+				});
+			harness.setResponses([answer("first answer"), answer("second answer")]);
+			const pendingWrites: Array<() => void> = [];
+			let blocked = true;
+			vi.spyOn(process.stdout, "write").mockImplementation(((
+				_chunk: string | Uint8Array,
+				encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+				callback?: (error?: Error | null) => void,
+			) => {
+				const done = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+				if (blocked) pendingWrites.push(() => done?.());
+				else done?.();
+				return true;
+			}) as typeof process.stdout.write);
+			const runtimeHost = { ...createRuntimeHost([]), session: harness.session, dispose: vi.fn(async () => {}) };
+			const run = runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+				mode: "json",
+				initialMessage: "first question",
+				messages: ["second question"],
+			});
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(pendingWrites.length).toBeGreaterThan(0);
+			expect(harness.faux.state.callCount).toBe(0);
+
+			blocked = false;
+			for (const release of pendingWrites.splice(0)) release();
+			expect(await run).toBe(0);
+			expect(harness.faux.state.callCount).toBe(2);
 		} finally {
 			harness.cleanup();
 		}

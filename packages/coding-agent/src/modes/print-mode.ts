@@ -10,7 +10,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { getAssistantContentText } from "../core/assistant-narration.ts";
-import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
+import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../utils/shell.ts";
 import { toJsonPrintModeEvent } from "./json-event.ts";
@@ -57,6 +57,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	let exitCode = 0;
 	let session = runtimeHost.session;
 	let unsubscribe: (() => void) | undefined;
+	let unsubscribeBackpressure: (() => void) | undefined;
 	let shutdownComplete: Promise<void> | undefined;
 	let shutdownSignalSeen = false;
 	const signalCleanupHandlers: Array<() => void> = [];
@@ -67,6 +68,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		shutdownComplete ??= (async () => {
 			await runtimeHost.dispose();
 			unsubscribe?.();
+			unsubscribeBackpressure?.();
 			await flushRawStdout();
 		})();
 		return shutdownComplete;
@@ -97,11 +99,15 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtimeHost));
 		// Subscribe before binding so events emitted by session_start handlers reach the JSON output.
 		unsubscribe?.();
+		unsubscribeBackpressure?.();
 		unsubscribe = session.subscribe((event) => {
 			if (mode === "json") {
 				writeRawStdout(`${JSON.stringify(toJsonPrintModeEvent(event))}\n`);
 			}
 		});
+		// Agent events wait for queued JSONL, so a blocked reader pauses model work instead of growing the queue.
+		unsubscribeBackpressure =
+			mode === "json" ? session.agent.subscribe(() => waitForRawStdoutBackpressure()) : undefined;
 		await session.bindExtensions({
 			mode: mode === "json" ? "json" : "print",
 			controlDbPath: getControlDbPath(),
