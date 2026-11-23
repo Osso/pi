@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `pi update --self` works again when `PI_SKIP_VERSION_CHECK` is set; the variable now skips only the automatic version check (upstream [#6977](https://github.com/earendil-works/pi/issues/6977))
 - `--session codex/<uuid>` now finds a Codex rollout whose `session_meta` lacks an ID by the UUID at the end of its file name
 - Detached Bash and Pyrun output of an archived session now expires after 24 hours like other job output instead of being kept indefinitely
 - `pi tools` and `pi extensions` report extension load errors on stderr instead of silently omitting the failed extension
