@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed print mode printing the previous prompt's answer when an extension command or `input` handler handles the final message without a model turn
 - Fixed split-turn compaction deleting carried-forward summary text after a `<read-files>` or `<modified-files>` block quoted in the summary body
 - Fixed pasted clipboard images in prompts queued during streaming (Enter steer or Alt+Enter follow-up) staying in the temp directory after the answer
 - Fixed the `ask_questions` panel rendering a multiline option description across rows, which corrupted the choice list after cursor movement, and overflowing narrow terminals when Other opens

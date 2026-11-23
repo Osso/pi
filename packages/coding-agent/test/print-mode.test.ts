@@ -686,6 +686,46 @@ describe("runPrintMode", () => {
 		expect(output.join("")).toBe("");
 	});
 
+	it.each([
+		["an extension command", "/local-only"],
+		["an input hook", "ping"],
+	])("does not print an earlier answer when %s handles the final input", async (_label, finalInput) => {
+		const commandRuns: string[] = [];
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerCommand("local-only", {
+						description: "Runs without the model",
+						handler: async () => {
+							commandRuns.push("local-only");
+						},
+					});
+					pi.on("input", (event) => (event.text === "ping" ? { action: "handled" } : undefined));
+				},
+			],
+		});
+		try {
+			harness.setResponses([
+				fauxAssistantMessage([fauxText("old answer"), fauxToolCall("end_turn", { reason: "finished" })], {
+					stopReason: "toolUse",
+				}),
+			]);
+			const output = captureStdout();
+			const runtimeHost = { ...createRuntimeHost([]), session: harness.session, dispose: vi.fn(async () => {}) };
+			const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+				mode: "text",
+				initialMessage: "first prompt",
+				messages: [finalInput],
+			});
+			expect(exitCode).toBe(0);
+			expect(harness.faux.state.callCount).toBe(1);
+			expect(commandRuns).toEqual(finalInput === "/local-only" ? ["local-only"] : []);
+			expect(output.join("")).toBe("");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it.each(["error", "aborted"] as const)(
 		"reports a trailing %s without printing the earlier answer",
 		async (stopReason) => {

@@ -149,15 +149,22 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 
 		await rebindSession();
 
+		// An extension command or input hook can handle the last prompt without a new message.
+		let lastPromptAddedMessages = true;
+		const trackPrompt = async (runPrompt: () => Promise<void>): Promise<void> => {
+			const lastBefore = session.state.messages.at(-1);
+			await runPrompt();
+			lastPromptAddedMessages = session.state.messages.at(-1) !== lastBefore;
+		};
 		if (initialMessage) {
-			await session.prompt(initialMessage, { images: initialImages });
+			await trackPrompt(() => session.prompt(initialMessage, { images: initialImages }));
 		}
 
 		for (const message of messages) {
-			await session.prompt(message);
+			await trackPrompt(() => session.prompt(message));
 		}
 
-		const assistantMsg = findLastPrintableAssistant(session.state.messages);
+		const assistantMsg = lastPromptAddedMessages ? findLastPrintableAssistant(session.state.messages) : undefined;
 		if (assistantMsg?.stopReason === "error" || assistantMsg?.stopReason === "aborted") {
 			console.error(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
 			exitCode = 1;
