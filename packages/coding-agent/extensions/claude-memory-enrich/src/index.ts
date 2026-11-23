@@ -209,9 +209,12 @@ function registerEnrichProcess(execution: EnrichExecution, signal?: AbortSignal)
 		ENRICH_TIMEOUT_MS,
 	);
 	registerEnrichAbort(activeProcess, signal);
-	activeProcess.child.once("error", (error) => {
+	const recordError = (error: Error): void => {
 		if (activeProcess.state.error === undefined) activeProcess.state.error = error;
-	});
+	};
+	activeProcess.child.once("error", recordError);
+	// A helper that exits before reading the prompt makes the write fail with EPIPE; unhandled, it would crash Pi.
+	activeProcess.child.stdin.on("error", recordError);
 	activeProcess.child.once("close", (code) => {
 		settleEnrichProcess(execution, interpretEnrichClose(activeProcess, code, output));
 	});

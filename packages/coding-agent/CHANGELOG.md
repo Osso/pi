@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- claude-memory enrichment no longer crashes Pi with an uncaught `EPIPE` when the helper exits before reading the prompt
 - Automatic retry waits at least the provider-reported `retryAfterMs`, so a model pool retry reaches the member whose cooldown expires first
 - The duplicate-turn guard compares signed public narration, so different narration-only replies are no longer treated as repeats
 - `pi -p` prints the answer when the duplicate-turn guard leads to a textless `end_turn`

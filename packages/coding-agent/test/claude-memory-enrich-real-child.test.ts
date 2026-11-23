@@ -113,4 +113,30 @@ describe("claude-memory enrich real child lifecycle", () => {
 		await expect(result).resolves.toBeUndefined();
 		expect(processExists(childPid)).toBe(false);
 	});
+
+	it("keeps the prompt when the helper exits without reading a large prompt", async () => {
+		if (!temporaryDirectory) throw new Error("Temporary directory was not created");
+		const scriptPath = join(temporaryDirectory, "claude-memory");
+		writeFileSync(scriptPath, "#!/bin/sh\nexit 2\n");
+		chmodSync(scriptPath, 0o755);
+		process.env.PI_CLAUDE_MEMORY = scriptPath;
+		const uncaught: unknown[] = [];
+		const recordUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", recordUncaught);
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		try {
+			const handler = registerBeforeAgentStartHandler();
+			const result = await handler(
+				{ prompt: "x".repeat(4 * 1024 * 1024), systemPrompt: "system" },
+				{ signal: new AbortController().signal },
+			);
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(result).toBeUndefined();
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", recordUncaught);
+		}
+	});
 });

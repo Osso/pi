@@ -21,7 +21,7 @@ type BeforeAgentStartHandler = (
 type SessionShutdownHandler = (event: { type: "session_shutdown"; reason: "restart" }) => Promise<void>;
 
 type FakeChild = EventEmitter & {
-	stdin: { end: ReturnType<typeof vi.fn> };
+	stdin: EventEmitter & { end: ReturnType<typeof vi.fn> };
 	stdout: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
 	stderr: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
 	kill: ReturnType<typeof vi.fn>;
@@ -29,7 +29,7 @@ type FakeChild = EventEmitter & {
 
 function fakeChild(): FakeChild {
 	return Object.assign(new EventEmitter(), {
-		stdin: { end: vi.fn() },
+		stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
 		stdout: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
 		stderr: Object.assign(new EventEmitter(), { setEncoding: vi.fn() }),
 		kill: vi.fn(),
