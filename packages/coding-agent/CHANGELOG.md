@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `list_sessions` reporting a completed `/goal` objective as the session's current goal.
 - Fixed an explicit startup thinking level (`--thinking` or a `--model` `:level` suffix) not being saved to the session, so reopening it fell back to the default level.
 - Fixed `--export-terminal` rejecting a session's original `.jsonl` path after archival replaced it with `.jsonl.zst`.
 - Fixed a self-referencing `.md` symlink in a rules folder aborting rule loading instead of being skipped like other broken links.

@@ -81,7 +81,9 @@ export function parseGoalObjective(goalJson: string | undefined | null): string 
 	try {
 		const parsed = JSON.parse(trimmed) as unknown;
 		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			const objective = (parsed as { objective?: unknown }).objective;
+			const { objective, completedAt } = parsed as { objective?: unknown; completedAt?: unknown };
+			// A completed goal is no longer the session's purpose.
+			if (completedAt !== undefined) return null;
 			if (typeof objective === "string" && objective.trim()) {
 				return objective.trim();
 			}

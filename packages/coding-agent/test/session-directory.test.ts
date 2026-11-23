@@ -84,6 +84,25 @@ describe("session directory", () => {
 		});
 	});
 
+	it("omits a completed goal from session purpose but keeps a paused one", () => {
+		writeSession("session-done");
+		writeSession("session-paused");
+		writeSessionGoal(
+			controlDbPath,
+			"/sessions/session-done.jsonl",
+			JSON.stringify({ objective: "Ship release", completedAt: "2026-01-01T00:20:00.000Z" }),
+		);
+		writeSessionGoal(
+			controlDbPath,
+			"/sessions/session-paused.jsonl",
+			JSON.stringify({ objective: "Fix flaky test", pausedAt: "2026-01-01T00:20:00.000Z" }),
+		);
+
+		const goals = Object.fromEntries(listSessions(controlDbPath).map((session) => [session.sessionId, session.goal]));
+
+		expect(goals).toEqual({ "session-done": null, "session-paused": "Fix flaky test" });
+	});
+
 	it("does not claim listener ownership while listing another live process", () => {
 		writeSession("session-owned");
 		registerRuntimeMailboxListener(
