@@ -755,6 +755,61 @@ describe("Agent", () => {
 		expect(sawAbortSignal).toBe(true);
 	});
 
+	it("keeps steering queued when the run is aborted while preparing the next turn", async () => {
+		const schema = Type.Object({});
+		const tool: AgentTool<typeof schema> = {
+			name: "noop",
+			label: "Noop",
+			description: "Noop tool",
+			parameters: schema,
+			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+		};
+		const preparing = createDeferred();
+		const release = createDeferred();
+		const userTextsPerRequest: string[][] = [];
+		let requestCount = 0;
+		const agent = new Agent({
+			initialState: { tools: [tool] },
+			prepareNextTurnWithContext: async () => {
+				preparing.resolve();
+				await release.promise;
+				return undefined;
+			},
+			streamFn: (_model, context) => {
+				requestCount++;
+				userTextsPerRequest.push(
+					context.messages
+						.filter((message) => message.role === "user")
+						.map((message) =>
+							typeof message.content === "string"
+								? message.content
+								: message.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
+						),
+				);
+				const stream = new MockAssistantStream();
+				const message =
+					requestCount === 1
+						? createAssistantToolUseMessage([{ type: "toolCall", id: "tool-1", name: "noop", arguments: {} }])
+						: createAssistantMessage("done");
+				queueMicrotask(() =>
+					stream.push({ type: "done", reason: requestCount === 1 ? "toolUse" : "stop", message }),
+				);
+				return stream;
+			},
+		});
+
+		const run = agent.prompt("initial");
+		await preparing.promise;
+		agent.steer({ role: "user", content: [{ type: "text", text: "S" }], timestamp: Date.now() });
+		agent.abort();
+		release.resolve();
+		await run;
+
+		expect(agent.hasQueuedMessages()).toBe(true);
+		await agent.continue();
+		expect(userTextsPerRequest).toEqual([["initial"], ["initial", "S"]]);
+	});
+
 	it("forwards sessionId to streamFn options", async () => {
 		let receivedSessionId: string | undefined;
 		const agent = new Agent({

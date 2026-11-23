@@ -341,6 +341,7 @@ async function runLoop(
 				return;
 			}
 
+			throwIfAborted(signal); // An abort during the hooks above leaves queued input queued instead of dropping it.
 			pendingMessages = (await config.getSteeringMessages?.()) || [];
 		}
 
@@ -352,7 +353,6 @@ async function runLoop(
 			continue;
 		}
 
-		// No more messages, exit
 		break;
 	}
 

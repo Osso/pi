@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- Aborting a run while `prepareNextTurn` or `shouldStopAfterTurn` is pending no longer drops steering or follow-up messages queued meanwhile; they stay queued for the next run
 - Steering queued from an assistant `message_end` listener no longer aborts the run; the completed response stays and the steering message starts the next request
 - Fixed `Agent.continue()` sending queued steering or follow-up messages before running unfinished tool calls restored from the transcript
 - `AgentHarness` flushes session writes queued by a `before_agent_start` or queue-update hook that fails, instead of leaving them off disk until the next successful turn.
