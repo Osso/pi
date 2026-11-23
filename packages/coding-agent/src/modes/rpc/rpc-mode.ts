@@ -102,8 +102,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		request: Record<string, unknown>,
 		parseResponse: (response: RpcExtensionUIResponse) => T,
 	): Promise<T> {
-		if (opts?.signal?.aborted) return Promise.resolve(defaultValue);
-
+		// No reply can arrive after stdin closes.
+		if (opts?.signal?.aborted || input.closed()) return Promise.resolve(defaultValue);
 		const id = crypto.randomUUID();
 		return new Promise((resolve, reject) => {
 			let timeoutId: ReturnType<typeof setTimeout> | undefined;

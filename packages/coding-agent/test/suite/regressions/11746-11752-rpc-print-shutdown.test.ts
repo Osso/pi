@@ -36,6 +36,7 @@ async function runShutdown(
 	modeArgs: string[],
 	trigger: (child: ChildProcess, cleanupStarted: string, cleanupFinished: string) => void | Promise<void>,
 	extensionCode: { startup?: string; shutdown?: string } = {},
+	awaitRpcReady = true,
 ): Promise<ShutdownRun> {
 	const paths = createHeadlessPaths();
 	const cacheDir = join(paths.tempDir, "compile-cache");
@@ -113,7 +114,7 @@ async function runShutdown(
 			});
 			const exited = new Promise<number | null>((resolve) => proc.once("close", resolve));
 			childClosed = exited;
-			if (modeArgs.includes("rpc")) await waitForRpcReady(proc, () => stderr);
+			if (modeArgs.includes("rpc") && awaitRpcReady) await waitForRpcReady(proc, () => stderr);
 			await trigger(proc, startedMarker, finishedMarker);
 			const exitCode = await exited;
 			return { exitCode, cleanupFinished: existsSync(finishedMarker), stdout, stderr };
@@ -154,6 +155,33 @@ describe("shutdown signals during cleanup (#11752)", () => {
 		expect(run.cleanupFinished, run.stderr).toBe(true);
 		expect(run.exitCode).toBe(143);
 	}, 60_000);
+
+	it("cancels a startup dialog opened after stdin closed and finishes RPC shutdown", async () => {
+		const run = await runShutdown(
+			["--mode", "rpc"],
+			async (child) => {
+				let stdout = "";
+				child.stdout?.on("data", (chunk: Buffer) => {
+					stdout += chunk.toString();
+				});
+				await vi.waitFor(() => expect(stdout).toContain("First startup confirmation"), {
+					timeout: 20_000,
+					interval: 20,
+				});
+				child.stdin?.end();
+			},
+			{
+				startup: `pi.on("session_start", async (_event, ctx) => {
+					await ctx.ui.confirm("First startup confirmation", "Proceed?");
+					await ctx.ui.confirm("Second startup confirmation", "Proceed again?");
+				});`,
+			},
+			false,
+		);
+
+		expect(run.cleanupFinished, run.stderr).toBe(true);
+		expect(run.exitCode).toBe(0);
+	}, 30_000);
 
 	it("exits RPC mode at once on a repeated signal", async () => {
 		const run = await runShutdown(["--mode", "rpc"], (child) => {

@@ -19,7 +19,7 @@ Common options:
 
 ### Stopping RPC mode
 
-Closing stdin, SIGTERM, and SIGHUP start an orderly shutdown that runs `session_shutdown` handlers and disposes the session. Once a shutdown has started, a stdin EOF or a single signal does not interrupt it; a second signal exits at once. Closing stdin and sending SIGTERM together is safe.
+Closing stdin, SIGTERM, and SIGHUP start an orderly shutdown that runs `session_shutdown` handlers and disposes the session. Once a shutdown has started, a stdin EOF or a single signal does not interrupt it; a second signal exits at once. Closing stdin and sending SIGTERM together is safe. After stdin closes, open and later extension dialogs resolve as cancelled, because no reply can arrive.
 
 ### Restoring interrupted sessions
 
