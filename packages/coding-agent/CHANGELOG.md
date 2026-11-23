@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `pi update` reporting success for a git package whose earlier update moved to the new commit but failed to install its dependencies; an already-current checkout with a missing dependency now installs its dependencies again (port of upstream b06dc76fd)
 - Fixed `ctx.ui.pasteToEditor()` and `ctx.ui.setEditorText()` not repainting the editor when called outside terminal input handling, such as after an `await` in a command handler (port of upstream [#12295](https://github.com/earendil-works/pi/issues/12295))
 - `--model provider/id --api-key <key>` now uses the named provider instead of a gateway with stored credentials that lists `provider/id` as a raw model ID, which received the key
 - A completed Bash card no longer shows a second, wrong duration (`Took 0.0s`) under its recorded elapsed time after the transcript is rebuilt

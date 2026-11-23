@@ -39,6 +39,7 @@ import {
 	normalizePath,
 	resolvePath,
 } from "../utils/paths.ts";
+import { hasMissingGitDependencies } from "./git-package-dependencies.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import type { PackageSource, SettingsManager } from "./settings-manager.ts";
 
@@ -1814,17 +1815,14 @@ export class DefaultPackageManager implements PackageManager {
 			cwd: targetDir,
 			timeoutMs: NETWORK_TIMEOUT_MS,
 		});
-		if (localHead.trim() === targetHead.trim()) {
-			return;
+		const current = localHead.trim() === targetHead.trim();
+		if (current && !hasMissingGitDependencies(targetDir)) return;
+		if (!current) {
+			await this.runCommand("git", ["reset", "--hard", commitRef], { cwd: targetDir });
+			// Clean untracked files (extensions should be pristine)
+			await this.runCommand("git", ["clean", "-fdx"], { cwd: targetDir });
 		}
-
-		await this.runCommand("git", ["reset", "--hard", commitRef], { cwd: targetDir });
-
-		// Clean untracked files (extensions should be pristine)
-		await this.runCommand("git", ["clean", "-fdx"], { cwd: targetDir });
-
-		const packageJsonPath = join(targetDir, "package.json");
-		if (existsSync(packageJsonPath)) {
+		if (existsSync(join(targetDir, "package.json"))) {
 			await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
 		}
 	}

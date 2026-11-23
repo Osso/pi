@@ -124,6 +124,40 @@ describe("DefaultPackageManager git update", () => {
 	}
 
 	describe("normal updates (no force-push)", () => {
+		// Port of upstream b06dc76fd: an update whose dependency install failed must not look current on retry.
+		it("installs missing dependencies on the update after a failed install", async () => {
+			setupRemoteAndInstall();
+			writeFileSync(
+				join(remoteDir, "package.json"),
+				JSON.stringify({ name: "test-extension", version: "2.0.0", dependencies: { "runtime-dep": "1.0.0" } }),
+			);
+			git(["add", "package.json"], remoteDir);
+			createCommit(remoteDir, "extension.ts", "// v2", "Add dependency");
+
+			let npmFails = true;
+			const managerWithInternals = packageManager as unknown as {
+				runCommand: (command: string, args: string[], options?: { cwd?: string }) => Promise<void>;
+			};
+			managerWithInternals.runCommand = async (command, args, options) => {
+				if (command === "npm") {
+					if (npmFails) throw new Error("npm install failed: ENOENT");
+					const dependencyDir = join(options?.cwd ?? "", "node_modules", "runtime-dep");
+					mkdirSync(dependencyDir, { recursive: true });
+					writeFileSync(join(dependencyDir, "package.json"), "{}");
+					return;
+				}
+				git(args, options?.cwd ?? tempDir);
+			};
+
+			await expect(packageManager.update()).rejects.toThrow("npm install failed");
+			expect(getFileContent(installedDir, "extension.ts")).toBe("// v2");
+
+			npmFails = false;
+			await packageManager.update();
+
+			expect(existsSync(join(installedDir, "node_modules", "runtime-dep", "package.json"))).toBe(true);
+		});
+
 		it("should skip reset, clean, and install when already up to date", async () => {
 			mkdirSync(remoteDir, { recursive: true });
 			initGitRepo(remoteDir);
