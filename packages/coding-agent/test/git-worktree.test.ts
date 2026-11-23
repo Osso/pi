@@ -180,6 +180,19 @@ describe("resolveWorktree with real git", () => {
 		expect(existsSync(worktree)).toBe(false);
 	});
 
+	it.each(["", "feature/login"])("rejects worktree name %j without creating a checkout", async (name) => {
+		const { repo } = createRepo("project");
+
+		await expect(resolveWorktree(name, { cwd: repo })).rejects.toThrow(
+			`Invalid worktree name ${JSON.stringify(name)}`,
+		);
+		expect(
+			git(repo, "worktree", "list", "--porcelain")
+				.split("\n")
+				.filter((line) => line.startsWith("worktree ")),
+		).toEqual([`worktree ${repo}`]);
+	});
+
 	it("keeps trailing whitespace in the repository root", async () => {
 		const { repo, remoteCommit } = createRepo("project ");
 

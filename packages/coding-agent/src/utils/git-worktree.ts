@@ -84,6 +84,10 @@ async function resolveBaseRef(exec: GitExec, repoRoot: string): Promise<string> 
 }
 
 export async function resolveWorktree(name: string, options: { cwd: string; exec?: GitExec }): Promise<string> {
+	// The name becomes one sibling directory suffix; an empty name or a path separator breaks that.
+	if (name.length === 0 || name.includes("/")) {
+		throw new WorktreeStartupError(`Invalid worktree name ${JSON.stringify(name)}: use a non-empty name without "/"`);
+	}
 	const exec = options.exec ?? defaultGitExec;
 	let repoRoot: string;
 	try {

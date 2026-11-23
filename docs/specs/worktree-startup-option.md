@@ -10,6 +10,7 @@ The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree b
 - [x] `-w <NAME>` and `--worktree <NAME>` are accepted by `parseArgs()` in `cli/args.ts` and stored on the `Args` object.
 - [x] The flag is documented in `printHelp()` output.
 - [x] Passing `-w` without a value is a parse error reported via `args.diagnostics`.
+- [x] An empty `<NAME>` or one containing `/` is rejected with a visible error and the session does not start, so the worktree stays a direct sibling.
 
 ### Worktree resolution
 - [x] If a sibling worktree directory named `<NAME>` already exists (detected via `git worktree list`), it is reused without re-creating.

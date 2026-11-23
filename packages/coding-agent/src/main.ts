@@ -1020,7 +1020,7 @@ export async function main(args: string[], options?: MainOptions) {
 
 	validateForkFlags(parsed);
 	validateSessionIdFlags(parsed);
-	if (parsed.worktree) {
+	if (parsed.worktree !== undefined) {
 		try {
 			cwd = await resolveWorktree(parsed.worktree, { cwd });
 		} catch (error) {
