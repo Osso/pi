@@ -7,6 +7,7 @@ import {
 	selectDetachedArtifactDirectoriesToDelete,
 } from "./detached-job-retention.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
+import { ARCHIVED_SESSION_SUFFIX, isArchivedSessionFile } from "./session-archive-storage.ts";
 import {
 	deleteReleasedTerminalMultiAgentAgents,
 	listDetachedArtifactAgentsUpdatedAtOrBefore,
@@ -331,7 +332,11 @@ function detachedArtifactDirectory(
 ): string | undefined {
 	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log" || !isPathSegment(jobId)) return undefined;
 	const directoryPath = resolve(dirname(outputPath));
-	const sessionName = basename(sessionPath, extname(sessionPath));
+	// Archiving renames session.jsonl to session.jsonl.zst; its jobs stay under detached-jobs/session/.
+	const plainSessionPath = isArchivedSessionFile(sessionPath)
+		? sessionPath.slice(0, -ARCHIVED_SESSION_SUFFIX.length)
+		: sessionPath;
+	const sessionName = basename(plainSessionPath, extname(plainSessionPath));
 	if (!isPathSegment(sessionName)) return undefined;
 	// Bash jobs write under the agent directory; Pyrun jobs write beside the session file.
 	const owningRoot = [artifactRoot, dirname(sessionPath)].find(

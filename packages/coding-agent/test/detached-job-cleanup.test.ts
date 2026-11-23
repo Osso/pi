@@ -23,6 +23,7 @@ import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
+import { archivePersistedSession } from "../src/core/session-archive-storage.ts";
 import {
 	bootstrapMultiAgentAgent,
 	createFailedMultiAgentChild,
@@ -648,6 +649,34 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 		});
 	});
+
+	it.each([false, true])(
+		"expires the output of an archived session's job at 24 hours (beside session: %s)",
+		(besideSession) => {
+			const root = createRoot();
+			const controlDbPath = getControlDbPath(root);
+			const sessionPath = join(root, "sessions", "project", "archived.jsonl");
+			const updatedAt = new Date(NOW - 25 * 60 * 60 * 1_000).toISOString();
+			const artifact = persistArtifact({
+				controlDbPath,
+				jobId: "bash_archived",
+				lifecycle: "completed",
+				root,
+				sessionName: "archived",
+				updatedAt,
+				besideSession,
+			});
+			mkdirSync(join(root, "sessions", "project"), { recursive: true });
+			writeFileSync(sessionPath, `${JSON.stringify({ type: "session", id: "session-archived" })}\n`);
+			const archivedPath = archivePersistedSession(controlDbPath, sessionPath);
+
+			const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
+
+			expect(result.errors).toEqual([]);
+			expect(existsSync(artifact)).toBe(false);
+			expect(readMultiAgentAgent(controlDbPath, archivedPath, "bash_archived")).toBeUndefined();
+		},
+	);
 
 	it("applies age and byte retention to Pyrun artifacts stored beside the session file", () => {
 		const root = createRoot();

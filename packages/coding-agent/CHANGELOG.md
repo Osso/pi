@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Detached Bash and Pyrun output of an archived session now expires after 24 hours like other job output instead of being kept indefinitely
 - `pi tools` and `pi extensions` report extension load errors on stderr instead of silently omitting the failed extension
 - `/loop` no longer queues a second loop prompt when an interval passes while the previous loop turn waits for an automatic retry
 - `pi control restart` no longer sends SIGHUP to a PID from a healthy session row when that process is no longer Pi
