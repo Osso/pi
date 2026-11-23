@@ -45,6 +45,8 @@ describe("summarizeToolArguments", () => {
 
 	it("truncates long values and ignores unknown argument shapes", () => {
 		expect(summarizeToolArguments({ code: "x".repeat(500) })).toHaveLength(160);
+		// A cut at the limit must not split an emoji into a lone surrogate.
+		expect(summarizeToolArguments({ path: `${"a".repeat(158)}📚-notes.md` })).toBe(`${"a".repeat(158)}…`);
 		expect(summarizeToolArguments({ edits: [] })).toBeUndefined();
 		expect(summarizeToolArguments(undefined)).toBeUndefined();
 	});

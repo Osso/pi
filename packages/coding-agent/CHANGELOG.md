@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- The agents status widget no longer shows a broken character when a tool detail is cut at 160 characters inside an emoji
 - A failed `browser-cli` batch now reports the output of the commands that succeeded before it, and ends with the failing command's stderr and exit code so they survive truncation of a large stdout
 - Startup no longer repeats old changelog entries when the last seen version has a prerelease or build suffix such as `0.1.5-20261020.7`; a saved version without `major.minor.patch` is replaced by the installed version (upstream [#11703](https://github.com/earendil-works/pi/issues/11703))
 - `pi update --self` works again when `PI_SKIP_VERSION_CHECK` is set; the variable now skips only the automatic version check (upstream [#6977](https://github.com/earendil-works/pi/issues/6977))

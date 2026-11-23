@@ -23,9 +23,11 @@ export function summarizeToolArguments(args: unknown): string | undefined {
 		if (typeof value !== "string") continue;
 		const singleLine = value.replace(/\s+/g, " ").trim();
 		if (!singleLine) continue;
-		return singleLine.length > MAX_ACTIVITY_DETAIL_LENGTH
-			? `${singleLine.slice(0, MAX_ACTIVITY_DETAIL_LENGTH - 1)}…`
-			: singleLine;
+		if (singleLine.length <= MAX_ACTIVITY_DETAIL_LENGTH) return singleLine;
+		// Do not end on the high half of a surrogate pair.
+		const cut = MAX_ACTIVITY_DETAIL_LENGTH - 1;
+		const end = /[\uD800-\uDBFF]/.test(singleLine[cut - 1] ?? "") ? cut - 1 : cut;
+		return `${singleLine.slice(0, end)}…`;
 	}
 	return undefined;
 }
