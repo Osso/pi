@@ -28,7 +28,7 @@
 	"packages/coding-agent/src/modes/interactive/theme/theme.ts": 1281,
 	"packages/coding-agent/src/modes/rpc/rpc-mode.ts": 827,
 	"packages/coding-agent/src/package-manager-cli.ts": 782,
-	"packages/tui/src/autocomplete.ts": 776,
+	"packages/tui/src/autocomplete.ts": 775,
 	"packages/tui/src/components/editor.ts": 2578,
 	"packages/tui/src/components/markdown.ts": 892,
 	"packages/tui/src/keys.ts": 1384,

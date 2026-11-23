@@ -7,6 +7,8 @@ const cjkPunctuationRegex = new RegExp(
 );
 export const autocompleteSeparatorRegex = new RegExp(`(?:\\s|${cjkPunctuationRegex.source})`, "u");
 const tokenStartRegex = new RegExp(`(?:^|${autocompleteSeparatorRegex.source})$`, "u");
+/** Where a token after the cursor ends: whitespace, CJK punctuation, or the end of the line. */
+export const tokenEndRegex = new RegExp(`${autocompleteSeparatorRegex.source}|$`, "u");
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
 // Opening wrappers that may precede a path in prose, mapped to their closing counterpart.
 const PATH_WRAPPERS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "<": ">", "`": "`" };

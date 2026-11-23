@@ -669,6 +669,20 @@ describe("CombinedAutocompleteProvider", () => {
 				assert.strictEqual(applied.lines[0], expected);
 			}
 		});
+
+		test("replaces the rest of an @ path that ends at CJK punctuation", async () => {
+			setupFolder(baseDir, { files: { "说明.md": "content" } });
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const line = "查看，@说明.md，后文";
+			const cursorCol = "查看，@说".length;
+			const result = await getSuggestions(provider, [line], 0, cursorCol);
+			const item = result?.items.find((entry) => entry.value === "@说明.md");
+			assert.ok(item && result, "Should suggest @说明.md");
+
+			const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
+
+			assert.strictEqual(applied.lines[0], "查看，@说明.md ，后文");
+		});
 	});
 
 	describe("dot-slash path completion", () => {

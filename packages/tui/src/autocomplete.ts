@@ -8,6 +8,7 @@ import {
 	findLastDelimiter,
 	isTokenStart,
 	stripLeadingWrappers,
+	tokenEndRegex,
 } from "./autocomplete-tokens.ts";
 import { fuzzyFilter } from "./fuzzy.ts";
 
@@ -27,9 +28,7 @@ function buildFdPathQuery(query: string): string {
 
 	const hasTrailingSeparator = normalized.endsWith("/");
 	const trimmed = normalized.replace(/^\/+|\/+$/g, "");
-	if (!trimmed) {
-		return normalized;
-	}
+	if (!trimmed) return normalized;
 
 	const separatorPattern = "[\\\\/]";
 	const segments = trimmed
@@ -377,7 +376,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const isQuotedPrefix = prefix.startsWith('"') || prefix.startsWith('@"');
 		const tokenRest = isQuotedPrefix
 			? afterCursor.slice(0, afterCursor.indexOf('"') + 1)
-			: afterCursor.slice(0, afterCursor.search(/\s|$/));
+			: afterCursor.slice(0, afterCursor.search(tokenEndRegex));
 		const adjustedAfterCursor = item.value.endsWith(tokenRest) ? afterCursor.slice(tokenRest.length) : afterCursor;
 
 		// Check if we're completing a slash command (prefix starts with "/" but NOT a file path)
