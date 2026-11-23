@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- With `--no-session`, `/fork` and `/clone` show the outgoing session to `session_shutdown` handlers instead of the replacement
 - Print mode prints the answer before an `end_turn` response whose only text is whitespace instead of the whitespace
 - `/reload` during a Supervisor due-task poll no longer delivers the same reminder twice
 - Quitting a session before its first message no longer launches the claude-memory indexer for a transcript that was never written

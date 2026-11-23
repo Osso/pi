@@ -123,7 +123,7 @@ afterEach(async () => {
 	}
 });
 
-async function createRuntimeHost(extensionFactory: ExtensionFactory) {
+async function createRuntimeHost(extensionFactory: ExtensionFactory, options: { inMemory?: boolean } = {}) {
 	const tempDir = join(tmpdir(), `pi-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 	mkdirSync(tempDir, { recursive: true });
 
@@ -160,7 +160,9 @@ async function createRuntimeHost(extensionFactory: ExtensionFactory) {
 			diagnostics: services.diagnostics,
 		};
 	};
-	const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+	const sessionManager = options.inMemory
+		? SessionManager.inMemory(tempDir)
+		: SessionManager.create(tempDir, join(tempDir, "sessions"));
 	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 	const runtimeHost = await createAgentSessionRuntime(createRuntime, {
 		cwd: tempDir,
@@ -392,6 +394,52 @@ describe("AgentSessionRuntime fork lifecycle events", () => {
 		expect(cancelAtResult).toEqual({ cancelled: true });
 		expect(events).toEqual([{ type: "session_before_fork", entryId: "missing-entry", position: "at" }]);
 	});
+
+	// --no-session: fork and clone reuse the in-memory manager, which must not switch before the old
+	// extension instance sees session_shutdown.
+	it.each([
+		{ name: "fork", position: "before" as const, shutdownUserMessages: 2 },
+		{ name: "clone", position: "at" as const, shutdownUserMessages: 2 },
+	])(
+		"shows the outgoing in-memory session to session_shutdown on $name",
+		async ({ position, shutdownUserMessages }) => {
+			const seen: Array<{ event: string; sessionId: string; userMessages: number }> = [];
+			const record = (event: string, ctx: ExtensionContext): void => {
+				seen.push({
+					event,
+					sessionId: ctx.sessionManager.getSessionId(),
+					userMessages: ctx.sessionManager
+						.getEntries()
+						.filter((entry) => entry.type === "message" && entry.message.role === "user").length,
+				});
+			};
+			const { runtimeHost } = await createRuntimeHost(
+				(pi) => {
+					pi.on("session_shutdown", (_event, ctx) => record("shutdown", ctx));
+					pi.on("session_start", (_event, ctx) => record("start", ctx));
+				},
+				{ inMemory: true },
+			);
+			await runtimeHost.session.prompt("first prompt");
+			await runtimeHost.session.prompt("second prompt");
+			const originalSessionId = runtimeHost.session.sessionManager.getSessionId();
+			const target = runtimeHost.session.getUserMessagesForForking()[position === "before" ? 0 : 1];
+			seen.length = 0;
+
+			const result = await runtimeHost.fork(target.entryId, { position });
+			await runtimeHost.session.bindExtensions({});
+
+			expect(result.cancelled).toBe(false);
+			const replacementSessionId = runtimeHost.session.sessionManager.getSessionId();
+			expect(replacementSessionId).not.toBe(originalSessionId);
+			expect(seen[0]).toEqual({
+				event: "shutdown",
+				sessionId: originalSessionId,
+				userMessages: shutdownUserMessages,
+			});
+			expect(seen.at(-1)).toMatchObject({ event: "start", sessionId: replacementSessionId });
+		},
+	);
 
 	it("returns the forked message text when an extension cancels the fork", async () => {
 		const { runtimeHost } = await createRuntimeHost((pi) => {
