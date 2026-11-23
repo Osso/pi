@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed repeated `wait_agent` turns stacking `Thought for` lines with nothing between them, because the settled wait row is hidden
 - Fixed a failed `/tree` summary write moving the session leaf, which made the next prompt reopen on the wrong branch
 - Fixed a timed-out or cancelled Bash command leaving a SIGTERM-ignoring child running when the shell exited before the SIGKILL grace period ended
 - Fixed extension `ctx.waitForIdle()` returning during automatic retry backoff, which let print mode exit before the retry ran

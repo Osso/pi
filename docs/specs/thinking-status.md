@@ -23,7 +23,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - [x] While an active tool controls the working row, the thinking-duration timer must not replace its tool-wait message (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
 - [x] While a pending tool runs, the footer's partial working-status region renders live elapsed time for both main-session and selected-child views (`packages/coding-agent/test/interactive-mode-tool-timing.test.ts`).
 - [x] Active tool cards do not own recurring timers or trigger global transcript redraws; completed cards render final elapsed duration below compact or expanded call content (`packages/coding-agent/test/edit-tool-no-full-redraw.test.ts`, `packages/coding-agent/test/tool-execution-component.test.ts`).
-- [x] When a model turn emits a tool call, including the first model turn after a user prompt, render the completed interval as `Thought for <duration>` before the tool row; intervals shorter than one second remain hidden (`packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts`).
+- [x] When a model turn emits a tool call, including the first model turn after a user prompt, render the completed interval as `Thought for <duration>` before the tool row; intervals shorter than one second remain hidden, and turns whose only tool calls are `wait_agent` show no line because the settled wait row is hidden (`packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts`).
 
 ### Steering
 

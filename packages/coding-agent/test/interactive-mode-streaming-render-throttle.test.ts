@@ -303,6 +303,24 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(rendered.indexOf("Thought for 2s")).toBeLessThan(rendered.indexOf("next command"));
 	});
 
+	test("does not render thinking time before a wait_agent call, whose settled row is hidden", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
+		const fakeThis = createFakeInteractiveModeThis();
+		for (let turn = 0; turn < 3; turn++) {
+			fakeThis.thinkingStartedAt = Date.now();
+			await handleEvent.call(fakeThis, { type: "message_start", message: createAssistantMessage("") });
+			vi.setSystemTime(Date.now() + 2_400);
+			const waitCall: AssistantMessage = {
+				...createAssistantMessage(""),
+				content: [{ type: "toolCall", id: `wait-${turn}`, name: "wait_agent", arguments: {} }],
+			};
+			await handleEvent.call(fakeThis, { type: "message_end", message: waitCall });
+		}
+
+		expect(fakeThis.chatContainer.render(120).join("\n")).not.toContain("Thought for");
+	});
+
 	test("renders completed thinking time when text streams before the tool call", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000);

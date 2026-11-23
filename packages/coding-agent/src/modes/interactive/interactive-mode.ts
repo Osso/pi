@@ -1653,9 +1653,7 @@ export class InteractiveMode {
 	}
 
 	private getThinkingWorkingMessage(): string {
-		if (this.thinkingStartedAt === undefined) {
-			return this.defaultWorkingMessage;
-		}
+		if (this.thinkingStartedAt === undefined) return this.defaultWorkingMessage;
 		const elapsedMs = Date.now() - this.thinkingStartedAt;
 		const duration = elapsedMs < MIN_VISIBLE_ELAPSED_MS ? "0s" : formatElapsedDuration(elapsedMs);
 		return `${this.defaultWorkingMessage} ${duration}`;
@@ -1682,7 +1680,8 @@ export class InteractiveMode {
 		const elapsedMs = startedAt === undefined ? this.completedThinkingMs : Date.now() - startedAt;
 		this.completedThinkingMs = undefined;
 		if (elapsedMs === undefined || elapsedMs < MIN_VISIBLE_ELAPSED_MS) return;
-		if (!message.content.some((content) => content.type === "toolCall")) return;
+		// A settled wait_agent row renders nothing, so its duration line would stack with the next one.
+		if (!message.content.some((content) => content.type === "toolCall" && content.name !== "wait_agent")) return;
 		this.chatContainer.addChild(new Text(theme.fg("muted", `Thought for ${formatElapsedDuration(elapsedMs)}`), 1, 0));
 	}
 
