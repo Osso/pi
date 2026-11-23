@@ -155,7 +155,7 @@ export class CodexRestrictionRecoveryState {
 	}
 
 	private async displayBlocked(reason: string): Promise<false> {
-		const content = `No validated narrower scope: ${reason}\nNo automatic task execution; original request remains pending.`;
+		const content = `No validated narrower scope: ${reason}\nNo automatic task execution; original request remains pending. Send a new request to continue.`;
 		await this.dependencies.sendCustomMessage({
 			customType: "supervisor_restriction_recovery",
 			content,
@@ -226,7 +226,7 @@ export class CodexRestrictionRecoveryState {
 		const context = this.loadContext();
 		if (!context) return this.displayBlocked("An explicit user request is required for review");
 		if (!claimCodexRestrictionRecovery(this.dependencies.getControlDbPath(), context.requestId)) {
-			return this.displayBlocked("Recovery was already used for this request; send a new request");
+			return this.displayBlocked("Recovery was already used for this request");
 		}
 		const snapshot: CodexRestrictionSnapshot = {
 			sessionId: this.dependencies.getSessionId(),

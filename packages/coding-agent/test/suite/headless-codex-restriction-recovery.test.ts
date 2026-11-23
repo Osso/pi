@@ -345,6 +345,8 @@ describe("real-process Codex restriction recovery", () => {
 				);
 				await expectNoModelRequest(agent);
 				expect(JSON.stringify(readRecoveryEntries(agent))).toContain("No automatic task execution");
+				// The spec requires the notice to name the user's next action.
+				expect(JSON.stringify(readRecoveryEntries(agent))).toContain("Send a new request to continue.");
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(1);
 				expectOriginalHistory(agent);
 				expectSpentBudget(agent);
