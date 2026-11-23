@@ -276,9 +276,11 @@ function writeImportedSession(path: string, sessionId: string, source: SourceSes
 }
 
 function findIdInCodexFileName(path: string): string | undefined {
-	const match = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z0-9._-]+)\.jsonl$/.exec(
-		basename(path),
-	);
+	const name = basename(path);
+	// Rollout names end with the session UUID; try it before falling back to the whole stem.
+	const match =
+		/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/.exec(name) ??
+		/([A-Za-z0-9._-]+)\.jsonl$/.exec(name);
 	return match?.[1];
 }
 

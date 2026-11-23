@@ -97,6 +97,23 @@ describe("importExternalSessionAlias", () => {
 		]);
 	});
 
+	it("takes a Codex session ID from the rollout file name when session_meta has none", async () => {
+		const homeDir = createTempDir();
+		const sessionDir = join(homeDir, "sessions");
+		const sessionId = "11111111-2222-4333-8444-555555555555";
+		const codexDir = join(homeDir, ".codex", "sessions", "2026", "04", "30");
+		mkdirSync(codexDir, { recursive: true });
+		writeJsonl(join(codexDir, `rollout-2026-04-30T22-46-58-${sessionId}.jsonl`), [
+			{ type: "session_meta", payload: {} },
+			{ type: "response_item", payload: { type: "message", role: "user", content: "hello" } },
+		]);
+
+		const imported = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
+
+		expect(assertDefined(imported).path).toBe(join(sessionDir, `codex-${sessionId}.jsonl`));
+		expect(SessionManager.open(assertDefined(imported).path).getSessionId()).toBe(`codex-${sessionId}`);
+	});
+
 	it("imports a Claude Code session alias into a Pi session", async () => {
 		const homeDir = createTempDir();
 		const projectDir = join(homeDir, "project");
