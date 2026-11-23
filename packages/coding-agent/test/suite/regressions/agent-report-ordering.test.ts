@@ -48,12 +48,13 @@ describe("sub-agent completion report ordering", () => {
 			expect(JSON.stringify(listResult)).toContain("Found 0 agents");
 			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("completed");
 			expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeUndefined();
-			expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toEqual([]);
-			expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === spawned.id)).toEqual([]);
 
+			// The report is delivered when the next model call is prepared, after the list_agents result is persisted.
 			const nextParentRequest = await pi.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 			);
+			expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toEqual([]);
+			expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === spawned.id)).toEqual([]);
 			expect(nextParentRequest.userMessages).toContainEqual(expect.stringContaining("trace complete"));
 		});
 	});
