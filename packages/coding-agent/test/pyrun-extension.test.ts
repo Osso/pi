@@ -2458,7 +2458,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(runningFileRefs?.[1]).toMatchObject({ label: "Pyrun script" });
 		expect(store.abortAgentHandle(job.id)).toBe(false);
 		requestDetachedCancellation(store, job.id);
-		await waitFor(() => hasProjectedLifecycle(store, job.id, "aborted"), "detached Pyrun cancellation");
+		// Cancellation crosses the detached runner process; isolated runs already use up to 93 of 100 attempts.
+		await waitFor(
+			() => hasProjectedLifecycle(store, job.id, "aborted"),
+			"detached Pyrun cancellation",
+			SLOW_DETACHED_COMPLETION_ATTEMPTS,
+		);
 		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 		expect(store.abortAgentHandle(job.id)).toBe(false);
 	});
