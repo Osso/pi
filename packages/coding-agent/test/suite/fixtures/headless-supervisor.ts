@@ -36,9 +36,12 @@ export interface HeadlessSupervisor {
 
 /** Starts an idle stand-in process and records it as the running Supervisor session. */
 export async function registerHeadlessSupervisor(controlDbPath: string): Promise<HeadlessSupervisor> {
-	const child: ChildProcess = spawn(process.execPath, ["-e", "setInterval(() => {}, 2 ** 30)", PI_CLI_ENTRYPOINT], {
-		stdio: "ignore",
-	});
+	// The stand-in exits at EOF on its stdin pipe, which closes when the test process dies without close().
+	const child: ChildProcess = spawn(
+		process.execPath,
+		["-e", 'process.stdin.on("end", () => process.exit(0)).resume()', PI_CLI_ENTRYPOINT],
+		{ stdio: ["pipe", "ignore", "ignore"] },
+	);
 	await new Promise<void>((resolve, reject) => {
 		child.once("spawn", resolve);
 		child.once("error", reject);
