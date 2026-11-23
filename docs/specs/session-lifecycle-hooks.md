@@ -30,7 +30,8 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 ### Compaction (cancellable / replaceable)
 
-- [x] `session_before_compact` fires with `preparation`, `branchEntries`, optional `customInstructions`, and an `AbortSignal`; a handler may return `{ cancel: true }` to abort or `{ compaction }` to supply its own result (`compaction-extensions.test.ts:55,159` "should allow extensions to cancel compaction").
+- [x] `session_before_compact` fires with `preparation`, `branchEntries`, optional `customInstructions`, and an `AbortSignal`; a handler may return `{ cancel: true }` to abort (`compaction-extensions.test.ts:55,159` "should allow extensions to cancel compaction").
+- [x] `compaction` fires next with the same fields; a handler may return `{ cancel: true }` or `{ compaction }` to supply its own result (`compaction-extensions-example.test.ts`, `claude-bridge-provider.test.ts` "supplies the /compact summary through the compaction hook").
 - [x] `session_compact` fires after compaction with the resulting `compactionEntry` and a `fromExtension` flag (`compaction-extensions.test.ts:153-155`).
 
 ### Tree navigation (cancellable / replaceable)
