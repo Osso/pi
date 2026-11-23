@@ -2141,9 +2141,7 @@ export class InteractiveMode {
 			setStatus: (key, text) => this.setExtensionStatus(key, text),
 			setWorkingMessage: (message) => {
 				this.workingMessage = message;
-				if (this.loadingAnimation) {
-					this.loadingAnimation.setMessage(this.getWorkingLoaderMessage());
-				}
+				this.loadingAnimation?.setMessage(this.getWorkingLoaderMessage());
 			},
 			setWorkingVisible: (visible) => this.setWorkingVisible(visible),
 			setWorkingIndicator: (options) => this.setWorkingIndicator(options),
@@ -2154,8 +2152,14 @@ export class InteractiveMode {
 			setHeader: (factory) => this.setExtensionHeader(factory),
 			setTitle: (title) => this.ui.terminal.setTitle(title),
 			custom: (factory, options) => this.showExtensionCustom(factory, options),
-			pasteToEditor: (text) => this.editor.handleInput(`\x1b[200~${text}\x1b[201~`),
-			setEditorText: (text) => this.editor.setText(text),
+			pasteToEditor: (text) => {
+				this.editor.handleInput(`\x1b[200~${text}\x1b[201~`);
+				this.ui.requestRender();
+			},
+			setEditorText: (text) => {
+				this.editor.setText(text);
+				this.ui.requestRender();
+			},
 			getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
 			editor: (title, prefill) => this.showExtensionEditor(title, prefill),
 			addAutocompleteProvider: (factory) => {
@@ -2174,10 +2178,8 @@ export class InteractiveMode {
 					return this.themeController.setThemeInstance(themeOrName);
 				}
 				const result = this.themeController.setThemeName(themeOrName);
-				if (result.success) {
-					if (this.settingsManager.getTheme() !== themeOrName) {
-						this.settingsManager.setTheme(themeOrName);
-					}
+				if (result.success && this.settingsManager.getTheme() !== themeOrName) {
+					this.settingsManager.setTheme(themeOrName);
 				}
 				return result;
 			},
@@ -2186,9 +2188,7 @@ export class InteractiveMode {
 		};
 	}
 
-	/**
-	 * Show a selector for extensions.
-	 */
+	/** Show a selector for extensions. */
 	private showExtensionSelector(
 		title: string,
 		options: string[],

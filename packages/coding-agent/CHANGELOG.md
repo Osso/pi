@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `ctx.ui.pasteToEditor()` and `ctx.ui.setEditorText()` not repainting the editor when called outside terminal input handling, such as after an `await` in a command handler (port of upstream [#12295](https://github.com/earendil-works/pi/issues/12295))
 - `--model provider/id --api-key <key>` now uses the named provider instead of a gateway with stored credentials that lists `provider/id` as a raw model ID, which received the key
 - A completed Bash card no longer shows a second, wrong duration (`Took 0.0s`) under its recorded elapsed time after the transcript is rebuilt
 - `/import` of a session whose working directory no longer exists no longer leaves a stored copy when cancelled, or a second copy when continued in another directory
