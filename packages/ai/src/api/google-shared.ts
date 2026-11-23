@@ -3,7 +3,7 @@
  */
 
 import { type Content, FinishReason, FunctionCallingConfigMode, type Part } from "@google/genai";
-import type { Context, ImageContent, Model, StopReason, TextContent, Tool } from "../types.ts";
+import type { Context, ImageContent, Model, StopReason, TextContent, ThinkingLevel, Tool } from "../types.ts";
 import { truncateWithHash } from "../utils/hash.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { transformMessages } from "./transform-messages.ts";
@@ -29,6 +29,21 @@ export function usesServerManagedThinking(modelId: string): boolean {
  * Mirrors Google's ThinkingLevel enum values.
  */
 export type GoogleThinkingLevel = "THINKING_LEVEL_UNSPECIFIED" | "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
+
+/** A string `thinkingLevelMap` entry is the Gemini thinking level to send (case-insensitive); otherwise `fallback`. */
+export function mapGoogleThinkingLevel<T extends GoogleApiType>(
+	model: Model<T>,
+	effort: ThinkingLevel,
+	fallback: GoogleThinkingLevel,
+): GoogleThinkingLevel {
+	const mapped = model.thinkingLevelMap?.[effort];
+	if (typeof mapped !== "string") return fallback;
+	const level = mapped.toUpperCase();
+	if (level === "MINIMAL" || level === "LOW" || level === "MEDIUM" || level === "HIGH") return level;
+	throw new Error(
+		`Unsupported Google thinking level mapping for ${model.provider}/${model.id}: ${effort} -> ${mapped}`,
+	);
+}
 
 /**
  * Determines whether a streamed Gemini `Part` should be treated as "thinking".

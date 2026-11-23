@@ -25,12 +25,13 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
-import type { GoogleThinkingLevel } from "./google-shared.ts";
 import {
 	clampGoogleMaxOutputTokens,
 	convertMessages,
 	convertTools,
+	type GoogleThinkingLevel,
 	isThinkingPart,
+	mapGoogleThinkingLevel,
 	mapStopReason,
 	mapToolChoice,
 	retainThoughtSignature,
@@ -322,7 +323,7 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 			...base,
 			thinking: {
 				enabled: true,
-				level: getThinkingLevel(effort, googleModel),
+				level: mapGoogleThinkingLevel(googleModel, effort, getThinkingLevel(effort, googleModel)),
 			},
 		} satisfies GoogleOptions);
 	}
