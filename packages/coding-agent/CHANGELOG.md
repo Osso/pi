@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/restart` and `restart_self` reapplying the original `--name` argument, which replaced a later session rename
 - Fixed the Claude bridge dropping tool arguments named like `Object.prototype` members, such as `toString` or `constructor`
 - Fixed the goal extension starting an idle Supervisor review, and possibly another turn, after a completion review paused the goal
 - Fixed periodic checks rejecting a `periodic-checks.md` saved with a UTF-8 byte order mark as missing frontmatter

@@ -1067,7 +1067,7 @@ export async function main(args: string[], options?: MainOptions) {
 			console.error(chalk.red("Error: --name requires a non-empty value"));
 			process.exit(1);
 		}
-		sessionManager.setSessionName(name);
+		if (!selfRestartHandoff) sessionManager.setSessionName(name);
 	}
 	if (shouldTakeOverStdout) {
 		takeOverStdout();

@@ -97,6 +97,8 @@ export interface HeadlessPiOptions {
 	deleteCwdBeforeSelfRestart?: boolean;
 	enableMemoryEnrichment?: boolean;
 	env?: Record<string, string>;
+	/** Additional CLI arguments, kept across `restart_self` like the user's original argv. */
+	extraArgs?: string[];
 	model?: string | false;
 	provider?: "headless-faux" | "openai-codex";
 	sandboxProfile?: SandboxProfileName;
@@ -334,6 +336,7 @@ function createHeadlessRpcClient(
 	const args = [...(options.approvalPreset ? [] : ["--approve"]), "--no-context-files", "--no-skills", "--no-themes"];
 	if (options.noSupervisor) args.push("--no-supervisor", "--no-session");
 	if (sessionFile) args.push("--session", sessionFile);
+	args.push(...(options.extraArgs ?? []));
 	const selectedProvider = options.provider ?? "headless-faux";
 	const defaultModel = selectedProvider === "openai-codex" ? "headless-faux-codex" : "headless-faux-1";
 	const preloadPaths = [preloadPath, ...(options.deleteCwdBeforeSelfRestart ? [deleteCwdPreloadPath] : [])];
