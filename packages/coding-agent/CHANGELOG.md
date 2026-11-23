@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/tree` branch summarization ignoring cancellation while a `session_before_tree` extension handler was still running, which then appended the extension summary and moved the leaf
 - Fixed `/restart` and `restart_self` reapplying the original `--name` argument, which replaced a later session rename
 - Fixed the Claude bridge dropping tool arguments named like `Object.prototype` members, such as `toString` or `constructor`
 - Fixed the goal extension starting an idle Supervisor review, and possibly another turn, after a completion review paused the goal

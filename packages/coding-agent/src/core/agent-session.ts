@@ -4998,8 +4998,8 @@ export class AgentSession {
 					signal: branchSummaryAbortController.signal,
 				})) as SessionBeforeTreeResult | undefined;
 
-				if (result?.cancel) {
-					return { cancelled: true };
+				if (result?.cancel || branchSummaryAbortController.signal.aborted) {
+					return result?.cancel ? { cancelled: true } : { cancelled: true, aborted: true };
 				}
 
 				if (result?.summary && options.summarize) {
