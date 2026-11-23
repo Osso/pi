@@ -1,6 +1,6 @@
 import type * as ChildProcess from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +62,8 @@ describe("claude-memory session-end extension", () => {
 		const child = fakeChild();
 		spawnMock.mockReturnValue(child);
 		const shutdownHandler = await registerShutdownHandler();
-		const transcriptPath = "/tmp/pi fixture/session.jsonl";
+		const transcriptPath = join(cacheDirectory, "pi fixture session.jsonl");
+		writeFileSync(transcriptPath, "");
 
 		const outcome = await Promise.race([
 			Promise.resolve(
@@ -95,7 +96,8 @@ describe("claude-memory session-end extension", () => {
 			throw new Error("simulated spawn failure");
 		});
 		const shutdownHandler = await registerShutdownHandler();
-		const transcriptPath = "/tmp/pi fixture/failure.jsonl";
+		const transcriptPath = join(cacheDirectory, "pi fixture failure.jsonl");
+		writeFileSync(transcriptPath, "");
 
 		expect(() =>
 			shutdownHandler({ reason: "quit" }, { sessionManager: { getSessionFile: () => transcriptPath } }),
@@ -110,13 +112,23 @@ describe("claude-memory session-end extension", () => {
 			realSpawn(join(cacheDirectory, "missing-claude-memory"), args, options),
 		);
 		const shutdownHandler = await registerShutdownHandler();
-		const transcriptPath = "/tmp/pi fixture/missing.jsonl";
+		const transcriptPath = join(cacheDirectory, "pi fixture missing.jsonl");
+		writeFileSync(transcriptPath, "");
 
 		shutdownHandler({ reason: "quit" }, { sessionManager: { getSessionFile: () => transcriptPath } });
 
 		// Read synchronously: interactive quit calls process.exit before the asynchronous spawn error is delivered.
 		const log = readFileSync(join(cacheDirectory, "claude-memory/pi-index.log"), "utf8");
 		expect(log).toContain(`failed to launch index-file for session ${transcriptPath}`);
+	});
+
+	it("does nothing when the session never wrote its transcript", async () => {
+		const shutdownHandler = await registerShutdownHandler();
+		const transcriptPath = join(cacheDirectory, "never-written.jsonl");
+
+		await shutdownHandler({ reason: "quit" }, { sessionManager: { getSessionFile: () => transcriptPath } });
+
+		expect(spawnMock).not.toHaveBeenCalled();
 	});
 
 	it("does nothing for ephemeral sessions", async () => {

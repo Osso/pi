@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -55,7 +55,8 @@ function launchIndex(sessionPath: string): void {
 export default function claudeMemorySessionEndExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", (_event, ctx) => {
 		const sessionFile = ctx.sessionManager.getSessionFile();
-		if (!sessionFile) {
+		// A session closed before its first message never writes its transcript.
+		if (!sessionFile || !existsSync(sessionFile)) {
 			return;
 		}
 
