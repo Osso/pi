@@ -26,6 +26,29 @@ function requireFullOutputPath(details: unknown): string {
 }
 
 describe("wrapToolDefinition", () => {
+	it("keeps image blocks when it caps oversized text", async () => {
+		const image = { type: "image" as const, data: "iVBORw0KGgo=", mimeType: "image/png" };
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "mixed_output",
+				label: "Mixed output",
+				description: "Returns long text and an image",
+				parameters: Type.Object({}),
+				async execute() {
+					return {
+						content: [{ type: "text" as const, text: `start\n${"x".repeat(DEFAULT_MAX_BYTES * 2)}\nend` }, image],
+						details: {},
+					};
+				},
+			}),
+		);
+
+		const result = await tool.execute("mixed-call", {});
+
+		expect(result.content.filter((content) => content.type === "image")).toEqual([image]);
+		expect(readFileSync(requireFullOutputPath(result.details), "utf-8")).toContain("start\n");
+	});
+
 	it("passes the agent lifecycle start timestamp into extension context", async () => {
 		let observedStartedAt: number | undefined;
 		const tool = wrapToolDefinition(

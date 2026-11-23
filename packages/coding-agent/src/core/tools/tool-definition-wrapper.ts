@@ -67,7 +67,11 @@ function capToolResultOutput<TDetails>(
 	const footer = `[Showing last ${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
 	return {
 		...result,
-		content: [{ type: "text" as const, text: `${truncation.content}\n\n${footer}` }],
+		// The cap applies to text only; images and other blocks pass through.
+		content: [
+			{ type: "text" as const, text: `${truncation.content}\n\n${footer}` },
+			...result.content.filter((entry) => entry.type !== "text"),
+		],
 		details: mergeOutputDetails(result.details, { truncation, fullOutputPath }),
 	};
 }

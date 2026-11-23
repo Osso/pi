@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Extension tool results that exceed the text cap keep their image blocks instead of dropping them with the truncated text
 - Daybreak Blue applies when a model pool serves the request from an eligible Codex member
 - Codex fast mode adds its service tier when a model pool serves the request from a Codex member
 - An approval reviewer that returns the mutated `event.input` as `updatedInput` runs the tool with its rewrite instead of empty arguments
