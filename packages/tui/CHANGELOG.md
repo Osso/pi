@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- `Input` undo restores the empty value after the first word typed following `setValue()`
 - Fixed rows repeated in terminal scrollback when content above the viewport grew in the same frame that changed or appended visible rows
 - Fixed a non-capturing overlay that ends right before the focused cursor moving the hardware cursor away from it
 - Fixed file path completion missing paths after opening wrappers such as `(` or backticks and after CJK punctuation such as `：`

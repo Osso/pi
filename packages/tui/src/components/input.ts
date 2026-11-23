@@ -55,6 +55,7 @@ export class Input implements Component, Focusable {
 	setValue(value: string): void {
 		this.replaceValue(value);
 		this.undoStack.clear();
+		this.lastAction = null;
 	}
 
 	private replaceValue(value: string): void {

@@ -99,6 +99,17 @@ describe("Input component", () => {
 		assert.strictEqual(input.getValue(), "Beta");
 	});
 
+	it("undoes the first word typed after setValue", () => {
+		const input = new Input();
+		typeText(input, "abc");
+		input.setValue("");
+		typeText(input, "x");
+
+		input.handleInput("\x1f"); // Ctrl+- undo
+
+		assert.strictEqual(input.getValue(), "");
+	});
+
 	it("pastes tmux CSI-u newlines and C1 controls as plain single-line text", () => {
 		const input = new Input();
 
