@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Provider and request headers now replace default provider attribution headers spelled in another case (`http-referer` over `HTTP-Referer`), instead of sending both values
 - A `models.json` entry that sets only `apiKey` for a built-in provider now authenticates that provider's models instead of failing to load with `must specify "disabled", …`
 - The first `/resume` list of an unindexed session directory now skips a transcript whose session header has no `id`, instead of failing with `NOT NULL constraint failed: session_metadata.id`
 - `/copy` now includes signed public narration in the last assistant reply, and copies a reply that contains only narration

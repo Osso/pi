@@ -197,6 +197,27 @@ describe("createAgentSession provider attribution headers", () => {
 		expect(headers?.["X-OpenRouter-Categories"]).toBe("provider-category");
 	});
 
+	it("lets provider and request headers override the defaults in any letter case", async () => {
+		const headers = await captureHeaders(createModel("openrouter", "https://openrouter.ai/api/v1"), {
+			providerHeaders: {
+				"http-referer": "https://provider.example",
+				"x-openrouter-title": "provider-title",
+			},
+			requestHeaders: {
+				"X-OPENROUTER-TITLE": "request-title",
+			},
+		});
+
+		expect(headers).toMatchObject({
+			"http-referer": "https://provider.example",
+			"X-OPENROUTER-TITLE": "request-title",
+			"X-OpenRouter-Categories": "cli-agent",
+		});
+		const names = Object.keys(headers ?? {}).map((name) => name.toLowerCase());
+		expect(names.filter((name) => name === "http-referer")).toHaveLength(1);
+		expect(names.filter((name) => name === "x-openrouter-title")).toHaveLength(1);
+	});
+
 	it("adds default attribution headers for direct NVIDIA NIM endpoints", async () => {
 		const headers = await captureHeaders(createModel("custom-nim", "https://integrate.api.nvidia.com/v1"));
 

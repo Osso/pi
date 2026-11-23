@@ -87,10 +87,12 @@ export function mergeProviderAttributionHeaders(
 		...getDefaultAttributionHeaders(model, settingsManager),
 	};
 
-	for (const headers of headerSources) {
-		if (headers) {
-			Object.assign(merged, headers);
+	// Header names are case-insensitive: a later source replaces an earlier header spelled in another case.
+	for (const [name, value] of headerSources.flatMap((headers) => Object.entries(headers ?? {}))) {
+		for (const existing of Object.keys(merged)) {
+			if (existing.toLowerCase() === name.toLowerCase()) delete merged[existing];
 		}
+		merged[name] = value;
 	}
 
 	return Object.keys(merged).length > 0 ? merged : undefined;
