@@ -48,3 +48,39 @@ it("hides a newly disabled model even when it remains in the picker scope", asyn
 		harness.cleanup();
 	}
 });
+
+it("drops a scoped pool whose only member became disabled", async () => {
+	const harness = await createHarness({
+		models: [{ id: "gemini-3.7-flash" }, { id: "gemini-4-neon" }],
+		pools: { "only-old": ["faux/gemini-3.7-flash"] },
+	});
+	try {
+		const neon = harness.getModel("gemini-4-neon");
+		const pool = harness.session.modelRegistry.find("pool", "only-old");
+		if (!neon || !pool) throw new Error("Missing scoped faux model or pool");
+		writeFileSync(
+			join(harness.tempDir, "models.json"),
+			JSON.stringify({
+				providers: { [neon.provider]: { disabledModels: ["gemini-3.*"] } },
+				pools: { "only-old": [`${neon.provider}/gemini-3.7-flash`] },
+			}),
+		);
+		const selector = await new Promise<ModelSelectorComponent>((resolve) => {
+			const picker = new ModelSelectorComponent(
+				{ requestRender: () => resolve(picker) } as unknown as TUI,
+				neon,
+				harness.session.modelRegistry,
+				[{ model: neon }, { model: pool }],
+				() => {},
+				() => {},
+			);
+		});
+
+		const render = stripAnsi(selector.render(120).join("\n"));
+		expect(render).toContain("gemini-4-neon");
+		expect(render).not.toContain("only-old [pool]");
+		expect(render).toContain('Pool "only-old": no members resolve');
+	} finally {
+		harness.cleanup();
+	}
+});

@@ -164,8 +164,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		this.allModels = this.sortModels(models);
 		this.scopedModelItems = this.scopedModels.flatMap(({ model }) => {
 			const { provider, id } = model;
-			if (this.modelRegistry.isModelDisabled(provider, id)) return [];
-			const refreshed = this.modelRegistry.find(provider, id) ?? model;
+			const refreshed = this.modelRegistry.find(provider, id);
+			if (!refreshed || this.modelRegistry.isModelDisabled(provider, id)) return [];
 			return [{ provider, id, model: refreshed }];
 		});
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
