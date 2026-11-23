@@ -2,9 +2,14 @@ import { spawn } from "child_process";
 import { existsSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, relative } from "path";
+import {
+	autocompleteSeparatorRegex,
+	endsAtTokenStart,
+	findLastDelimiter,
+	isTokenStart,
+	stripLeadingWrappers,
+} from "./autocomplete-tokens.ts";
 import { fuzzyFilter } from "./fuzzy.ts";
-
-const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
 
 function toDisplayPath(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -39,15 +44,6 @@ function buildFdPathQuery(query: string): string {
 	return pattern;
 }
 
-function findLastDelimiter(text: string): number {
-	for (let i = text.length - 1; i >= 0; i -= 1) {
-		if (PATH_DELIMITERS.has(text[i] ?? "")) {
-			return i;
-		}
-	}
-	return -1;
-}
-
 function findUnclosedQuoteStart(text: string): number | null {
 	let inQuotes = false;
 	let quoteStart = -1;
@@ -62,10 +58,6 @@ function findUnclosedQuoteStart(text: string): number | null {
 	}
 
 	return inQuotes ? quoteStart : null;
-}
-
-function isTokenStart(text: string, index: number): boolean {
-	return index === 0 || PATH_DELIMITERS.has(text[index - 1] ?? "");
 }
 
 function extractQuotedPrefix(text: string): string | null {
@@ -105,7 +97,7 @@ function buildCompletionValue(
 	path: string,
 	options: { isDirectory: boolean; isAtPrefix: boolean; isQuotedPrefix: boolean },
 ): string {
-	const needsQuotes = options.isQuotedPrefix || path.includes(" ");
+	const needsQuotes = options.isQuotedPrefix || autocompleteSeparatorRegex.test(path);
 	const prefix = options.isAtPrefix ? "@" : "";
 
 	if (!needsQuotes) {
@@ -467,11 +459,8 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		}
 
 		const lastDelimiterIndex = findLastDelimiter(text);
-		const tokenStart = lastDelimiterIndex === -1 ? 0 : lastDelimiterIndex + 1;
-
-		if (text[tokenStart] === "@") {
-			return text.slice(tokenStart);
-		}
+		const token = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
+		if (token.startsWith("@")) return token;
 
 		return null;
 	}
@@ -484,7 +473,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		}
 
 		const lastDelimiterIndex = findLastDelimiter(text);
-		const pathPrefix = lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1);
+		const pathPrefix = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
 
 		// For forced extraction (Tab key), always return something
 		if (forceExtract) {
@@ -497,9 +486,9 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			return pathPrefix;
 		}
 
-		// Return empty string only after a space (not for completely empty text)
+		// Return an empty prefix after whitespace or CJK punctuation, but not for empty text.
 		// Empty text should not trigger file suggestions - that's for forced Tab completion
-		if (pathPrefix === "" && text.endsWith(" ")) {
+		if (pathPrefix === "" && text !== "" && endsAtTokenStart(text)) {
 			return pathPrefix;
 		}
 
