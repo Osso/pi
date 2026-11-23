@@ -13,7 +13,7 @@ import fs, {
 } from "fs";
 import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	archiveSession,
@@ -433,6 +433,21 @@ describe("SessionManager custom flat session directory", () => {
 		const writtenAfterBackfill = createPersistedSession(projectB, "never indexed");
 		const allAgain = await SessionManager.listAll(tempDir, undefined, controlDbPath);
 		expect(allAgain.map((session) => session.path)).not.toContain(writtenAfterBackfill);
+	});
+
+	it("backfill skips a transcript whose session header has no id", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const valid = createPersistedSession(projectA, "before the index");
+		const headerWithoutId = join(dirname(valid), "no-session-id.jsonl");
+		writeFileSync(
+			headerWithoutId,
+			`${JSON.stringify({ type: "session", version: 3, timestamp: "2025-01-01T00:00:00Z", cwd: projectA })}\n`,
+		);
+
+		const all = await SessionManager.listAll(tempDir, undefined, controlDbPath);
+
+		expect(all.map((session) => session.path)).toEqual([valid]);
+		expect(readSessionMetadata(controlDbPath, headerWithoutId)).toBeUndefined();
 	});
 
 	it("lists from sqlite metadata even when metadata paths do not match session files", async () => {

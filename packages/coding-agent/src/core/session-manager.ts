@@ -750,7 +750,7 @@ export async function buildSessionInfo(filePath: string): Promise<SessionInfo | 
 			if (!entry) continue;
 
 			if (!header) {
-				if (entry.type !== "session") return null;
+				if (entry.type !== "session" || typeof entry.id !== "string") return null;
 				header = entry;
 				continue;
 			}

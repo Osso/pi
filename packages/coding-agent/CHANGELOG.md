@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- The first `/resume` list of an unindexed session directory now skips a transcript whose session header has no `id`, instead of failing with `NOT NULL constraint failed: session_metadata.id`
 - `/copy` now includes signed public narration in the last assistant reply, and copies a reply that contains only narration
 - Fixed `/reload` leaving the previous extension version's `pi.events` listeners active, so each reload added another copy of every handler
 - A `models.json` model header override now replaces a provider header spelled in another case (`x-proxy-token` over `X-Proxy-Token`), instead of failing when the provider header's variable is unset or sending both
