@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Expanded tool output no longer counts a final newline as an extra line, which hid one real line at the 100-line display cap
 - `pi.agents.wait()` in Pyrun no longer marks shared-channel posts as read without delivering them; the session still receives them at its next checkpoint
 - RPC mode no longer hangs when stdin closes during startup and an extension then opens another dialog; dialogs opened after stdin closes resolve as cancelled
 - Relocating a resumed session whose transcript ends in an interrupted partial line no longer joins the next entry to that fragment, which lost the entry on reopen

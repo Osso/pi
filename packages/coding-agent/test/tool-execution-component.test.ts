@@ -104,6 +104,29 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("50 more lines hidden");
 	});
 
+	test("does not count a final newline as an extra output line", () => {
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderResult: (result) => new Text(result.content[0]?.type === "text" ? result.content[0].text : "", 0, 0),
+		};
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-output-final-newline",
+			{},
+			{},
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.setExpanded(true);
+		const text = `${Array.from({ length: 100 }, (_, index) => `row-${index}`).join("\n")}\n`;
+		component.updateResult({ content: [{ type: "text", text }], details: {}, isError: false }, false);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("row-50");
+		expect(rendered).not.toContain("more lines hidden");
+	});
+
 	test("counts logical output lines rather than wrapped terminal rows", () => {
 		const toolDefinition: ToolDefinition = {
 			...createBaseToolDefinition(),

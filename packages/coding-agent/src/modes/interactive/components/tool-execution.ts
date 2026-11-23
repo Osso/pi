@@ -45,14 +45,14 @@ function limitToolResultContent(content: ToolResultContentItem[]): ToolResultCon
 	if (textBlockIndexes.length === 0) {
 		return content;
 	}
-	const outputLines = textBlockIndexes
-		.map((index) => content[index]?.text ?? "")
-		.join("\n")
-		.split("\n");
+	const output = textBlockIndexes.map((index) => content[index]?.text ?? "").join("\n");
+	// A final newline terminates the last line; it does not start another one.
+	const finalNewline = output.endsWith("\n") ? "\n" : "";
+	const outputLines = (finalNewline ? output.slice(0, -1) : output).split("\n");
 	if (outputLines.length <= MAX_TOOL_OUTPUT_LINES) {
 		return content;
 	}
-	const limitedText = limitToolOutputLines(outputLines).join("\n");
+	const limitedText = limitToolOutputLines(outputLines).join("\n") + finalNewline;
 	const firstTextBlockIndex = textBlockIndexes[0];
 	return content.flatMap((item, index) => {
 		if (item.type !== "text") {
