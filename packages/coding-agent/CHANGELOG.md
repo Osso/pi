@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/usage reset` now reports a consumed reset credit when the follow-up usage read fails, instead of showing only the refresh error
 - `grep` with a glob whose directory part starts with `#`, such as `#notes/*.ts`, now matches that directory instead of returning no matches
 - The agents status widget no longer shows a broken character when a tool detail is cut at 160 characters inside an emoji
 - A failed `browser-cli` batch now reports the output of the commands that succeeded before it, and ends with the failing command's stderr and exit code so they survive truncation of a large stdout

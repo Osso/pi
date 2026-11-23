@@ -294,8 +294,11 @@ export async function handleUsageReset(ctx: ExtensionCommandContext, pi: Extensi
 		body: JSON.stringify({ redeem_request_id: createRedeemRequestId() }),
 	});
 	const payload = (await decodeJsonResponse(response)) as ConsumeResetCreditResponse;
-	const after = await readCodexUsage(ctx, providerId);
-	sendCodexUsageReport(ctx, pi, `${formatResetResponse(payload)}\n\n${formatCodexUsage(after)}`);
+	// The credit is already consumed; a failed refresh must not hide that from the user.
+	const after = await readCodexUsage(ctx, providerId).then(formatCodexUsage, (error: unknown) => {
+		return `Usage refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+	});
+	sendCodexUsageReport(ctx, pi, `${formatResetResponse(payload)}\n\n${after}`);
 }
 
 export async function readCodexUsage(

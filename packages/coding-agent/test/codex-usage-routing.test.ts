@@ -764,6 +764,23 @@ describe("registered /usage provider routing", () => {
 		});
 	});
 
+	it("reports a consumed reset credit when the refreshed usage read fails", async () => {
+		const h = registerUsage("openai-codex");
+		h.fetch
+			.mockResolvedValueOnce(usageResponse(42, 3))
+			.mockResolvedValueOnce(Response.json({ code: "reset", windows_reset: 1 }))
+			.mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }));
+
+		await h.command.handler("reset", h.ctx);
+
+		expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith({
+			customType: "codex-usage",
+			content:
+				"Consumed reset credit. Windows reset: 1\n\nUsage refresh failed: OpenAI Codex usage request failed (503): temporarily unavailable",
+			display: true,
+		});
+	});
+
 	it("resets the account whose usage it read when the model changes before confirmation", async () => {
 		const h = registerUsage("openai-codex-gc");
 		h.confirm.mockImplementationOnce(async () => {
