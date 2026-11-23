@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed slow detached Pyrun extension tests timing out under full-suite load because their completion wait matched the fixture payload duration.
 - Fixed `list_sessions` reporting a completed `/goal` objective as the session's current goal.
 - Fixed an explicit startup thinking level (`--thinking` or a `--model` `:level` suffix) not being saved to the session, so reopening it fell back to the default level.
 - Fixed `--export-terminal` rejecting a session's original `.jsonl` path after archival replaced it with `.jsonl.zst`.

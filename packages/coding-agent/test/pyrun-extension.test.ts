@@ -356,8 +356,11 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt += 1) {
+// run.slow_detachable() sleeps 1 s after detaching, which alone uses most of the default 100 attempts.
+const SLOW_DETACHED_COMPLETION_ATTEMPTS = 500;
+
+async function waitFor(condition: () => boolean, label: string, attempts = 100): Promise<void> {
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
 		if (condition()) return;
 		await delay(10);
 	}
@@ -2309,7 +2312,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(scriptPath ? readFileSync(scriptPath, "utf8") : undefined).toBe("run.slow_detachable()");
 		expect(scriptPath ? statSync(scriptPath).mode & 0o777 : undefined).toBe(0o600);
 
-		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
+		await waitFor(
+			() => hasProjectedLifecycle(store, job.id, "completed"),
+			"detached Pyrun completion",
+			SLOW_DETACHED_COMPLETION_ATTEMPTS,
+		);
 		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 	});
 
@@ -2351,7 +2358,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(foregroundResult.details.value).toBe("");
 		const [job] = store.listAgents();
 		expect(job.lifecycle).toBe("running");
-		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
+		await waitFor(
+			() => hasProjectedLifecycle(store, job.id, "completed"),
+			"detached Pyrun completion",
+			SLOW_DETACHED_COMPLETION_ATTEMPTS,
+		);
 	});
 
 	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {
