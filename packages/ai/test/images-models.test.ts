@@ -196,6 +196,26 @@ describe("ImagesModels", () => {
 		await expect(models.refresh()).resolves.toBeUndefined();
 	});
 
+	it("returns an error result when an unconfigured provider rejects", async () => {
+		const models = createImagesModels({ authContext: fakeAuthContext({}) });
+		models.setProvider(
+			createImagesProvider({
+				id: "p1",
+				auth: { apiKey: { name: "Test", resolve: async () => undefined } },
+				models: [testImageModel("p1", "model-a")],
+				api: {
+					generateImages: async () => {
+						throw new Error("renderer unavailable");
+					},
+				},
+			}),
+		);
+
+		const result = await models.generateImages(testImageModel("p1", "model-a"), context);
+
+		expect(result).toMatchObject({ stopReason: "error", output: [], errorMessage: "renderer unavailable" });
+	});
+
 	it("builtinImagesModels registers the openrouter provider with its catalog", async () => {
 		const models = builtinImagesModels({ authContext: fakeAuthContext({ OPENROUTER_API_KEY: "or-key" }) });
 		const providers = models.getProviders();

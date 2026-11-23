@@ -190,7 +190,7 @@ class ImagesModelsImpl implements MutableImagesModels {
 			});
 			const auth = resolution?.auth;
 			if (!auth) {
-				return provider.generateImages(model, context, options);
+				return await provider.generateImages(model, context, options);
 			}
 
 			const requestModel = auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
