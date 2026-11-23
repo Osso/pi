@@ -226,9 +226,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 
 		try {
 			const apiKey = options?.apiKey;
-			if (!apiKey) {
-				throw new Error(`No API key for provider: ${model.provider}`);
-			}
+			if (!apiKey) throw new Error(`No API key for provider: ${model.provider}`);
 
 			const accountId = extractAccountId(apiKey);
 			let body = buildRequestBody(model, context, options);
@@ -236,8 +234,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
-			const websocketRequestId = options?.sessionId || createCodexRequestId();
-			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, options?.sessionId);
+			const codexSessionId = clampOpenAIPromptCacheKey(options?.sessionId);
+			const websocketRequestId = codexSessionId || createCodexRequestId();
+			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, codexSessionId);
 			const websocketHeaders = buildWebSocketHeaders(
 				model.headers,
 				options?.headers,

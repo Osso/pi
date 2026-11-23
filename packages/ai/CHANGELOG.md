@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Codex sending session IDs longer than 64 characters unclamped in the `session-id` and `x-client-request-id` headers
 - Fixed OpenRouter chat completions reporting the catalog cost estimate instead of the billed cost that OpenRouter returns in the usage chunk
 - Fixed Google Generative AI and Vertex requests ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Azure OpenAI Responses errors dropping the provider-requested `Retry-After` delay from `retryAfterMs`
