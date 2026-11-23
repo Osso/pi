@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AssistantMessage } from "../src/types.ts";
 import { isContextOverflow } from "../src/utils/overflow.ts";
 
-function createErrorMessage(errorMessage: string): AssistantMessage {
+function createErrorMessage(errorMessage: string, provider = "ollama"): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [],
 		api: "openai-completions",
-		provider: "ollama",
+		provider,
 		model: "qwen3.5:35b",
 		usage: {
 			input: 0,
@@ -38,6 +38,46 @@ describe("isContextOverflow", () => {
 	it("detects upstream request buffer limit errors as overflow", () => {
 		const message = createErrorMessage("Error: exceeded request buffer limit while retrying upstream");
 		expect(isContextOverflow(message, 32768)).toBe(true);
+	});
+
+	// Upstream #9805, #10208: z.ai and its CN endpoint report overflow as code 1261.
+	it.each([
+		'400 {"code":"1261","message":"Prompt too long"}',
+		'400 {"code":"1261","message":"Prompt exceeds max length"}',
+	])("detects z.ai prompt length errors: %s", (errorMessage) => {
+		expect(isContextOverflow(createErrorMessage(errorMessage, "zai"), 1048576)).toBe(true);
+	});
+
+	it("detects DashScope input length range errors", () => {
+		const message = createErrorMessage(
+			'400 {"type":"invalid_parameter_error","message":"Range of input length should be [1, 262144]"}',
+		);
+		expect(isContextOverflow(message, 262144)).toBe(true);
+	});
+
+	// Upstream 73f8de80b: Copilot reports request-size overflow as HTTP 413 with a generic body.
+	it.each([
+		'github-copilot API error (413): {"message":"failed to parse request","code":""}',
+		"413 Request Entity Too Large",
+	])("detects HTTP 413 request-size overflow: %s", (errorMessage) => {
+		expect(isContextOverflow(createErrorMessage(errorMessage))).toBe(true);
+	});
+
+	it.each([
+		'github-copilot API error (400): {"message":"failed to parse request","code":""}',
+		"custom-provider API error (429): Too many requests",
+		'github-copilot API error (400): {"message":"failed to parse request: invalid value 413"}',
+		"custom-provider API error (4130): invalid input",
+		"4130 failed to parse request",
+	])("does not mistake unrelated errors for request-size overflow: %s", (errorMessage) => {
+		expect(isContextOverflow(createErrorMessage(errorMessage))).toBe(false);
+	});
+
+	// Upstream #9482: a bodyless HTTP 400 is only known to mean overflow for Cerebras.
+	it("only treats bodyless 400 errors as overflow for Cerebras", () => {
+		const errorMessage = "400 status code (no body)";
+		expect(isContextOverflow(createErrorMessage(errorMessage, "cerebras"), 131072)).toBe(true);
+		expect(isContextOverflow(createErrorMessage(errorMessage, "opencode-go"), 1000000)).toBe(false);
 	});
 
 	it("detects Together AI context length errors", () => {
