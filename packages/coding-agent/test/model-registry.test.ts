@@ -264,6 +264,21 @@ describe("ModelRegistry", () => {
 			expect(googleModels.some((m) => m.id === "gemini-custom")).toBe(true);
 		});
 
+		test("apiKey-only override authenticates the built-in provider models", async () => {
+			writeRawModelsJson({ anthropic: { apiKey: "fixture-key" } });
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const anthropicModels = getModelsForProvider(registry, "anthropic");
+
+			expect(registry.getError()).toBeUndefined();
+			expect(anthropicModels.length).toBeGreaterThan(0);
+			expect(registry.getAvailable().filter((m) => m.provider === "anthropic")).toEqual(anthropicModels);
+			expect(await registry.getApiKeyAndHeaders(anthropicModels[0])).toMatchObject({
+				ok: true,
+				apiKey: "fixture-key",
+			});
+		});
+
 		test("refresh() picks up baseUrl override changes", () => {
 			writeRawModelsJson({
 				anthropic: overrideConfig("https://first-proxy.example.com/v1"),

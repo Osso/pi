@@ -604,8 +604,7 @@ export class ModelRegistry {
 			const isBuiltIn = builtInProviders.has(providerName);
 			const hasProviderApi = !!providerConfig.api;
 			const models = providerConfig.models ?? [];
-			const hasModelOverrides =
-				providerConfig.modelOverrides && Object.keys(providerConfig.modelOverrides).length > 0;
+			const hasModelOverrides = Object.keys(providerConfig.modelOverrides ?? {}).length > 0;
 
 			if (models.length === 0) {
 				if (
@@ -613,11 +612,12 @@ export class ModelRegistry {
 					providerConfig.disabledModels === undefined &&
 					!providerConfig.baseUrl &&
 					!providerConfig.headers &&
+					!providerConfig.apiKey &&
 					!providerConfig.compat &&
 					!hasModelOverrides
 				) {
 					throw new Error(
-						`Provider ${providerName}: must specify "disabled", "disabledModels", "baseUrl", "headers", "compat", "modelOverrides", or "models".`,
+						`Provider ${providerName}: must specify "disabled", "disabledModels", "baseUrl", "headers", "apiKey", "compat", "modelOverrides", or "models".`,
 					);
 				}
 			} else if (!isBuiltIn) {
