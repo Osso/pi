@@ -375,7 +375,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			shutdownHandler: () => {
 				shutdownRequested = true;
 				// An idle request (e.g. from a timer) gets no command completion or settle to check it (#11746).
-				setImmediate(() => commandsInFlight === 0 && !session.isStreaming && void checkShutdownRequested());
+				setImmediate(() => void checkShutdownRequested());
 			},
 			onError: (err) => {
 				output({ type: "extension_error", extensionPath: err.extensionPath, event: err.event, error: err.error });
@@ -432,7 +432,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					})
 					.finally(() => commandsInFlight--)
 					// An extension command can request shutdown without starting a turn (no agent_settled).
-					.then(() => (session.isStreaming ? undefined : checkShutdownRequested()))
+					.then(() => checkShutdownRequested())
 					.catch((e) => {
 						if (!preflightSucceeded) {
 							output(error(id, "prompt", e.message));
@@ -751,7 +751,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	}
 
 	async function checkShutdownRequested(): Promise<void> {
-		if (!shutdownRequested) return;
+		if (!shutdownRequested || commandsInFlight > 0 || session.isStreaming) return; // Never cut off a command or dialog.
 		await shutdown();
 	}
 
