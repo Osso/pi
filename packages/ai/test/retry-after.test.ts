@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { stream as streamAzureOpenAIResponses } from "../src/api/azure-openai-responses.ts";
 import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
 import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "../src/types.ts";
 import { getErrorRetryAfterMs, getRetryAfterMs, getRetryAfterMsFromText } from "../src/utils/retry-after.ts";
@@ -26,7 +27,7 @@ vi.mock("openai", () => {
 		};
 	}
 
-	return { default: FakeOpenAI };
+	return { default: FakeOpenAI, AzureOpenAI: FakeOpenAI };
 });
 
 function createModel(): Model<"openai-responses"> {
@@ -112,6 +113,23 @@ describe("openai-responses retry metadata", () => {
 		const errorEvent = events.find((event) => event.type === "error");
 		expect(errorEvent).toBeDefined();
 		const message = (errorEvent as { error: AssistantMessage }).error;
+		expect(message.stopReason).toBe("error");
+		expect(message.errorMessage).toContain("Rate limit reached");
+		expect(message.retryAfterMs).toBe(520_526_000);
+	});
+});
+
+describe("azure-openai-responses retry metadata", () => {
+	it("keeps the provider-requested retry delay on the failed assistant message", async () => {
+		const model: Model<"azure-openai-responses"> = {
+			...createModel(),
+			compat: undefined,
+			api: "azure-openai-responses",
+			provider: "azure-openai-responses",
+			baseUrl: "https://example.openai.azure.com/openai/v1",
+		};
+		const message = await streamAzureOpenAIResponses(model, createContext(), { apiKey: "test-key" }).result();
+
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toContain("Rate limit reached");
 		expect(message.retryAfterMs).toBe(520_526_000);
