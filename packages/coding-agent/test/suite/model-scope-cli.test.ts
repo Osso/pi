@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createHeadlessPaths } from "./headless-pi.ts";
 
-function runCustomModels(args: string[], disabledModels?: string[]) {
+function runCustomModels(args: string[], disabledModels?: string[], extraProviders: Record<string, unknown> = {}) {
 	const paths = createHeadlessPaths();
 	try {
 		writeFileSync(
@@ -17,6 +17,7 @@ function runCustomModels(args: string[], disabledModels?: string[]) {
 						models: [{ id: "hunt-base" }, { id: "hunt-legacy" }],
 						disabledModels,
 					},
+					...extraProviders,
 				},
 			}),
 		);
@@ -101,5 +102,25 @@ describe("CLI disabled models", () => {
 		expect(result.status, result.stderr).toBe(1);
 		expect(result.stderr).toContain('Model "hunt/hunt-legacy" not found.');
 		expect(result.stderr).not.toContain("Using custom model id");
+	});
+});
+
+describe("CLI --api-key provider selection", () => {
+	it("keeps the named provider of provider/model when a gateway with stored credentials has that raw id", () => {
+		const gateway = {
+			baseUrl: "https://gateway.invalid/v1",
+			api: "openai-completions",
+			apiKey: "stored-gateway-key",
+			models: [{ id: "hunt/hunt-base" }],
+		};
+		const result = runCustomModels(
+			["--model", "hunt/hunt-base", "--api-key", "fixture-key", "--list-models", "hunt"],
+			undefined,
+			{ gateway },
+		);
+
+		expect(result.error).toBeUndefined();
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout).toMatch(/^hunt\s+hunt-base/m);
 	});
 });

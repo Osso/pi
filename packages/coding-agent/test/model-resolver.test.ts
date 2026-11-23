@@ -503,6 +503,25 @@ describe("resolveCliModel", () => {
 		expect(result.model?.id).toBe("gpt-5.6-sol");
 	});
 
+	test("does not let stored credentials choose the provider for an inline API key", () => {
+		const shared = (provider: string): Model<"anthropic-messages"> => ({
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider,
+		});
+		const registry = createCliRegistryStub({
+			getAll: () => [shared("azure-openai-responses"), shared("openai-codex")],
+			hasConfiguredAuth: (model: { provider: string }) => model.provider === "openai-codex",
+		});
+
+		const result = resolveCliModel({ cliModel: "gpt-5.6-sol", inlineApiKey: true, modelRegistry: registry });
+
+		expect(result.model).toBeUndefined();
+		expect(result.error).toContain('Model "gpt-5.6-sol" is ambiguous across providers');
+		expect(result.error).toContain("--api-key does not choose a provider.");
+	});
+
 	test("requires an explicit provider for an ambiguous bare exact model id without a unique authenticated provider", () => {
 		const azureModel: Model<"anthropic-messages"> = {
 			...mockModels[1],

@@ -497,6 +497,7 @@ function buildSessionOptions(
 			cliProvider: parsed.provider,
 			cliModel: parsed.model,
 			cliThinking: parsed.thinking,
+			inlineApiKey: Boolean(parsed.apiKey),
 			modelRegistry,
 		});
 		if (resolved.warning) diagnostics.push({ type: "warning", message: resolved.warning });
@@ -543,10 +544,7 @@ function buildSessionOptions(
 	// Keep thinking level undefined when not explicitly set in the model pattern.
 	// Undefined means "inherit current session thinking level" during cycling.
 	if (scopedModels.length > 0) {
-		options.scopedModels = scopedModels.map((sm) => ({
-			model: sm.model,
-			thinkingLevel: sm.thinkingLevel,
-		}));
+		options.scopedModels = scopedModels.map((sm) => ({ model: sm.model, thinkingLevel: sm.thinkingLevel }));
 	}
 
 	// Tools

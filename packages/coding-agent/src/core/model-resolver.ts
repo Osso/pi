@@ -375,17 +375,19 @@ export interface ResolveCliModelResult {
 function chooseExactModel(
 	cliModel: string,
 	exactMatches: Model<Api>[],
-	modelRegistry: ModelRegistry,
+	hasAuth: (model: Model<Api>) => boolean,
+	inlineApiKey: boolean,
 ): { model?: Model<Api>; error?: string } {
 	if (exactMatches.length <= 1) return { model: exactMatches[0] };
-	const authenticated = exactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
+	const authenticated = exactMatches.filter(hasAuth);
 	if (authenticated.length === 1) return { model: authenticated[0] };
 	const matches = exactMatches
 		.map((m) => `${m.provider}/${m.id}`)
 		.sort((a, b) => a.localeCompare(b))
 		.join(", ");
-	const authHint =
-		authenticated.length === 0
+	const authHint = inlineApiKey
+		? "--api-key does not choose a provider."
+		: authenticated.length === 0
 			? "No matching provider is authenticated."
 			: "More than one matching provider is authenticated.";
 	return {
@@ -461,13 +463,18 @@ export function resolveCliModel(options: {
 	cliProvider?: string;
 	cliModel?: string;
 	cliThinking?: ThinkingLevel;
+	/** `--api-key` was supplied for the selected provider. */
+	inlineApiKey?: boolean;
 	modelRegistry: ModelRegistry;
 }): ResolveCliModelResult {
-	const { cliProvider, cliModel, cliThinking, modelRegistry } = options;
+	const { cliProvider, cliModel, cliThinking, inlineApiKey = false, modelRegistry } = options;
 
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
 	}
+
+	// An inline key goes to whichever provider is selected, so stored credentials must not choose it.
+	const hasAuth = (model: Model<Api>) => !inlineApiKey && modelRegistry.hasConfiguredAuth(model);
 
 	const disabledDisplay = findDisabledExplicitCliModel(cliProvider, cliModel, modelRegistry);
 	if (disabledDisplay) return notFoundCliModel(disabledDisplay);
@@ -534,7 +541,7 @@ export function resolveCliModel(options: {
 		let exactMatches = findExact(lower);
 		const byBaseId = exactMatches.length === 0 && colon !== -1 && isValidThinkingLevel(lower.slice(colon + 1));
 		if (byBaseId) exactMatches = findExact(lower.slice(0, colon));
-		const choice = chooseExactModel(cliModel, exactMatches, modelRegistry);
+		const choice = chooseExactModel(cliModel, exactMatches, hasAuth, inlineApiKey);
 		if (choice.model && !byBaseId) {
 			return { model: choice.model, warning: undefined, thinkingLevel: undefined, error: undefined };
 		}
@@ -559,7 +566,7 @@ export function resolveCliModel(options: {
 	const parse = (models: Model<Api>[]) =>
 		parseModelPattern(pattern, models, { allowInvalidThinkingLevelFallback: false });
 	// Without a provider, prefer a match among models with credentials over one on an unusable provider.
-	const usable = provider ? undefined : parse(candidates.filter((m) => modelRegistry.hasConfiguredAuth(m)));
+	const usable = provider ? undefined : parse(candidates.filter(hasAuth));
 	const { model, thinkingLevel, warning } = usable?.model ? usable : parse(candidates);
 
 	if (model) {
@@ -573,15 +580,10 @@ export function resolveCliModel(options: {
 			const rawExactMatches = availableModels.filter(
 				(m) => m.id.toLowerCase() === rawId && !modelsAreEqual(m, model),
 			);
-			if (rawExactMatches.length > 0 && !modelRegistry.hasConfiguredAuth(model)) {
-				const authenticatedRawMatches = rawExactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
+			if (rawExactMatches.length > 0 && !hasAuth(model)) {
+				const authenticatedRawMatches = rawExactMatches.filter(hasAuth);
 				if (authenticatedRawMatches.length === 1) {
-					return {
-						model: authenticatedRawMatches[0],
-						thinkingLevel,
-						warning: undefined,
-						error: undefined,
-					};
+					return { model: authenticatedRawMatches[0], thinkingLevel, warning: undefined, error: undefined };
 				}
 			}
 		}
@@ -597,7 +599,7 @@ export function resolveCliModel(options: {
 		const exactMatches = availableModels.filter(
 			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
 		);
-		const choice = chooseExactModel(cliModel, exactMatches, modelRegistry);
+		const choice = chooseExactModel(cliModel, exactMatches, hasAuth, inlineApiKey);
 		if (choice.model || choice.error) {
 			return { model: choice.model, warning: undefined, thinkingLevel: undefined, error: choice.error };
 		}
