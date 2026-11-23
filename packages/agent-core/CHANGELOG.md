@@ -12,6 +12,7 @@
 
 ### Added
 
+- Added a `startMessages` option to `Agent.continue()`; the messages join the first request of the run
 - Added authoritative `AgentState.isModelRequestActive` state for distinguishing model requests from tool execution.
 - Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.
 - Extended optional tool execution context with durable `agentId` metadata alongside the `startedAt` timestamp emitted by tool lifecycle events.

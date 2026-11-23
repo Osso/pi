@@ -385,28 +385,30 @@ export class Agent {
 	/**
 	 * Continue from the current transcript.
 	 * Set processQueuedMessagesFirst when messages were queued after the prior agent run ended.
+	 * startMessages join the first request of the run, after the queued messages it starts with.
 	 */
-	async continue(options: { processQueuedMessagesFirst?: boolean } = {}): Promise<void> {
+	async continue(
+		options: { processQueuedMessagesFirst?: boolean; startMessages?: AgentMessage[] } = {},
+	): Promise<void> {
 		if (this.activeRun) {
 			throw new Error("Agent is already processing. Wait for completion before continuing.");
 		}
 
 		const lastMessage = this._state.messages[this._state.messages.length - 1];
+		const startMessages = options.startMessages ?? [];
 		// Unfinished restored tool calls run first; the continuation loop then delivers queued messages.
 		const hasPendingToolCalls = restoredPendingToolMessage(this._state.messages) !== undefined;
 		if (!hasPendingToolCalls && (options.processQueuedMessagesFirst || lastMessage?.role === "assistant")) {
 			const queuedSteering = this.steeringQueue.drain();
-			if (queuedSteering.length > 0) {
-				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
-				return;
-			}
-
-			const queuedFollowUps = this.followUpQueue.drain();
-			if (queuedFollowUps.length > 0) {
-				await this.runPromptMessages(queuedFollowUps);
+			const queued = queuedSteering.length > 0 ? queuedSteering : this.followUpQueue.drain();
+			if (queued.length > 0 || startMessages.length > 0) {
+				await this.runPromptMessages([...queued, ...startMessages], {
+					skipInitialSteeringPoll: queuedSteering.length > 0,
+				});
 				return;
 			}
 		}
+		for (const message of startMessages) this.steeringQueue.enqueue(message);
 
 		// Queued messages can start an empty transcript; plain continuation needs a message to continue from.
 		if (!lastMessage) throw new Error("No messages to continue from");

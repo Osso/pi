@@ -62,4 +62,40 @@ describe("before_agent_start for runs that no user prompt started", () => {
 
 		expect(blocks).toEqual(["EXTENSION-BLOCK-1", "EXTENSION-BLOCK-2"]);
 	});
+
+	it("sends handler messages with idle steering in one-at-a-time mode", async () => {
+		harness = await createHarness({
+			settings: { steeringMode: "one-at-a-time" },
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", (event) =>
+						event.prompt === ""
+							? {
+									message: {
+										customType: "context",
+										content: "Context for the steered request",
+										display: false,
+									},
+								}
+							: undefined,
+					);
+				},
+			],
+		});
+		const requests: string[][] = [];
+		const recordRequest = (context: { messages: Array<{ role: string; content: unknown }> }) => {
+			requests.push(context.messages.map((message) => JSON.stringify(message.content)));
+			return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
+		};
+		harness.setResponses([recordRequest, recordRequest, recordRequest]);
+		await harness.session.prompt("First request");
+
+		await harness.session.steer("Steer while idle");
+		await harness.session.agent.waitForIdle();
+
+		const steeredRequest = requests[1].join("\n");
+		expect(steeredRequest).toContain("Steer while idle");
+		expect(steeredRequest).toContain("Context for the steered request");
+		expect(requests).toHaveLength(2);
+	});
 });

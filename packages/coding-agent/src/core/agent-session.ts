@@ -1581,8 +1581,10 @@ export class AgentSession {
 	private _continueAgentWithThinkingTimeout(
 		dispatch: ThinkingTimeoutDispatch,
 		processQueuedMessagesFirst = false,
+		startMessages?: AgentMessage[],
 	): Promise<void> {
-		return this._runAgentWithThinkingTimeout(() => this.agent.continue({ processQueuedMessagesFirst }), dispatch);
+		const run = () => this.agent.continue({ processQueuedMessagesFirst, startMessages });
+		return this._runAgentWithThinkingTimeout(run, dispatch);
 	}
 
 	private _isThinkingTimeoutDispatchActive(dispatch: ThinkingTimeoutDispatch): boolean {
@@ -1637,8 +1639,7 @@ export class AgentSession {
 			}
 
 			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
-			await this._prepareContinuationRun();
-			const continuation = this._runAgentContinuation();
+			const continuation = this._runAgentContinuation(await this._applyBeforeAgentStart(""));
 			releaseTurnStart();
 			await continuation;
 		} finally {
@@ -2124,17 +2125,13 @@ export class AgentSession {
 		return (result?.messages ?? []).map((message) => ({ ...message, role: "custom", timestamp: Date.now() }));
 	}
 
-	/** Prepares a continuation run: applies before_agent_start and queues the handler messages for the run. */
-	private async _prepareContinuationRun(): Promise<void> {
-		for (const message of await this._applyBeforeAgentStart("")) this.agent.steer(message);
-	}
-
 	private _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		return this._runThinkingTimeoutDispatch(() => this.agent.prompt(messages));
 	}
 
-	private _runAgentContinuation(): Promise<void> {
-		return this._runThinkingTimeoutDispatch(() => this.agent.continue());
+	/** startMessages come from before_agent_start and join the run's first request. */
+	private _runAgentContinuation(startMessages: AgentMessage[], processQueuedMessagesFirst = false): Promise<void> {
+		return this._runThinkingTimeoutDispatch(() => this.agent.continue({ processQueuedMessagesFirst, startMessages }));
 	}
 
 	private async _runThinkingTimeoutDispatch(run: () => Promise<void>): Promise<void> {
@@ -2301,13 +2298,13 @@ export class AgentSession {
 			if (lastAssistant) {
 				await this._checkCompaction(lastAssistant, false);
 			}
-			await this._prepareContinuationRun();
+			const startMessages = await this._applyBeforeAgentStart("");
 
 			if (this.isStreaming) {
 				throw new Error("Agent is already processing. Wait for completion before continuing.");
 			}
 
-			const continuation = this._runAgentContinuation();
+			const continuation = this._runAgentContinuation(startMessages);
 			release();
 			try {
 				await continuation;
@@ -2614,8 +2611,7 @@ export class AgentSession {
 
 			this.validateModelAuthentication();
 			await this._queueSteer(input.text, input.images, source);
-			await this._prepareContinuationRun();
-			const continuation = this._runAgentContinuation();
+			const continuation = this._runAgentContinuation(await this._applyBeforeAgentStart(""), true);
 			release();
 			void continuation.catch((error) => {
 				console.error(`Failed to continue idle steering: ${errorMessage(error)}`);
