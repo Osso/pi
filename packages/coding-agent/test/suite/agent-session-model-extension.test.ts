@@ -779,6 +779,26 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("auto-rewritten");
 	});
 
+	it("runs a reviewer rewrite that returns the mutated event input itself", async () => {
+		const harness = await createTrackedHarness({
+			settings: { approvalPolicy: "auto-approve" },
+			tools: [createEchoTool()],
+			extensionFactories: [
+				(pi) =>
+					pi.registerApprovalReviewer((event) => {
+						const input: Record<string, unknown> = event.input;
+						input.text = "rewritten";
+						return { action: "allow", updatedInput: input };
+					}),
+			],
+		});
+		setEchoResponses(harness, "original");
+
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("rewritten");
+	});
+
 	it("falls back to native approval when claude-bash-hook asks", async () => {
 		useFakeClaudeBashHook({
 			permissionDecision: "ask",

@@ -1552,8 +1552,8 @@ function applyApprovalReviewerResult(
 }
 
 function replaceToolInput(target: Record<string, unknown>, source: Record<string, unknown>): void {
-	for (const key of Object.keys(target)) {
-		delete target[key];
-	}
+	// A reviewer may return the mutated event.input itself; clearing it would also clear the source.
+	if (target === source) return;
+	for (const key of Object.keys(target)) delete target[key];
 	Object.assign(target, source);
 }

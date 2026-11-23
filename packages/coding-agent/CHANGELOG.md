@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- An approval reviewer that returns the mutated `event.input` as `updatedInput` runs the tool with its rewrite instead of empty arguments
 - Claude bridge compaction uses its Claude Code summary again instead of discarding it and running the built-in summarizer through the bridge
 - `pi -p` prints the answer when the model retries a rejected `end_turn` call instead of printing nothing
 - `/hotkeys` lists the key that detaches a running tool to the background
