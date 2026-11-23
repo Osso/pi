@@ -17,6 +17,24 @@ const bedrockExplicitRetryMessage =
 describe("provider retry classification", () => {
 	// Regression for #12124: the Codex WebSocket lifetime limit is recoverable on a fresh connection.
 	it.each([
+		// Regression for upstream #12227: gateway mid-stream `event: error` frames without a status code.
+		"The provider is temporarily unavailable. Retry shortly.",
+		"The upstream provider is temporarily unavailable. Try again shortly.",
+		"The provider ended the response before it was complete.",
+		"The connection to the provider was reset. Retry shortly.",
+		"The provider reported a failure while generating the response.",
+	])("matches gateway provider failure wording: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
+	it.each(["Provider unavailable for this model", "The provider is unavailable in your region"])(
+		"does not match lasting provider unavailable wording: %s",
+		(errorMessage) => {
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+		},
+	);
+
+	it.each([
 		"Codex error: Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.",
 		"Codex error: websocket_connection_limit_reached",
 	])("retries the Codex websocket connection lifetime limit: %s", (errorMessage) => {

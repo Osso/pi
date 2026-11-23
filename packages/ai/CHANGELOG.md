@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed gateway errors such as "The provider is temporarily unavailable. Retry shortly.", "The provider ended the response before it was complete.", "The connection to the provider was reset.", and "The provider reported a failure while generating the response." not being retried (port of upstream [#12227](https://github.com/earendil-works/pi/issues/12227))
 - Reduced context-limit request failures by estimating input at 3.5 characters per token instead of 4 when calculating output limits (port of upstream [#10497](https://github.com/earendil-works/pi/issues/10497))
 - OpenAI Responses requests no longer replay a reasoning item without a following output item, which the API rejects with HTTP 400. This happened on every request after an output-token cutoff during a tool call
 - Cloudflare Workers AI and AI Gateway now take the account and gateway IDs from the environment when the credential or `apiKey` override carries only the API key, instead of requesting a `{CLOUDFLARE_ACCOUNT_ID}` placeholder URL

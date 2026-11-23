@@ -100,6 +100,9 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"\\b524\\b",
 	// Also matches "The service is temporarily unavailable" (#10965).
 	"service.?(?:is.?)?(?:temporarily.?)?unavailable",
+	// Gateway wording such as "The provider is temporarily unavailable. Retry shortly." (#12227).
+	// "temporarily" is required: a plain "provider unavailable" is often a lasting routing error.
+	"provider.?(?:is.?)?temporarily.?unavailable",
 	"server.?error",
 	"server had an error",
 	"internal.?error",
@@ -169,6 +172,11 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"stream disconnected before completion",
 	// Gateway relaying a dropped upstream Anthropic stream (#11879).
 	"cut short after the reply had begun",
+	// Gateway mid-stream failures relayed as SSE `event: error` frames without a
+	// status code, e.g. "The provider ended the response before it was complete." (#12227).
+	"ended the response before it was complete",
+	"connection to the provider was reset",
+	"reported a failure while generating the response",
 	// Node ERR_HTTP2_STREAM_CANCEL: the HTTP/2 session died before the request was
 	// sent, e.g. after the Bedrock SDK's 5-minute session timeout (#10379).
 	"pending stream has been canceled",
