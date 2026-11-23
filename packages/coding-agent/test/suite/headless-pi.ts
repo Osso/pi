@@ -830,18 +830,14 @@ async function startSharedHeadlessSession(
 			closeProviderServer: () => closeServer(provider.server),
 			removeTempDir: () => {},
 		});
-	try {
-		await startRpcClientSession(client, context, fixtureOptions);
-	} catch (error) {
-		unsubscribeEvents();
-		return runWithCleanup(async () => {
-			throw error;
-		}, cleanup);
-	}
 	let disposed = false;
 	const shared: HeadlessSharedSession = {
-		sessionId: context.mainSessionId,
-		sessionFile: context.sessionFile,
+		get sessionId() {
+			return context.mainSessionId;
+		},
+		get sessionFile() {
+			return context.sessionFile;
+		},
 		async dispose() {
 			if (disposed) return;
 			unsubscribeEvents();
@@ -850,7 +846,18 @@ async function startSharedHeadlessSession(
 			sharedSessions.delete(shared);
 		},
 	};
+	// Registered before startup completes so fixture disposal also stops a peer paused at session start.
 	sharedSessions.add(shared);
+	try {
+		await startRpcClientSession(client, context, fixtureOptions);
+	} catch (error) {
+		return runWithCleanup(
+			async () => {
+				throw error;
+			},
+			() => shared.dispose(),
+		);
+	}
 	return shared;
 }
 

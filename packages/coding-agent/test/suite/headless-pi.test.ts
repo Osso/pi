@@ -327,6 +327,41 @@ describe("headless Pi fixture", () => {
 			if (agentDir) rmSync(dirname(agentDir), { recursive: true, force: true });
 		}
 	});
+	it("terminates a shared session paused at startup when the scenario fails before releasing it", async () => {
+		let releasePath = "";
+		const pausedPeerPids = (): number[] =>
+			readdirSync("/proc")
+				.filter((name) => /^\d+$/.test(name))
+				.filter((pid) => {
+					try {
+						return readFileSync(`/proc/${pid}/environ`, "utf8")
+							.split("\0")
+							.includes(`PI_HEADLESS_SESSION_START_RELEASE_PATH=${releasePath}`);
+					} catch {
+						return false;
+					}
+				})
+				.map(Number);
+		let peerPids: number[] = [];
+		await expect(
+			withHeadlessPi(async (agent) => {
+				releasePath = join(agent.paths.workspaceDir, "never-released");
+				void agent.startSharedSession({ sessionStartReleasePath: releasePath }).catch(() => undefined);
+				await waitForFileContent(`${releasePath}.ready`, "ready");
+				peerPids = pausedPeerPids();
+				expect(peerPids).not.toEqual([]);
+				throw new Error("scenario failed before releasing peer");
+			}),
+		).rejects.toThrow("scenario failed before releasing peer");
+
+		try {
+			expect(pausedPeerPids()).toEqual([]);
+		} finally {
+			for (const pid of pausedPeerPids()) process.kill(pid, "SIGKILL");
+		}
+		expect(peerPids.length).toBeGreaterThan(0);
+	});
+
 	it("does not throw when a provider socket emits an expected ECONNRESET teardown error", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-headless-provider-error-"));
 		const socketPath = join(tempDir, "provider.sock");
