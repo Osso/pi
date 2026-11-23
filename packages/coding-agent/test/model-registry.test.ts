@@ -966,6 +966,25 @@ describe("ModelRegistry", () => {
 			expect(auth).toMatchObject({ ok: true, headers: { "X-Proxy-Token": "model-token" } });
 		});
 
+		test("model override header replaces a provider header spelled in another case", async () => {
+			delete process.env.PI_TEST_UNSET_PROXY_TOKEN;
+			writeRawModelsJson({
+				openrouter: {
+					apiKey: "demo-key",
+					headers: { "X-Proxy-Token": "$PI_TEST_UNSET_PROXY_TOKEN" },
+					modelOverrides: { "anthropic/claude-sonnet-4": { headers: { "x-proxy-token": "model-token" } } },
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const sonnet = getModelsForProvider(registry, "openrouter").find((m) => m.id === "anthropic/claude-sonnet-4");
+			const auth = await registry.getApiKeyAndHeaders(requireValue(sonnet));
+
+			// HTTP header names are case-insensitive, so the model header overrides the provider header.
+			expect(auth).toMatchObject({ ok: true, headers: { "x-proxy-token": "model-token" } });
+			expect(auth.ok && auth.headers ? Object.keys(auth.headers) : []).not.toContain("X-Proxy-Token");
+		});
+
 		test("refresh() picks up model override changes", () => {
 			writeRawModelsJson({
 				openrouter: {

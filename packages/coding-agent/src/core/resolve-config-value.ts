@@ -260,9 +260,11 @@ export function resolveHeadersOrThrow(
 	skip?: Record<string, string>,
 ): Record<string, string> | undefined {
 	if (!headers) return undefined;
+	// HTTP header names are case-insensitive; Object.keys also ignores inherited names such as "constructor".
+	const skipped = new Set(Object.keys(skip ?? {}).map((key) => key.toLowerCase()));
 	const resolved: Record<string, string> = {};
 	for (const [key, value] of Object.entries(headers)) {
-		if (skip && key in skip) continue;
+		if (skipped.has(key.toLowerCase())) continue;
 		resolved[key] = resolveConfigValueOrThrow(value, `${description} header "${key}"`, env);
 	}
 	return Object.keys(resolved).length > 0 ? resolved : undefined;
