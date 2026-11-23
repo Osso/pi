@@ -75,6 +75,28 @@ describe("skills", () => {
 			}
 		});
 
+		// Upstream #7805: root docs such as README.md were reported as broken skills.
+		it("ignores root markdown docs that do not declare skills", () => {
+			const dir = mkdtempSync(join(tmpdir(), "pi-skills-root-docs-"));
+			try {
+				mkdirSync(join(dir, "nested-skill"));
+				writeFileSync(join(dir, "README.md"), "# Shared skills\n\nDocumentation.");
+				writeFileSync(join(dir, "AGENTS.md"), "# Agent notes\n\nDocumentation.");
+				writeFileSync(join(dir, "CLAUDE.md"), "---\ndescription: [invalid\n---\n\nDocumentation.");
+				writeFileSync(join(dir, "root.md"), "---\nname: root\ndescription: Root skill\n---\nRoot content");
+				writeFileSync(join(dir, "nested-skill", "SKILL.md"), "---\nname: nested-skill\n---\nNested content");
+
+				const { skills, diagnostics } = loadSkillsFromDir({ dir, source: "test" });
+
+				expect(skills.map((skill) => skill.name)).toEqual(["root"]);
+				expect(diagnostics.map((d) => [d.path, d.message])).toEqual([
+					[join(dir, "nested-skill", "SKILL.md"), "description is required"],
+				]);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
+
 		it("should warn when name contains invalid characters", () => {
 			const { skills, diagnostics } = loadSkillsFromDir({
 				dir: join(fixturesDir, "invalid-name-chars"),

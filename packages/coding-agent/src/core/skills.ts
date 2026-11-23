@@ -257,15 +257,26 @@ function loadSkillFromFile(
 	source: string,
 ): { skill: Skill | null; diagnostics: ResourceDiagnostic[] } {
 	const diagnostics: ResourceDiagnostic[] = [];
+	// Only SKILL.md declares a skill; other Markdown files without skill frontmatter are docs and stay silent.
+	const isDeclaredSkill = basename(filePath) === "SKILL.md";
+
+	let rawContent: string;
+	try {
+		rawContent = readFileSync(filePath, "utf-8");
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "failed to read skill file";
+		diagnostics.push({ type: "warning", message, path: filePath });
+		return { skill: null, diagnostics };
+	}
 
 	try {
-		const rawContent = readFileSync(filePath, "utf-8");
 		const { frontmatter } = parseFrontmatter<SkillFrontmatter>(rawContent);
 		const skillDir = dirname(filePath);
 		const parentDirName = basename(skillDir);
 
 		// YAML reads unquoted numbers and booleans as non-strings; treat those like missing values.
 		const description = typeof frontmatter.description === "string" ? frontmatter.description : undefined;
+		if (!isDeclaredSkill && !description?.trim()) return { skill: null, diagnostics };
 		const descErrors = validateDescription(description);
 		for (const error of descErrors) {
 			diagnostics.push({ type: "warning", message: error, path: filePath });
@@ -298,7 +309,7 @@ function loadSkillFromFile(
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "failed to parse skill file";
-		diagnostics.push({ type: "warning", message, path: filePath });
+		if (isDeclaredSkill) diagnostics.push({ type: "warning", message, path: filePath });
 		return { skill: null, diagnostics };
 	}
 }

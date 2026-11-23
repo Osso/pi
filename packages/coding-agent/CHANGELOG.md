@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed root Markdown files such as `README.md` and `AGENTS.md` in skill directories being reported as broken skills unless they declare valid skill frontmatter
 - Fixed bash output showing only a trailing blank line, instead of the end of the preceding over-long line, when output exceeded the byte limit
 - Fixed Ctrl+P model cycling selecting a scoped model that a model registry refresh had removed
 - Fixed `--models` and `enabledModels` entries naming a model ID that contains glob characters (such as `vendor/sonnet[fast]`) expanding as a glob instead of selecting that exact model
