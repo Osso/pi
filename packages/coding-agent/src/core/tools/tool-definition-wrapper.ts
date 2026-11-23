@@ -28,11 +28,11 @@ function createFullOutputPath(): string {
 	return join(tmpdir(), `pi-tool-${id}.log`);
 }
 
+/** Add output details to absent or plain-object details; other shapes (arrays, primitives) stay as the tool returned them. */
 function mergeOutputDetails<TDetails>(details: TDetails | undefined, outputDetails: ToolOutputDetails): TDetails {
-	if (details !== null && typeof details === "object") {
-		return { ...details, ...outputDetails } as TDetails;
-	}
-	return outputDetails as TDetails;
+	if (details === undefined || details === null) return outputDetails as TDetails;
+	if (typeof details !== "object" || Array.isArray(details)) return details;
+	return { ...details, ...outputDetails } as TDetails;
 }
 
 function hasExistingOutputDetails(details: unknown): boolean {

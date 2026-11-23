@@ -72,6 +72,25 @@ describe("wrapToolDefinition", () => {
 		expect(readFileSync(requireFullOutputPath(result.details), "utf-8")).toBe(`${"x".repeat(12_000)}final`);
 	});
 
+	it("keeps array details when it caps oversized text", async () => {
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "array_details",
+				label: "Array details",
+				description: "Returns long text with array details",
+				parameters: Type.Object({}),
+				async execute() {
+					return { content: [{ type: "text" as const, text: "x".repeat(12_000) }], details: ["alpha", "omega"] };
+				},
+			}),
+		);
+
+		const result = await tool.execute("array-call", {});
+
+		expect(result.details).toEqual(["alpha", "omega"]);
+		expect(textOutput(result)).toMatch(/Full output: \S+pi-tool-[0-9a-f]+\.log\]$/);
+	});
+
 	it("passes the agent lifecycle start timestamp into extension context", async () => {
 		let observedStartedAt: number | undefined;
 		const tool = wrapToolDefinition(
