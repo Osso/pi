@@ -199,6 +199,8 @@ export class Agent {
 	private blockOpen = false;
 	/** Steering arrived during a content block; end the request when that block ends. */
 	private interruptAfterBlock = false;
+	/** The active model request already delivered its assistant message; steering waits for the next poll. */
+	private responseEnded = false;
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -308,7 +310,7 @@ export class Agent {
 	 */
 	steer(message: AgentMessage): void {
 		this.steeringQueue.enqueue(message);
-		if (!this._state.isModelRequestActive) return;
+		if (!this._state.isModelRequestActive || this.responseEnded) return;
 		if (this.blockOpen && !hasToolCall(this._state.streamingMessage)) this.interruptAfterBlock = true;
 		else this.activeRun?.abortController.abort();
 	}
@@ -582,6 +584,7 @@ export class Agent {
 		switch (event.type) {
 			case "model_request_start":
 				this._state.isModelRequestActive = true;
+				this.responseEnded = false;
 				break;
 
 			case "model_request_end":
@@ -602,6 +605,7 @@ export class Agent {
 			case "message_end":
 				this._state.streamingMessage = undefined;
 				this._state.messages.push(event.message);
+				if (event.message.role === "assistant") this.responseEnded = true;
 				break;
 
 			case "tool_execution_start": {

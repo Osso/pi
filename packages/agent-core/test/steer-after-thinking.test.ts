@@ -210,4 +210,33 @@ describe("steering during a content block", () => {
 		await prompt;
 		expect(agent.state.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted" });
 	});
+
+	it("does not abort when steering arrives after the response completed", async () => {
+		const requests: Context[] = [];
+		const agent = new Agent({
+			streamFn: (_model, context) => {
+				requests.push(structuredClone(context));
+				const stream = createStream();
+				const text = requests.length === 1 ? "first answer" : "done";
+				queueMicrotask(() =>
+					stream.push({ type: "done", reason: "stop", message: assistant([{ type: "text", text }]) }),
+				);
+				return stream;
+			},
+		});
+		agent.subscribe((event) => {
+			if (event.type === "message_end" && event.message.role === "assistant" && requests.length === 1) {
+				agent.steer(steering);
+			}
+		});
+
+		await agent.prompt("hello");
+
+		expect(agent.state.messages.map((message) => message.role === "assistant" && message.stopReason)).not.toContain(
+			"aborted",
+		);
+		expect(requests).toHaveLength(2);
+		expect(requests[1]?.messages.at(-1)).toMatchObject(steering);
+		expect(agent.state.messages.at(-1)).toMatchObject({ content: [{ type: "text", text: "done" }] });
+	});
 });
