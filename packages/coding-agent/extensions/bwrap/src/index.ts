@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -192,18 +192,33 @@ function createSandboxOperationRunner(params: SandboxParams & { readOnlySkill?: 
 		runJsonInSandbox<T>({ ...params, operation, payload }).then(({ value }) => value);
 }
 
-function createReadOperations(params: SandboxParams, readOnlySkill?: string): ReadOperations {
-	const runSandboxOperation = createSandboxOperationRunner({ ...params, readOnlySkill });
+/** A registered user skill path and the real file the sandbox mounts for it. */
+interface ExternalUserSkill {
+	path: string;
+	realPath: string;
+}
+
+function createReadOperations(params: SandboxParams, skill?: ExternalUserSkill): ReadOperations {
+	const runSandboxOperation = createSandboxOperationRunner({ ...params, readOnlySkill: skill?.realPath });
+	const sandboxPath = (path: string) => (path === skill?.path ? skill.realPath : path);
 	return {
 		access: async (path) => {
-			await runSandboxOperation<{ ok: true }>("access", { path });
+			await runSandboxOperation<{ ok: true }>("access", { path: sandboxPath(path) });
 		},
 		detectImageMimeType: async (path) => mimeTypeForPath(path),
 		readFile: async (path) =>
-			Buffer.from((await runSandboxOperation<{ data: string }>("readFile", { path })).data, "base64"),
+			Buffer.from(
+				(await runSandboxOperation<{ data: string }>("readFile", { path: sandboxPath(path) })).data,
+				"base64",
+			),
 		readRange: async (path, start, end) =>
-			Buffer.from((await runSandboxOperation<{ data: string }>("readRange", { end, path, start })).data, "base64"),
-		stat: async (path) => ({ size: (await runSandboxOperation<FileStatResult>("stat", { path })).size }),
+			Buffer.from(
+				(await runSandboxOperation<{ data: string }>("readRange", { end, path: sandboxPath(path), start })).data,
+				"base64",
+			),
+		stat: async (path) => ({
+			size: (await runSandboxOperation<FileStatResult>("stat", { path: sandboxPath(path) })).size,
+		}),
 	};
 }
 
@@ -365,16 +380,19 @@ function registerSandboxedTool<TParams extends TSchema, TDetails, TState>(
 	});
 }
 
-function findExternalUserSkill(pi: ExtensionAPI, path: string, cwd: string): string | undefined {
+/** Decides by real path: a workspace symlink can advertise a skill whose file lives outside the workspace. */
+function findExternalUserSkill(pi: ExtensionAPI, path: string, cwd: string): ExternalUserSkill | undefined {
 	const requestedPath = resolveToCwd(path, cwd);
-	if (getCwdRelativePath(requestedPath, cwd) !== undefined) return undefined;
-	const skill = pi
+	const isRegistered = pi
 		.getCommands()
-		.find(
+		.some(
 			({ source, sourceInfo }) =>
 				source === "skill" && sourceInfo.scope === "user" && sourceInfo.path === requestedPath,
 		);
-	return skill?.sourceInfo.path;
+	if (!isRegistered || !existsSync(requestedPath)) return undefined;
+	const realPath = realpathSync(requestedPath);
+	if (getCwdRelativePath(realPath, realpathSync(cwd)) !== undefined) return undefined;
+	return { path: requestedPath, realPath };
 }
 
 function registerSandboxedReadTool(pi: ExtensionAPI, runtime: BwrapExtensionRuntime): void {

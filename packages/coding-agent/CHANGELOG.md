@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed sandboxed `read` denying a registered user skill whose advertised path is inside the workspace but links to a file outside it.
 - Fixed RPC mode exiting after an unrelated command completed while an extension command that requested shutdown still waited for a dialog reply.
 - `RpcClient.promptAndWait()` handles event collection timeouts while awaiting the prompt response without an unhandled rejection, preserving prompt errors.
 - `pi config` resizes its resource list to keep the highlighted item visible when the terminal height changes.

@@ -589,7 +589,11 @@ console.log(JSON.stringify({
 		},
 	);
 
-	it.skipIf(!canExecuteBwrap)("allows read-only access to registered user skills", async () => {
+	it.skipIf(!canExecuteBwrap).each([
+		// Inside the workspace, the unmounted symlink target is missing from the sandbox.
+		["outside the workspace", false, /escapes workspace/i],
+		["advertised through a workspace symlink", true, /ENOENT/],
+	])("allows read-only access to registered user skills %s", async (_case, homeIsWorkspace, denied) => {
 		const realSkillDir = join(tempDir, "real-user-skill");
 		const userSkillsDir = join(homeDir, ".pi", "agent", "skills");
 		const skillDir = join(userSkillsDir, "example-skill");
@@ -623,7 +627,7 @@ console.log(JSON.stringify({
 		const editTool = tools.get("edit");
 		if (!readTool || !writeTool || !editTool) throw new Error("Missing sandbox file tools");
 		const context = {
-			cwd: workspaceDir,
+			cwd: homeIsWorkspace ? homeDir : workspaceDir,
 			settingsManager: SettingsManager.inMemory({ sandboxProfile: "read-only" }),
 		} as ExtensionContext;
 
@@ -631,10 +635,10 @@ console.log(JSON.stringify({
 		expect(skillResult.content).toEqual([{ type: "text", text: "registered skill content" }]);
 		await expect(
 			readTool.execute("read-sibling", { path: siblingPath }, undefined, undefined, context),
-		).rejects.toThrow(/escapes workspace/i);
+		).rejects.toThrow(denied);
 		await expect(
 			writeTool.execute("write-skill", { content: "modified", path: skillPath }, undefined, undefined, context),
-		).rejects.toThrow(/escapes workspace/i);
+		).rejects.toThrow(denied);
 		await expect(
 			editTool.execute(
 				"edit-skill",
@@ -643,7 +647,7 @@ console.log(JSON.stringify({
 				undefined,
 				context,
 			),
-		).rejects.toThrow(/escapes workspace/i);
+		).rejects.toThrow(denied);
 		expect(readFileSync(skillPath, "utf8")).toBe("registered skill content");
 	});
 
