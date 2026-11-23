@@ -655,7 +655,7 @@ function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
 
 /** Read the normal compaction-aware loaded history, migrating legacy entries only in memory. */
 export function loadSessionContextEntries(filePath: string): { header: SessionHeader; entries: SessionEntry[] } {
-	const resolvedPath = resolvePath(filePath);
+	const resolvedPath = readSessionTranscriptPath(resolvePath(filePath));
 	if (!existsSync(resolvedPath)) throw new Error(`Session file does not exist: ${resolvedPath}`);
 	const { fileEntries } = loadSessionFileEntries(resolvedPath);
 	const header = fileEntries[0];

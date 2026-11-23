@@ -66,7 +66,8 @@ describe("plain/archive session load parity", () => {
 			const plainHtml = await exportFromFile(plain, join(root, "plain.html"));
 			const archiveHtml = await exportFromFile(archive, join(root, "archive.html"));
 			expect(exportedPayload(archiveHtml)).toEqual(exportedPayload(plainHtml));
-			expect(exportSessionToTerminal(archive, 80)).toEqual(exportSessionToTerminal(plain, 80));
+			const plainTerminal = exportSessionToTerminal(plain, 80);
+			expect(exportSessionToTerminal(archive, 80)).toEqual(plainTerminal);
 
 			const plainFork = SessionManager.forkFrom(plain, "/fork", join(root, "plain-forks"));
 			const archiveFork = SessionManager.forkFrom(archive, "/fork", join(root, "archive-forks"));
@@ -75,6 +76,10 @@ describe("plain/archive session load parity", () => {
 			expect(archiveFork.getHeader()?.parentSession).toBe(archive);
 			expect(readFileSync(plain)).toEqual(original);
 			expect(existsSync(archive)).toBe(true);
+
+			// After archival removes the plain file, its old path still exports the archive.
+			rmSync(plain);
+			expect(exportSessionToTerminal(plain, 80)).toEqual(plainTerminal);
 		},
 	);
 
