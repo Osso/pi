@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convertMessages } from "../src/api/google-shared.ts";
+import { convertMessages, requiresToolCallId } from "../src/api/google-shared.ts";
 import type { Context, Model } from "../src/types.ts";
 
 function makeGemini3Model<TApi extends "google-generative-ai" | "google-vertex">(
@@ -57,6 +57,22 @@ function makeContext(model: { api: string; provider: string; id: string }, thoug
 				stopReason: "toolUse",
 				timestamp: now,
 			},
+			{
+				role: "toolResult",
+				toolCallId: "call_1",
+				toolName: "bash",
+				content: [{ type: "text", text: "hi" }],
+				isError: false,
+				timestamp: now,
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call_2",
+				toolName: "bash",
+				content: [{ type: "text", text: "files" }],
+				isError: false,
+				timestamp: now,
+			},
 		],
 	};
 }
@@ -64,6 +80,21 @@ function makeContext(model: { api: string; provider: string; id: string }, thoug
 const SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 
 describe("google-shared convertMessages — Gemini 3 unsigned tool calls", () => {
+	it.each([
+		makeGemini3Model("google-generative-ai", "google"),
+		makeGemini3Model("google-generative-ai", "google", "gemini-3.6-flash"),
+		makeGemini3Model("google-vertex", "google-vertex"),
+	])("preserves tool call IDs for $id via $api history", (model) => {
+		const parts = convertMessages(model, makeContext(model)).flatMap((content) => content.parts ?? []);
+		const functionCallIds = parts.flatMap((part) => (part.functionCall?.id ? [part.functionCall.id] : []));
+		const functionResponseIds = parts.flatMap((part) =>
+			part.functionResponse?.id ? [part.functionResponse.id] : [],
+		);
+
+		expect(functionCallIds).toEqual(["call_1", "call_2"]);
+		expect(functionResponseIds).toEqual(["call_1", "call_2"]);
+	});
+
 	it("adds skip_thought_signature_validator for unsigned Google Gen AI Gemini 3 tool calls", () => {
 		const model = makeGemini3Model("google-generative-ai", "google");
 		const contents = convertMessages(model, makeContext({ ...model, id: "other-model" }));
@@ -124,5 +155,16 @@ describe("google-shared convertMessages — Gemini 3 unsigned tool calls", () =>
 
 		expect(fcPart).toBeTruthy();
 		expect(fcPart?.thoughtSignature).toBeUndefined();
+	});
+});
+
+describe("requiresToolCallId", () => {
+	it.each([
+		[false, "gemini-2.5-flash"],
+		[true, "gemini-3.6-flash"],
+		[true, "claude-sonnet-4-5"],
+		[true, "gpt-oss-120b"],
+	] as const)("returns %s for %s", (expected, modelId) => {
+		expect(requiresToolCallId(modelId)).toBe(expected);
 	});
 });
