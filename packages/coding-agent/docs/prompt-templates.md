@@ -92,5 +92,5 @@ Usage: `/component Button "onClick handler" "disabled support"`
 
 ## Loading Rules
 
-- Template discovery in `prompts/` is non-recursive.
-- If you want templates in subdirectories, add them explicitly via `prompts` settings or a package manifest.
+- Conventional user and project `prompts/` directories load direct `.md` children only.
+- Settings and packages can select nested Markdown files; a package manifest can narrow discovery with explicit paths and globs.
