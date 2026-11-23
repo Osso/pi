@@ -134,3 +134,50 @@ it("accepts ordinary steering during the resumed tool turn after manual compacti
 		await steering;
 	}
 });
+
+it("delivers a follow-up queued before manual compaction once in the resumed turn", async () => {
+	const thinkingStarted = createGate();
+	const releaseThinking = createGate();
+	const harness = await createHarness({
+		settings: { compaction: { keepRecentMessages: 1 } },
+		extensionFactories: [
+			(pi) => {
+				pi.on("compaction", async (event) => ({
+					compaction: {
+						summary: "Earlier work summarized",
+						firstKeptEntryId: event.preparation.firstKeptEntryId,
+						tokensBefore: event.preparation.tokensBefore,
+					},
+				}));
+			},
+		],
+	});
+	harness.setResponses([
+		completedTurn("Earlier work complete"),
+		async () => {
+			thinkingStarted.release();
+			await releaseThinking.promise;
+			return completedTurn("Interrupted thinking");
+		},
+		completedTurn("Resumed work"),
+		completedTurn("Totals reported"),
+	]);
+	try {
+		await harness.session.prompt("Earlier work");
+		const running = harness.session.prompt("Continue working");
+		await thinkingStarted.promise;
+		await harness.session.prompt("Report the totals", { streamingBehavior: "followUp" });
+		expect(harness.session.getFollowUpMessages()).toEqual(["Report the totals"]);
+
+		const compacting = harness.session.compact();
+		releaseThinking.release();
+		await Promise.all([compacting, running]);
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness).filter((text) => text === "Report the totals")).toHaveLength(1);
+		expect(harness.session.pendingMessageCount).toBe(0);
+	} finally {
+		releaseThinking.release();
+		harness.cleanup();
+	}
+});

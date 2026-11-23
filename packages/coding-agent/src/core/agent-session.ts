@@ -1464,12 +1464,8 @@ export class AgentSession {
 
 	private _runtimeMailboxSteeringLifecycle(messages: AgentMessage[]): AgentLifecycleState {
 		const assistant = this._lastRuntimeMailboxAssistant(messages);
-		if (assistant?.stopReason === "aborted") {
-			return "aborted";
-		}
-		if (assistant?.stopReason === "error") {
-			return "failed";
-		}
+		if (assistant?.stopReason === "aborted") return "aborted";
+		if (assistant?.stopReason === "error") return "failed";
 		return "completed";
 	}
 
@@ -1655,9 +1651,7 @@ export class AgentSession {
 		// SessionManager persistence happens later in _handleAgentEvent() with event.message.
 		// Mutating this object in place keeps agent state, later turn/agent events, listeners,
 		// and the eventual SessionManager.appendMessage(event.message) persistence in sync.
-		if (target === replacement) {
-			return;
-		}
+		if (target === replacement) return;
 
 		const targetRecord = target as unknown as Record<string, unknown>;
 		for (const key of Object.keys(targetRecord)) {
@@ -3283,17 +3277,22 @@ export class AgentSession {
 		await interruptSession(this, message, source);
 	}
 
-	/** Abort current operation and wait for agent to become idle. */
+	/** Abort current operation, discard queued input, and wait for agent to become idle. */
 	async abort(): Promise<void> {
+		this._steeringMessages = [];
+		this._followUpMessages = [];
+		this.agent.clearAllQueues();
+		this._emitQueueUpdate();
+		await this._stopAgentRun();
+	}
+
+	/** Stop the current run and wait for idle; queued input stays queued. */
+	private async _stopAgentRun(): Promise<void> {
 		this._codexRestrictionRecovery.cancelPendingValidation();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		this.abortRetry();
 		this._clearThinkingPhaseDeadline();
 		this._thinkingPhaseTimeoutError = undefined;
-		this._steeringMessages = [];
-		this._followUpMessages = [];
-		this.agent.clearAllQueues();
-		this._emitQueueUpdate();
 		this.agent.abort();
 		await this.agent.waitForIdle();
 	}
@@ -3554,7 +3553,8 @@ export class AgentSession {
 	): Promise<CompactionResult> {
 		const wasRunningAgentTurn = this.isStreaming;
 		this._disconnectFromAgent();
-		await this.abort();
+		// The resumed turn delivers input queued before compaction.
+		await this._stopAgentRun();
 		await this._backgroundCompaction.cancel();
 		const compactionAbortController = new AbortController();
 		this._compactionAbortController = compactionAbortController;
