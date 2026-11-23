@@ -1611,6 +1611,63 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("keeps the completion report when an agent wakes the completion review during a running turn", async () => {
+		let harness: ReturnType<typeof createGoalHarness> | undefined;
+		vi.useFakeTimers();
+		try {
+			let idle = false;
+			let finishWait: (() => void) | undefined;
+			const waitFinished = new Promise<void>((resolve) => {
+				finishWait = resolve;
+			});
+			let answerReReview: (() => void) | undefined;
+			const reReviewAnswered = new Promise<void>((resolve) => {
+				answerReReview = resolve;
+			});
+			const reviewGoal = vi.fn<GoalSupervisorReview>(async ({ kind }) => {
+				if (reviewGoal.mock.calls.length === 1) return { kind: "wait", reason: "child is verifying the rollout" };
+				if (kind === "goal_completion_review") await reReviewAnswered;
+				return kind === "goal_completion_review"
+					? { kind: "complete", reason: "rollout verified" }
+					: { kind: "continue", reason: "work remains", instructions: "Continue working toward the active goal." };
+			});
+			harness = createGoalHarness(cwd, {
+				idle: () => idle,
+				callTool: async (name) => {
+					if (name === "list_agents")
+						return { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } };
+					await waitFinished;
+					return { content: [], details: { agent: { id: "child", status: "completed" } } };
+				},
+				reviewGoal,
+			});
+			await harness.runCommand("set Verify deployment");
+			const report = "Tests passed; child is verifying the rollout.";
+
+			await harness.runAgentStart();
+			await harness.runGoalComplete(report);
+			await vi.waitFor(() =>
+				expect(harness?.callTool).toHaveBeenCalledWith("wait_agent", {}, expect.any(AbortSignal)),
+			);
+			finishWait?.();
+			await vi.advanceTimersByTimeAsync(0);
+			idle = true;
+			await harness.runAgentEnd();
+			await vi.advanceTimersByTimeAsync(10_000);
+			answerReReview?.();
+			await vi.advanceTimersByTimeAsync(10_000);
+
+			expect(reviewGoal.mock.calls.map(([request]) => request.kind)).toEqual([
+				"goal_completion_review",
+				"goal_completion_review",
+			]);
+			expect(readStoredGoal<{ completionReason?: string }>(cwd).completionReason).toBe(report);
+		} finally {
+			await harness?.runSessionShutdown();
+			vi.useRealTimers();
+		}
+	});
+
 	it("ignores a late agent wake after the fifty-five-minute deadline starts re-review", async () => {
 		let harness: ReturnType<typeof createGoalHarness> | undefined;
 		vi.useFakeTimers();

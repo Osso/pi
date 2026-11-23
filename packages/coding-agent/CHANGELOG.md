@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a child agent that finished during the parent's running turn letting that turn's end replace the pending goal completion re-review, which lost the completion report
 - Fixed `pi sessions archive` resetting a relocated session's working directory to the one in its transcript header, which made the archived session fail to reopen
 - Fixed Claude bridge `/compact` cancelling instead of moving to the next account when Claude Code exits with an error after a quota rejection
 - Fixed oversized extension tool output turning array or primitive `details` into an object that the tool renderer could not read

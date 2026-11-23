@@ -302,6 +302,11 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		if (waitError) throw waitError;
 		if (!this.claimWaitReview(ctx, scheduledWait.epoch)) return;
 		callbacks.onAgentWake();
+		// Like the timed path: a running turn reviews after it ends, and the retry keeps the wait owning that review.
+		if (!ctx.isIdle()) {
+			this.scheduleReviewRetry(ctx, goal, terminalTurn, waitWakeEvidence(waitResult));
+			return;
+		}
 		await this.reviewAndApply(ctx, goal, terminalTurn, waitWakeEvidence(waitResult));
 	}
 
