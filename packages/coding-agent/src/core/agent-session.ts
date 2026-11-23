@@ -5258,27 +5258,17 @@ export class AgentSession {
 	 * @returns Text content, or undefined if no assistant message exists or the last reply has no text
 	 */
 	getLastAssistantText(): string | undefined {
+		// Public text includes signed narration; skip text-less replies that did not end normally (abort, error, end_turn only).
+		const publicText = (message: AssistantMessage) =>
+			message.content.map((content) => getAssistantContentText(content) ?? "").join("");
 		const lastAssistant = this.messages
 			.slice()
 			.reverse()
-			.find((m) => {
-				if (m.role !== "assistant") return false;
-				const msg = m as AssistantMessage;
-				// Skip text-less messages that did not end normally: aborted, failed, or only calling tools (end_turn).
-				if (msg.stopReason !== "stop" && !msg.content.some((c) => c.type === "text" && c.text.trim())) return false;
-				return true;
-			});
-
-		if (!lastAssistant) return undefined;
-
-		let text = "";
-		for (const content of (lastAssistant as AssistantMessage).content) {
-			if (content.type === "text") {
-				text += content.text;
-			}
-		}
-
-		return text.trim() || undefined;
+			.find(
+				(m): m is AssistantMessage =>
+					m.role === "assistant" && (m.stopReason === "stop" || publicText(m).trim() !== ""),
+			);
+		return lastAssistant ? publicText(lastAssistant).trim() || undefined : undefined;
 	}
 
 	// =========================================================================

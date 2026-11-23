@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "../harness.ts";
@@ -86,5 +87,38 @@ describe("issue #12119 /copy after a turn without final text", () => {
 
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(harness.session.getLastAssistantText()).toBe(ANSWER);
+	});
+
+	it("includes signed public narration and leaves genuine thinking out", async () => {
+		const narrationSignature = (
+			JSON.parse(readFileSync(new URL("../../fixtures/anthropic-narration.json", import.meta.url), "utf8")) as {
+				content: Array<{ thinkingSignature: string }>;
+			}
+		).content[1].thinkingSignature;
+		harness = await createHarness();
+		harness.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxText("Intro. "),
+					fauxThinking("Private reasoning"),
+					{ ...fauxThinking("Public reply"), thinkingSignature: narrationSignature },
+					fauxToolCall("end_turn", { reason: "answered" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				[
+					{ ...fauxThinking("Only narration"), thinkingSignature: narrationSignature },
+					fauxToolCall("end_turn", { reason: "answered" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+		]);
+
+		await harness.session.prompt("first question");
+		expect(harness.session.getLastAssistantText()).toBe("Intro. Public reply");
+
+		await harness.session.prompt("second question");
+		expect(harness.session.getLastAssistantText()).toBe("Only narration");
 	});
 });

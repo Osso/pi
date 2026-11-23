@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/copy` now includes signed public narration in the last assistant reply, and copies a reply that contains only narration
 - Fixed `/reload` leaving the previous extension version's `pi.events` listeners active, so each reload added another copy of every handler
 - A `models.json` model header override now replaces a provider header spelled in another case (`x-proxy-token` over `X-Proxy-Token`), instead of failing when the provider header's variable is unset or sending both
 - Automatic compaction now waits the full provider cooldown for a compound hint such as `try again in 2m4s`, instead of retrying after only the minutes part
