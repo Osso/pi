@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Codex image generation drops the streamed preview when only the terminal response reports the image call failed
 - Image model refresh retries after a dynamic loader throws synchronously; the failed call no longer stays cached
 - `ImagesModels.generateImages()` returns an error result instead of rejecting when a provider without resolved auth fails
 - Fixed context overflow detection missing z.ai code 1261, DashScope input-length, and HTTP 413 request-size errors, and treating bodyless HTTP 400 errors from providers other than Cerebras as overflow

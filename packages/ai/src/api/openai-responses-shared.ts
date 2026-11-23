@@ -565,6 +565,9 @@ export async function processResponsesStream<TApi extends Api>(
 		);
 		if (imageGenerationItem?.type === "image_generation_call" && imageGenerationItem.result) {
 			output.imageGenerationResult = { type: "image", data: imageGenerationItem.result, mimeType: "image/png" };
+		} else if (response?.output?.some((item) => item.type === "image_generation_call" && item.status === "failed")) {
+			// A preview streamed before the failure is not a generated image.
+			output.imageGenerationResult = undefined;
 		}
 		if (response?.usage) output.usage = mapResponsesUsage(response.usage);
 		calculateCost(model, output.usage);
