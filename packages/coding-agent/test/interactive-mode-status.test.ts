@@ -363,7 +363,6 @@ interface InteractiveModeKeyHandlerInternals {
 	restorePreviousAgentSelection(this: unknown, agentId: string | undefined): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	selectAgentView(this: unknown, agentId: string): boolean;
-	selectAgentViewFromBridge(this: unknown, agentId: string): boolean;
 	setWorkingVisible(this: unknown, visible: boolean): void;
 	getWorkingLoaderMessage(this: unknown): string;
 	getToolWaitingMessage(this: unknown, toolName: string, startedAt?: number, showElapsed?: boolean): string;
@@ -1621,25 +1620,6 @@ describe("InteractiveMode key handlers", () => {
 			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
 			expect(fixture.fakeThis.loadingAnimation).toBe(mainLoader);
 			expect(fixture.fakeThis.statusContainer.children).toContain(mainLoader);
-			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
-			expect(output).toContain("parent transcript only");
-			expect(output).not.toContain("child transcript only");
-		} finally {
-			fixture.cleanup();
-		}
-	});
-
-	test("bridge selection reports success when returning to main thread", () => {
-		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
-		try {
-			expect(interactiveModeKeyHandlers.selectAgentViewFromBridge.call(fixture.fakeThis, fixture.childAgentId)).toBe(
-				true,
-			);
-
-			expect(interactiveModeKeyHandlers.selectAgentViewFromBridge.call(fixture.fakeThis, "main")).toBe(true);
-
-			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
-			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
 			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
 			expect(output).toContain("parent transcript only");
 			expect(output).not.toContain("child transcript only");

@@ -144,7 +144,8 @@ export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
 	desktopNotifier?: AgentDesktopNotifier;
 	runtimeHandles?: MultiAgentRuntimeHandles;
-	selectAgentView?: (agentId: string) => boolean | undefined;
+	/** True while a user-owned view (the interactive TUI) owns agent selection; pi.agents.select then fails. */
+	isAgentViewUserOwned?: () => boolean;
 	onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
 	store?: MultiAgentStore;
 }

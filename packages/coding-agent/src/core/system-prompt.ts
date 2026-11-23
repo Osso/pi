@@ -21,7 +21,7 @@ function appendUserRulesSection(prompt: string, rulesContent: string | undefined
 function buildPyrunAgentGuidelines(tools: string[]): string[] {
 	if (!tools.includes("spawn_agent") || !tools.includes("pyrun_eval")) return [];
 	return [
-		"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
+		"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id) (non-interactive modes only; the user owns the TUI view), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
 	];
 }
 

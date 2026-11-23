@@ -197,7 +197,7 @@ export function createMultiAgentPiRequestHandler(options: MultiAgentExtensionOpt
 		}
 
 		if (request.method === "agents.select") {
-			return selectAgent(store, request.params, options.selectAgentView);
+			return selectAgent(store, request.params, options.isAgentViewUserOwned?.() === true);
 		}
 
 		if (request.method === "messages.last") {
@@ -227,20 +227,11 @@ function selectCurrentAgent(store: MultiAgentStore): AgentSelectionDetails {
 	return { agent: selectedAgent };
 }
 
-function selectAgent(
-	store: MultiAgentStore,
-	params: unknown,
-	selectAgentView: MultiAgentExtensionOptions["selectAgentView"],
-): AgentSelectionDetails {
+function selectAgent(store: MultiAgentStore, params: unknown, viewUserOwned: boolean): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
-	const rendered = selectAgentView?.(agentId);
-	if (rendered === true) {
-		if (agentId === MAIN_THREAD_AGENT_ID) return { agent: createMainThreadSnapshot() };
-		const selected = store.getAgent(agentId);
-		if (selected) return { agent: selected };
-		return selectCurrentAgent(store);
+	if (viewUserOwned) {
+		throw new Error("pi.agents.select is unavailable in interactive mode; only the user can switch the agent view");
 	}
-	if (rendered === false) throw new Error(`Agent view selection failed: ${agentId}`);
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();

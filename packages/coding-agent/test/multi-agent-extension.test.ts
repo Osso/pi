@@ -2539,17 +2539,21 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("routes Pi request handler agents.select through the interactive view callback when available", async () => {
+	it("rejects Pi request handler agents.select while the user owns the interactive view", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const spawned = spawnTestWorker(store);
-		const selectAgentView = vi.fn((agentId: string) => store.selectActiveAgentTarget(agentId) !== undefined);
-		const handler = createMultiAgentPiRequestHandler({ selectAgentView, store });
+		const other = spawnTestWorker(store);
+		store.selectAgentView(other.agent.id);
+		const handler = createMultiAgentPiRequestHandler({ isAgentViewUserOwned: () => true, runtimeHandles, store });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
-		const result = await handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined);
-
-		expect(selectAgentView).toHaveBeenCalledWith(spawned.agent.id);
-		expect(result).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Worker" } });
+		for (const agentId of [spawned.agent.id, "main"]) {
+			await expect(handler({ method: "agents.select", params: { agentId } }, ctx, undefined)).rejects.toThrow(
+				"pi.agents.select is unavailable in interactive mode; only the user can switch the agent view",
+			);
+		}
+		expect(store.getSelectedAgentId()).toBe(other.agent.id);
 	});
 
 	it("resolves main after a bridge-selected child view returns to main", () => {
@@ -2595,22 +2599,30 @@ describe("multi-agent extension tools", () => {
 		);
 	});
 
-	it("leaves the current mutation view unchanged when Pi request handler agents.select fails", async () => {
+	it("leaves the current mutation view unchanged when Pi request handler agents.select is rejected", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const spawned = spawnTestWorker(store);
-		const handler = createMultiAgentPiRequestHandler({
-			runtimeHandles,
-			selectAgentView: () => false,
-			store,
-		});
+		const handler = createMultiAgentPiRequestHandler({ isAgentViewUserOwned: () => true, runtimeHandles, store });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(
 			handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined),
-		).rejects.toThrow(`Agent view selection failed: ${spawned.agent.id}`);
+		).rejects.toThrow("pi.agents.select is unavailable in interactive mode");
 		expect(store.getSelectedAgentId()).toBeUndefined();
 		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
+	});
+
+	it("selects a child through Pi request handler agents.select when no user-owned view exists", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnTestWorker(store);
+		const handler = createMultiAgentPiRequestHandler({ isAgentViewUserOwned: () => false, store });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "rpc" } as ExtensionContext;
+
+		const result = await handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined);
+
+		expect(result).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Worker" } });
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
 	});
 
 	it("lets Pi request handler agents.wait return immediately when no agents are active", async () => {

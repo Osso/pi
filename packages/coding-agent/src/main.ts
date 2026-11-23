@@ -623,7 +623,7 @@ function optionalFirstPartyExtensionFactory(
 interface FirstPartyOrchestration {
 	store: MultiAgentStore;
 	runtimeHandles: ReturnType<typeof createMultiAgentRuntimeHandles>;
-	selectAgentView: (agentId: string) => boolean | undefined;
+	isAgentViewUserOwned: () => boolean;
 }
 
 function createPyrunFirstPartyExtensionFactory(
@@ -636,7 +636,7 @@ function createPyrunFirstPartyExtensionFactory(
 			createAttachedSession,
 			createChildSession,
 			runtimeHandles: orchestration.runtimeHandles,
-			selectAgentView: orchestration.selectAgentView,
+			isAgentViewUserOwned: orchestration.isAgentViewUserOwned,
 			store: orchestration.store,
 		});
 		pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] });
@@ -757,7 +757,7 @@ async function applyStartupSelfRestartHandoff(parsed: Args) {
 
 function createMainSessionCoordination(
 	noSupervisor: boolean | undefined,
-	selectAgentView: FirstPartyOrchestration["selectAgentView"],
+	isAgentViewUserOwned: FirstPartyOrchestration["isAgentViewUserOwned"],
 ) {
 	if (noSupervisor) return undefined;
 	const store = new MultiAgentStore();
@@ -765,7 +765,7 @@ function createMainSessionCoordination(
 	return {
 		store,
 		runtimeHandles,
-		selectAgentView,
+		isAgentViewUserOwned,
 		resolveMutationTarget: () => resolveSelectedSessionMutationTarget(store, runtimeHandles),
 		wakeWaitAgentsFromSharedChannel: (prompt: string) => wakeWaitAgentsAfterCoordination(runtimeHandles, prompt),
 	};
@@ -953,10 +953,8 @@ export async function main(args: string[], options?: MainOptions) {
 
 	const parsed = initialArgs;
 	const selfRestartHandoff = await applyStartupSelfRestartHandoff(parsed);
-	let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
-	const coordination = createMainSessionCoordination(parsed.noSupervisor, (agentId) =>
-		interactiveAgentViewSelector?.(agentId),
-	);
+	let interactiveViewActive = false;
+	const coordination = createMainSessionCoordination(parsed.noSupervisor, () => interactiveViewActive);
 	const firstPartyMultiAgentStore = coordination?.store;
 	const resolveFirstPartySessionMutationTarget = () => coordination?.resolveMutationTarget();
 	const wakeWaitAgentsFromSharedChannel = coordination?.wakeWaitAgentsFromSharedChannel;
@@ -1371,7 +1369,7 @@ export async function main(args: string[], options?: MainOptions) {
 			verbose: parsed.verbose,
 		});
 		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);
-		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
+		interactiveViewActive = true;
 		if (startupBenchmark) {
 			if (
 				!(await runInteractiveActionOrReportTerminalError(

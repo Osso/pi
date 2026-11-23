@@ -2581,10 +2581,6 @@ export class InteractiveMode {
 		return true;
 	}
 
-	selectAgentViewFromBridge(agentId: string): boolean {
-		return this.selectAgentView(agentId);
-	}
-
 	private selectAgentView(agentId: string): boolean {
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
