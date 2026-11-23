@@ -299,9 +299,7 @@ function duplicateTurnFingerprint(message: AssistantMessage): string {
 let runtimeMailboxSignalKeepaliveInstalled = false;
 
 function installRuntimeMailboxSignalKeepalive(): void {
-	if (runtimeMailboxSignalKeepaliveInstalled || process.platform === "win32") {
-		return;
-	}
+	if (runtimeMailboxSignalKeepaliveInstalled || process.platform === "win32") return;
 	runtimeMailboxSignalKeepaliveInstalled = true;
 	process.on("SIGUSR2", () => {});
 }
@@ -1784,9 +1782,7 @@ export class AgentSession {
 
 	/** Remove all listeners and disconnect from agent. Call this when completely done with the session. */
 	dispose(): void {
-		if (this._disposed) {
-			return;
-		}
+		if (this._disposed) return;
 		this._disposed = true;
 		this._codexRestrictionRecovery.cancelPendingValidation();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
@@ -4670,12 +4666,15 @@ export class AgentSession {
 			return false;
 		}
 
-		const delayMs = calculateRetryDelayMs(
+		// Retrying before the provider-requested delay repeats the failure (a pool reports its earliest member expiry).
+		const backoffMs = calculateRetryDelayMs(
 			this._retryAttempt,
 			settings.baseDelayMs,
 			settings.maxBackoffMs,
 			Math.random(),
 		);
+		const retryAfterMs = Number.isFinite(message.retryAfterMs) ? (message.retryAfterMs ?? 0) : 0;
+		const delayMs = Math.max(backoffMs, retryAfterMs);
 
 		this._emit({
 			type: "auto_retry_start",

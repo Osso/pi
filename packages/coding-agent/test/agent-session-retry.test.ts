@@ -227,12 +227,27 @@ describe("AgentSession retry", () => {
 	it("retries when the provider-requested delay fits within the cap", async () => {
 		const created = createSession({
 			failCount: 1,
-			retryAfterMs: 5_000,
+			retryAfterMs: 50,
 			providerMaxRetryDelayMs: 60_000,
 		});
 
 		await created.session.prompt("Test");
 
+		expect(created.getCallCount()).toBe(2);
+	});
+
+	it("waits at least the provider-requested delay before retrying", async () => {
+		const created = createSession({ failCount: 1, retryAfterMs: 200, providerMaxRetryDelayMs: 60_000 });
+		const delays: number[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") delays.push(event.delayMs);
+		});
+		const startedAt = Date.now();
+
+		await created.session.prompt("Test");
+
+		expect(delays).toEqual([200]);
+		expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
 		expect(created.getCallCount()).toBe(2);
 	});
 

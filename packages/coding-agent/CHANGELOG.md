@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Automatic retry waits at least the provider-reported `retryAfterMs`, so a model pool retry reaches the member whose cooldown expires first
 - The duplicate-turn guard compares signed public narration, so different narration-only replies are no longer treated as repeats
 - `pi -p` prints the answer when the duplicate-turn guard leads to a textless `end_turn`
 - `/usage reset` consumes the reset credit of the Codex account it read and confirmed, even if the model changes during the dialog
