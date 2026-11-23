@@ -714,7 +714,7 @@ function sessionCwdMatches(cwd: string | undefined, resolvedCwd: string): boolea
 
 /** Exported for testing */
 export function findMostRecentSession(sessionDir: string, cwd?: string, controlDbPath?: string): string | null {
-	const resolvedSessionDir = normalizePath(sessionDir);
+	const resolvedSessionDir = resolvePath(sessionDir);
 	const resolvedCwd = cwd ? resolvePath(cwd) : undefined;
 	try {
 		const files = readdirSync(resolvedSessionDir)
@@ -869,7 +869,7 @@ async function listMetadataSessions(
 			cacheSessionMetadata(controlDbPath, s),
 		);
 	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
-	const normalizedDir = options.dir ? join(normalizePath(options.dir)) : undefined;
+	const normalizedDir = options.dir ? resolvePath(options.dir) : undefined;
 	const sessionPathPrefix = normalizedDir && !normalizedDir.endsWith(sep) ? `${normalizedDir}${sep}` : normalizedDir;
 	return listResumeSessionMetadata(controlDbPath, {
 		archived: options.archived,
@@ -1931,7 +1931,7 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory. If omitted, uses default global sessions dir.
 	 */
 	static create(cwd: string, sessionDir?: string, options?: NewSessionOptions): SessionManager {
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
+		const dir = sessionDir ? resolvePath(sessionDir) : getDefaultSessionDir(cwd);
 		return new SessionManager(cwd, dir, undefined, true, options);
 	}
 
@@ -1948,7 +1948,7 @@ export class SessionManager {
 		const header = readSessionHeader(resolvedPath);
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
-		const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
+		const dir = sessionDir ? resolvePath(sessionDir) : resolve(resolvedPath, "..");
 		const sessionManager = new SessionManager(cwd, dir, resolvedPath, true);
 		if (cwdOverride) sessionManager.cwd = resolvePath(cwdOverride);
 		return sessionManager;
@@ -1978,7 +1978,7 @@ export class SessionManager {
 	 */
 	static continueRecent(cwd: string, sessionDir?: string): SessionManager {
 		const controlDbPath = getControlDbPath();
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
+		const dir = sessionDir ? resolvePath(sessionDir) : getDefaultSessionDir(cwd);
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
 		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined, controlDbPath);
 		return new SessionManager(cwd, dir, mostRecent ?? undefined, true);
@@ -2018,7 +2018,7 @@ export class SessionManager {
 			throw new Error(`Cannot fork: source session has no header: ${resolvedSourcePath}`);
 		migrateToCurrentVersion(sourceEntries);
 
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(resolvedTargetCwd);
+		const dir = sessionDir ? resolvePath(sessionDir) : getDefaultSessionDir(resolvedTargetCwd);
 		mkdirSync(dir, { recursive: true });
 
 		if (options?.id !== undefined) assertValidSessionId(options.id);
@@ -2063,7 +2063,7 @@ export class SessionManager {
 		onProgress?: SessionListProgress,
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDirPath(cwd);
+		const dir = sessionDir ? resolvePath(sessionDir) : getDefaultSessionDirPath(cwd);
 		const options = { cwd, dir, archived: false, scanDir: sessionDir ? dir : undefined };
 		const metadataSessions = await listMetadataSessions(controlDbPath, options, onProgress);
 		if (metadataSessions) return metadataSessions;
@@ -2084,7 +2084,7 @@ export class SessionManager {
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		if (!controlDbPath) return [];
-		const dir = sessionDir ? normalizePath(sessionDir) : undefined;
+		const dir = sessionDir ? resolvePath(sessionDir) : undefined;
 		return (await listMetadataSessions(controlDbPath, { dir, archived: true })) ?? [];
 	}
 
@@ -2104,7 +2104,7 @@ export class SessionManager {
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		const customSessionDir =
-			typeof sessionDirOrOnProgress === "string" ? normalizePath(sessionDirOrOnProgress) : undefined;
+			typeof sessionDirOrOnProgress === "string" ? resolvePath(sessionDirOrOnProgress) : undefined;
 		const progress = typeof sessionDirOrOnProgress === "function" ? sessionDirOrOnProgress : onProgress;
 		if (customSessionDir) {
 			const options = { dir: customSessionDir, archived: false, scanDir: customSessionDir };
