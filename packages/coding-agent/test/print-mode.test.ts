@@ -726,6 +726,28 @@ describe("runPrintMode", () => {
 		}
 	});
 
+	it("prints the repeated answer when the duplicate-turn guard leads to a textless end_turn", async () => {
+		const harness = await createHarness();
+		try {
+			harness.setResponses([
+				fauxAssistantMessage("42"),
+				fauxAssistantMessage("42"),
+				fauxAssistantMessage([fauxToolCall("end_turn", { reason: "answered" })], { stopReason: "toolUse" }),
+			]);
+			const output = captureStdout();
+			const runtimeHost = { ...createRuntimeHost([]), session: harness.session, dispose: vi.fn(async () => {}) };
+			const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+				mode: "text",
+				initialMessage: "What is six times seven?",
+			});
+			expect(exitCode).toBe(0);
+			expect(harness.faux.state.callCount).toBe(3);
+			expect(output.join("")).toBe("42\n");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it("waits through retry backoff when an extension command calls ctx.waitForIdle()", async () => {
 		const order: string[] = [];
 		const harness = await createHarness({

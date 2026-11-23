@@ -11,6 +11,7 @@ import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { getAssistantContentText } from "../core/assistant-narration.ts";
 import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";
+import { isDuplicateTurnGuardMessage } from "../core/runtime-message-markers.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../utils/shell.ts";
 import { toJsonPrintModeEvent } from "./json-event.ts";
@@ -35,8 +36,8 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 		const message = messages[index];
 		if (message === undefined) throw new Error("Message missing while finding last printable assistant message");
 		if (message.role === "toolResult" && message.toolName === "end_turn" && !message.isError) continue;
-		// Extension notes appended after the turn (e.g. from turn_end) do not end it.
-		if (message.role === "custom") continue;
+		// Extension notes appended after the turn (e.g. from turn_end) and the duplicate-turn nudge do not end it.
+		if (message.role === "custom" || isDuplicateTurnGuardMessage(message)) continue;
 		if (message.role !== "assistant") return undefined;
 		// A truncated response is reported even when the limit hit before any visible text.
 		if (message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length")
