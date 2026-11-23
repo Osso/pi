@@ -98,10 +98,13 @@ function createHarness(options: FastHarnessOptions = {}) {
 	if (!command) throw new Error("/fast command was not registered");
 	if (!beforeProviderRequest) throw new Error("before_provider_request handler was not registered");
 	if (!modelSelect) throw new Error("model_select handler was not registered");
+	const handleRequest = beforeProviderRequest;
 	return {
 		appendEntry,
 		authority,
-		beforeProviderRequest,
+		// Without a pool the runtime sends the selected model as event.model.
+		beforeProviderRequest: (event: BeforeProviderRequestEvent, context: ExtensionContext) =>
+			handleRequest({ ...event, model: event.model ?? assertDefined(context.model) }, context),
 		command,
 		commandName,
 		ctx,
@@ -229,6 +232,21 @@ describe("Codex fast mode extension", () => {
 		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 		await command.handler("off", ctx);
 		expect(beforeProviderRequest(event, ctx)).toBeUndefined();
+	});
+
+	it("adds the service tier when a model pool serves the request from a Codex member", async () => {
+		const { beforeProviderRequest, command, ctx } = createHarness();
+		const codexMember = assertDefined(ctx.model);
+		await command.handler("on", ctx);
+		const mutableContext = ctx as unknown as { model: ExtensionContext["model"] };
+		mutableContext.model = { ...codexMember, api: "pool", id: "codex", provider: "pool" };
+		const event = {
+			model: codexMember,
+			payload: { model: "test-model" },
+			type: "before_provider_request",
+		} as BeforeProviderRequestEvent;
+
+		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
 	it("updates footer activity across provider switches without losing the runtime toggle", async () => {

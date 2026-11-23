@@ -145,7 +145,8 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 		updateFastStatus(ctx, authority, event.model);
 	});
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!authority.serviceTier || !supportsFastMode(ctx.model)) return undefined;
+		// Decide from the request model: in a pool session ctx.model is the pool, not the serving member.
+		if (!authority.serviceTier || !supportsFastMode(event.model)) return undefined;
 		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
 			ctx.ui.notify("Fast mode skipped: provider payload is not an object", "warning");
 			return undefined;
