@@ -70,7 +70,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 			return true;
 		}
 		const health = readSessionHealth(getControlDbPath(), sessionId);
-		if (!health?.pid || health.checkStatus !== "ok") {
+		if (!health?.pid || health.checkStatus !== "ok" || !isPiProcess(health.pid)) {
 			stderr(`Session ${sessionId} is not running.\n`);
 			process.exitCode = 1;
 			return true;

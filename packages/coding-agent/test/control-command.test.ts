@@ -132,6 +132,7 @@ describe("control command", () => {
 		});
 
 		const handled = handleControlCommand(["control", "restart", "--session-id", sessionId], {
+			isPiProcess: (pid) => pid === 870429,
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
@@ -141,6 +142,28 @@ describe("control command", () => {
 		expect(stdout).toEqual([`signaled session ${sessionId} (pid 870429)\n`]);
 		expect(stderr).toEqual([]);
 		expect(signalProcess).toHaveBeenCalledWith(870429, "SIGHUP");
+	});
+
+	it("does not restart a healthy session row whose process is no longer a live Pi process", () => {
+		const previousExitCode = process.exitCode;
+		try {
+			recordRunningSession("exited-session", 5555);
+			livePiPids.delete(5555);
+
+			handleControlCommand(["control", "restart", "--session-id", "exited-session"], {
+				isPiProcess: (pid) => livePiPids.has(pid),
+				signalProcess,
+				stderr: (text) => stderr.push(text),
+				stdout: (text) => stdout.push(text),
+			});
+
+			expect(stdout).toEqual([]);
+			expect(stderr).toEqual(["Session exited-session is not running.\n"]);
+			expect(process.exitCode).toBe(1);
+			expect(signalProcess).not.toHaveBeenCalled();
+		} finally {
+			process.exitCode = previousExitCode;
+		}
 	});
 
 	it("prints the last assistant reply", () => {
