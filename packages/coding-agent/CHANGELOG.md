@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the host relay answering a remote session inspection request that expired in transit
 - Fixed `/tree` branch summarization ignoring cancellation while a `session_before_tree` extension handler was still running, which then appended the extension summary and moved the leaf
 - Fixed `/restart` and `restart_self` reapplying the original `--name` argument, which replaced a later session rename
 - Fixed the Claude bridge dropping tool arguments named like `Object.prototype` members, such as `toString` or `constructor`

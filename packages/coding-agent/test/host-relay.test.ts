@@ -19,7 +19,7 @@ import {
 	withControlDb,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { sendSupervisorReply } from "../src/supervisor/mail.ts";
+import { sendSessionInspectionRequest, sendSupervisorReply } from "../src/supervisor/mail.ts";
 
 // Let both simulated relay peers remain remote to the test process on every worker.
 vi.mock("node:os", async (importOriginal) => ({
@@ -345,6 +345,23 @@ describe("cross-host relay", () => {
 		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((message) => message.body)).toEqual([
 			"fresh payload",
 		]);
+	});
+
+	it("answers a fresh inspection request but drops one that expired in transit", () => {
+		const inspect = (requestId: string, ageMs: number) => {
+			sendSessionInspectionRequest(dbA, { sessionId: b.sessionId, host: "agent-server" }, { ...a, requestId });
+			const request = nextRelayMailbox(dbA, "agent-server");
+			if (!request) throw new Error("Expected inspection payload");
+			ackRelayMailbox(dbA, "agent-server", request);
+			const createdAt = new Date(Date.now() - ageMs).toISOString();
+			importRelayMailbox(dbB, "aso", { ...request, data: { ...request.data, createdAt } }, "agent-server");
+		};
+
+		inspect("stale-check", 25 * 60 * 60 * 1000);
+		expect(nextRelayMailbox(dbB, "aso")).toBeUndefined();
+
+		inspect("fresh-check", 0);
+		expect(nextRelayMailbox(dbB, "aso")?.messageId).toContain("fresh-check");
 	});
 
 	it("rejects local claims and direct delivery deletion for foreign-host rows", () => {

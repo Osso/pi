@@ -119,10 +119,12 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 	const applied = withControlDb(path, (db) =>
 		withImmediateTransaction(db, () => {
 			if (message.seq <= readCounter(db, `relay-in:${peer}`)) return false;
-			// Expiry is a permitted sequence gap: drop the row so the ack moves the peer on to fresh mail.
-			if (inspection || isMailboxMessageExpired(data.createdAt, Date.now())) {
+			// Expiry is a permitted sequence gap: drop the row (and leave an expired inspection unanswered) so the ack
+			// moves the peer on to fresh mail.
+			const expired = isMailboxMessageExpired(data.createdAt, Date.now());
+			if (inspection || expired) {
 				writeCounter(db, `relay-in:${peer}`, message.seq);
-				return inspection;
+				return inspection && !expired;
 			}
 			enqueueStoredRuntimeMailboxMessageInTransaction(db, {
 				kind: requireText(data.kind, "kind") as RuntimeMailboxMessageKind,
