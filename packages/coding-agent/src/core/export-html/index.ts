@@ -167,18 +167,19 @@ function generateHtml(sessionData: SessionData, themeName?: string): string {
 	const sessionDataBase64 = Buffer.from(JSON.stringify(sessionData)).toString("base64");
 
 	// Build the CSS with theme variables injected
+	// Replacer functions insert text verbatim; string replacements would expand $$ and $& in the scripts.
 	const css = templateCss
-		.replace("{{THEME_VARS}}", themeVars)
-		.replace("{{BODY_BG}}", bodyBg)
-		.replace("{{CONTAINER_BG}}", containerBg)
-		.replace("{{INFO_BG}}", infoBg);
+		.replace("{{THEME_VARS}}", () => themeVars)
+		.replace("{{BODY_BG}}", () => bodyBg)
+		.replace("{{CONTAINER_BG}}", () => containerBg)
+		.replace("{{INFO_BG}}", () => infoBg);
 
 	return template
-		.replace("{{CSS}}", css)
-		.replace("{{JS}}", templateJs)
-		.replace("{{SESSION_DATA}}", sessionDataBase64)
-		.replace("{{MARKED_JS}}", markedJs)
-		.replace("{{HIGHLIGHT_JS}}", hljsJs);
+		.replace("{{CSS}}", () => css)
+		.replace("{{JS}}", () => templateJs)
+		.replace("{{SESSION_DATA}}", () => sessionDataBase64)
+		.replace("{{MARKED_JS}}", () => markedJs)
+		.replace("{{HIGHLIGHT_JS}}", () => hljsJs);
 }
 
 /** Tools rendered directly by the HTML template (not pre-rendered via TUI→ANSI→HTML pipeline) */

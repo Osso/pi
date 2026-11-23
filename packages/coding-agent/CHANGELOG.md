@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed HTML export dropping the `$` from the session cost and corrupting embedded syntax highlighting, because template substitution expanded `$$` and `$&` in the bundled scripts.
 - Fixed idle shared-channel delivery stalling when the newest relayed message had expired before the cleanup sweep removed it.
 - Fixed the scoped `/model` picker offering a model or pool that a `models.json` change removed from the registry, such as a pool whose last member became disabled.
 - Fixed sandboxed `read` denying a registered user skill whose advertised path is inside the workspace but links to a file outside it.
