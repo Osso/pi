@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -27,7 +28,8 @@ function validateCurrentSessionCommandAndNotify(
 		return;
 	}
 	const sessionPath = ctx.sessionManager.getSessionFile();
-	if (!sessionPath) {
+	// A new session has its path before the first message writes the file.
+	if (!sessionPath || !existsSync(sessionPath)) {
 		ctx.ui.notify("The current session is not persisted.", "warning");
 		return;
 	}

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/archive`, `/delete`, and `/unarchive` before the first message now warn that the session is not persisted instead of quitting and failing to archive a transcript that does not exist yet
 - Aborting a persisted Pyrun call while its named session proxy starts no longer runs the Python code afterwards
 - A Pyrun evaluation whose Python process exits without a result now keeps its streamed console output in the failure instead of reporting only the exit code
 - Expanded tool output no longer counts a final newline as an extra line, which hid one real line at the 100-line display cap

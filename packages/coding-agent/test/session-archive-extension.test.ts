@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
@@ -225,6 +225,19 @@ describe("session archive extension", () => {
 		expect(readSessionMetadata(f.controlDbPath, f.childPath)).toBeUndefined();
 		expect(existsSync(f.otherPath)).toBe(true);
 		expect(readSessionMetadata(f.controlDbPath, f.otherPath)).toBeDefined();
+	});
+
+	it("keeps pi running when /archive runs before the first message is written", async () => {
+		const f = quitCommandFixture();
+		const fresh = SessionManager.create(dirname(f.sessionPath), dirname(f.sessionPath));
+		const freshPath = requireValue(fresh.getSessionFile());
+		const ctx = { ...f.ctx, sessionManager: fresh } as unknown as ExtensionCommandContext;
+
+		await requireValue(f.commands.get("archive")).handler("", ctx);
+
+		expect(existsSync(freshPath)).toBe(false);
+		expect(f.notify).toHaveBeenCalledWith("The current session is not persisted.", "warning");
+		expect(f.shutdown).not.toHaveBeenCalled();
 	});
 
 	it("keeps the session and pi running when /delete is declined", async () => {
