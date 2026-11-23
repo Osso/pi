@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A follow-up queued in `agent_end` runs `before_agent_start` and no longer reuses the previous run's system prompt
 - Idle steering sends `before_agent_start` messages in the same request as the steered input in one-at-a-time steering mode
 - Escape during compaction inside a running turn now cancels the compaction, as its hint says, instead of interrupting the turn and saving the summary anyway
 - `/compact` during a turn no longer discards steering and follow-up messages queued before it; the resumed turn delivers them once

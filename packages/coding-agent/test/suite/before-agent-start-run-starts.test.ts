@@ -98,4 +98,35 @@ describe("before_agent_start for runs that no user prompt started", () => {
 		expect(steeredRequest).toContain("Context for the steered request");
 		expect(requests).toHaveLength(2);
 	});
+
+	it("applies fresh extension additions to a follow-up queued in agent_end", async () => {
+		let handlerRuns = 0;
+		let queued = false;
+		harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", (event) => {
+						handlerRuns++;
+						return { systemPrompt: `${event.systemPrompt}\n\nEXTENSION-BLOCK-${handlerRuns}` };
+					});
+					pi.on("agent_end", async () => {
+						if (queued) return;
+						queued = true;
+						await harness?.session.followUp("Queued correction");
+					});
+				},
+			],
+		});
+		const blocks: string[] = [];
+		const recordBlock = (context: { systemPrompt?: string }) => {
+			blocks.push(context.systemPrompt?.match(/EXTENSION-BLOCK-\d+/)?.[0] ?? "none");
+			return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
+		};
+		harness.setResponses([recordBlock, recordBlock]);
+
+		await harness.session.prompt("First request");
+		await harness.session.agent.waitForIdle();
+
+		expect(blocks).toEqual(["EXTENSION-BLOCK-1", "EXTENSION-BLOCK-2"]);
+	});
 });

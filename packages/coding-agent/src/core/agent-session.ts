@@ -2184,10 +2184,13 @@ export class AgentSession {
 			await this._withTurnStartLock(async (release) => {
 				if (this.isStreaming || !this._isThinkingTimeoutDispatchActive(dispatch)) return false;
 				const continuationKind = await this._handlePostAgentRun();
+				// Queued work starts a new run; retries and compaction resends continue the current one.
+				const startMessages = continuationKind === "queued" ? await this._applyBeforeAgentStart("") : undefined;
 				if (continuationKind === undefined || !this._isThinkingTimeoutDispatchActive(dispatch)) {
 					return false;
 				}
-				const continuation = this._continueAgentWithThinkingTimeout(dispatch, continuationKind === "queued");
+				const queued = continuationKind === "queued";
+				const continuation = this._continueAgentWithThinkingTimeout(dispatch, queued, startMessages);
 				release();
 				await continuation;
 				return true;
