@@ -273,7 +273,9 @@ export async function handleUsageRead(ctx: ExtensionCommandContext, pi: Extensio
 }
 
 export async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
-	const before = await readCodexUsage(ctx);
+	// The selected model can change while the dialog is open; reset the account the user confirmed.
+	const providerId = resolveCodexProviderId(ctx);
+	const before = await readCodexUsage(ctx, providerId);
 	if ((before.resetCreditsAvailable ?? 0) <= 0) {
 		sendCodexUsageReport(ctx, pi, `${formatCodexUsage(before)}\n\nNo reset credits available.`);
 		return;
@@ -285,14 +287,14 @@ export async function handleUsageReset(ctx: ExtensionCommandContext, pi: Extensi
 	);
 	if (!confirmed) return;
 
-	const token = await getCodexAccessToken(ctx);
+	const token = await getCodexAccessToken(ctx, providerId);
 	const response = await fetch(CODEX_RESET_CREDIT_URL, {
 		method: "POST",
 		headers: createCodexHeaders(token, { "content-type": "application/json" }),
 		body: JSON.stringify({ redeem_request_id: createRedeemRequestId() }),
 	});
 	const payload = (await decodeJsonResponse(response)) as ConsumeResetCreditResponse;
-	const after = await readCodexUsage(ctx);
+	const after = await readCodexUsage(ctx, providerId);
 	sendCodexUsageReport(ctx, pi, `${formatResetResponse(payload)}\n\n${formatCodexUsage(after)}`);
 }
 

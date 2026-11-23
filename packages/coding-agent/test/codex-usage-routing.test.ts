@@ -763,6 +763,26 @@ describe("registered /usage provider routing", () => {
 			display: true,
 		});
 	});
+
+	it("resets the account whose usage it read when the model changes before confirmation", async () => {
+		const h = registerUsage("openai-codex-gc");
+		h.confirm.mockImplementationOnce(async () => {
+			(h.ctx as { model: { provider: string } }).model.provider = "openai-codex";
+			return true;
+		});
+		h.fetch
+			.mockResolvedValueOnce(usageResponse(42, 3))
+			.mockResolvedValueOnce(Response.json({ code: "reset", windows_reset: 1 }))
+			.mockResolvedValueOnce(usageResponse(0, 2));
+
+		await h.command.handler("reset", h.ctx);
+
+		expect(h.getApiKey.mock.calls.map(([provider]) => provider)).toEqual([
+			"openai-codex-gc",
+			"openai-codex-gc",
+			"openai-codex-gc",
+		]);
+	});
 });
 
 describe("registered /usage busy delivery", () => {
