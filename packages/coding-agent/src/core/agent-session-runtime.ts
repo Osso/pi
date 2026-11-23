@@ -1,4 +1,4 @@
-import { constants, copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { constants, copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, parse, resolve } from "node:path";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
@@ -654,7 +654,13 @@ export class AgentSessionRuntime {
 		this.copyImportedSession(resolvedPath, destinationPath);
 
 		const sessionManager = SessionManager.open(destinationPath, sessionDir, cwdOverride);
-		assertSessionCwdExists(sessionManager, this.cwd);
+		try {
+			assertSessionCwdExists(sessionManager, this.cwd);
+		} catch (error) {
+			// The import did not happen; drop the copy so a retry with a cwd override leaves no stray file.
+			if (resolve(destinationPath) !== resolvedPath) rmSync(destinationPath, { force: true });
+			throw error;
+		}
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -205,6 +205,25 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(readFileSync(storedPath, "utf8")).toBe(storedSession);
 		expect(runtime.session.sessionFile).toBe(join(sessionDir, "collision-1.jsonl"));
 		expect(readFileSync(runtime.session.sessionFile ?? "", "utf8")).toContain('"id":"imported"');
+	});
+
+	it("stores no copy when an import stops at a missing session cwd, and one copy on the retry", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		const sessionDir = runtime.session.sessionManager.getSessionDir();
+		const importPath = join(tempDir, "import", "moved.jsonl");
+		mkdirSync(join(tempDir, "import"), { recursive: true });
+		const header = { type: "session", version: 3, id: "moved", timestamp: new Date().toISOString() };
+		writeFileSync(importPath, `${JSON.stringify({ ...header, cwd: join(tempDir, "gone") })}\n`);
+		const storedCopies = () =>
+			existsSync(sessionDir) ? readdirSync(sessionDir).filter((name) => name.endsWith(".jsonl")) : [];
+		const before = storedCopies();
+
+		await expect(runtime.importFromJsonl(importPath)).rejects.toThrow(/does not exist/);
+		expect(storedCopies()).toEqual(before);
+
+		await runtime.importFromJsonl(importPath, tempDir);
+		expect(runtime.session.sessionFile).toBe(join(sessionDir, "moved.jsonl"));
+		expect(storedCopies().filter((name) => name.startsWith("moved"))).toEqual(["moved.jsonl"]);
 	});
 
 	it("relocates the active session to a new cwd and adds a context note", async () => {
