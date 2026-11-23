@@ -6,7 +6,7 @@
 	"packages/ai/src/api/anthropic-messages.ts": 1186,
 	"packages/ai/src/api/bedrock-converse-stream.ts": 1158,
 	"packages/ai/src/api/openai-codex-responses.ts": 1720,
-	"packages/ai/src/api/openai-completions.ts": 1294,
+	"packages/ai/src/api/openai-completions.ts": 1293,
 	"packages/ai/src/types.ts": 755,
 	"packages/coding-agent/src/core/agent-session.ts": 5309,
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1039,

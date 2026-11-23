@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed GitHub Copilot Chat Completions usage reporting zero reasoning tokens when the provider sends them at the top level of `usage`
 - Fixed Anthropic reporting the `sensitive` stop reason as "An unknown error occurred"
 - Fixed Anthropic streams failing after valid output when a proxy sends `message_delta` without `usage`
 - Fixed Anthropic and Bedrock Claude requests failing when an error tool result contains images; the images are now sent after the tool results of the turn, so the model still sees them
