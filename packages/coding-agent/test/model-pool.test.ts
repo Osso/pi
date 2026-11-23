@@ -364,6 +364,25 @@ describe("model pools", () => {
 		expect(isRetryableAssistantError(result)).toBe(true);
 	});
 
+	test("stays retryable when an earlier member's rate limit ends while a later member fails on quota", async () => {
+		const reg = registry();
+		let firstAttempts = 0;
+		const request = register((model) => {
+			if (model.provider === FIRST) {
+				return fromEvents(
+					++firstAttempts === 1 ? events(model, "429 rate limit reached", undefined, 5_000) : events(model),
+				);
+			}
+			now += 6_000;
+			return fromEvents(events(model, "insufficient_quota"));
+		});
+		const result = await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result();
+		expect(result).toMatchObject({ stopReason: "error", retryAfterMs: 0 });
+		expect(isRetryableAssistantError(result)).toBe(true);
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(FIRST);
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, FIRST]);
+	});
+
 	test("does not rotate on other provider errors and forwards start and error unchanged", async () => {
 		const reg = registry();
 		const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "500 internal server error");

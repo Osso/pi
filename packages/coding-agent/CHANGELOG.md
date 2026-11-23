@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed model pools ending the turn on a later member's quota error when an earlier member's rate limit expired during failover; the pool error now stays retryable so the retry reaches the freed member
 - Fixed `--worktree ''` silently starting in the original checkout and `--worktree feature/login` creating a nested checkout instead of a sibling; both names are now rejected at startup
 - Fixed Pyrun `pi.agents.select(...)` switching the interactive TUI to a subagent view and redirecting `/model` and `/effort`; in interactive mode it now fails and only the user can switch the agent view
 - Fixed slow detached Pyrun extension tests timing out under full-suite load because their completion wait matched the fixture payload duration.

@@ -217,6 +217,7 @@ export class ModelPools {
 		const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
 		let lastError: ErrorEvent | undefined;
 		let lastRateLimitError: ErrorEvent | undefined;
+		const rateLimitedNow = new Set<string>();
 		for (const member of this.getMembers(model)) {
 			const auth = await this.resolveAvailableMember(member);
 			if (options?.signal?.aborted) return;
@@ -227,12 +228,15 @@ export class ModelPools {
 			if (!rotationError) return;
 			lastError = rotationError;
 			const cooldown = memberCooldown(rotationError.error, maxRetryDelayMs, this.now());
-			if (cooldown.rateLimited) lastRateLimitError = rotationError;
+			if (cooldown.rateLimited) {
+				lastRateLimitError = rotationError;
+				rateLimitedNow.add(memberKey(member));
+			}
 			this.cooldowns.set(memberKey(member), cooldown);
 		}
 		output.push(
 			// Quoting a quota error here would make the whole retryable pool error classify as quota exhaustion.
-			this.rateLimitedPoolError(model, lastRateLimitError) ??
+			this.rateLimitedPoolError(model, lastRateLimitError, rateLimitedNow) ??
 				lastError ??
 				createError(model, `Pool "${model.id}": no eligible members available.`),
 		);
@@ -240,13 +244,20 @@ export class ModelPools {
 
 	/**
 	 * When no member could serve but one is only rate limited, a retryable error naming the earliest free member;
-	 * the caller's retry then reaches it instead of failing the turn.
+	 * the caller's retry then reaches it instead of failing the turn. A member rate limited during this request
+	 * counts even if its cooldown already ended while later members were tried; it is free now.
 	 */
-	private rateLimitedPoolError(model: Model<Api>, rateLimitError: ErrorEvent | undefined): ErrorEvent | undefined {
+	private rateLimitedPoolError(
+		model: Model<Api>,
+		rateLimitError: ErrorEvent | undefined,
+		rateLimitedNow: ReadonlySet<string>,
+	): ErrorEvent | undefined {
 		const now = this.now();
 		const waits = this.getMembers(model).flatMap((member) => {
 			const cooldown = this.cooldowns.get(memberKey(member));
-			return cooldown?.rateLimited && cooldown.until > now ? [cooldown.until - now] : [];
+			if (!cooldown?.rateLimited) return [];
+			if (cooldown.until > now) return [cooldown.until - now];
+			return rateLimitedNow.has(memberKey(member)) ? [0] : [];
 		});
 		if (waits.length === 0) return undefined;
 		const retryAfterMs = Math.min(...waits);
