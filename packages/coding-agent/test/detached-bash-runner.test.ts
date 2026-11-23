@@ -208,8 +208,13 @@ describe("detached Bash runner", () => {
 			sessionPath,
 			store,
 		});
+		const releasePath = join(root, "release");
 		const launched = lifecycle.launchBash({
-			args: ["-e", 'setTimeout(() => console.log("independent"), 300)'],
+			// The payload stays alive until the test has read its parent from /proc.
+			args: [
+				"-e",
+				`const timer = setInterval(() => { if (require("node:fs").existsSync(${JSON.stringify(releasePath)})) { clearInterval(timer); console.log("independent"); } }, 20);`,
+			],
 			command: process.execPath,
 			cwd: root,
 			env: process.env,
@@ -231,6 +236,7 @@ describe("detached Bash runner", () => {
 		await waitFor(() => existsSync(identityPath));
 		const payloadIdentity = JSON.parse(readFileSync(identityPath, "utf8"));
 		expect(readFileSync(`/proc/${payloadIdentity.pid}/status`, "utf8")).toContain(`PPid:\t${runnerPid}`);
+		writeFileSync(releasePath, "");
 		await waitFor(() => {
 			const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
 			return typeof agent === "object" && agent !== null && "lifecycle" in agent && agent.lifecycle === "completed";
