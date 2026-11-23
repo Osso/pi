@@ -631,7 +631,7 @@ export class Editor implements Component, Focusable {
 		this.exitHistorySearch();
 		if (selectedEntry !== undefined) this.setTextInternal(selectedEntry);
 		// Undo returns to the pre-search draft, as it does after Up-arrow history browsing.
-		if (draft && draft.lines.join("\n") !== this.getText()) this.undoStack.push(draft);
+		if (draft && JSON.stringify(draft) !== JSON.stringify(this.state)) this.undoStack.push(draft);
 		this.tui.requestRender();
 	}
 

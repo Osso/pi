@@ -126,6 +126,21 @@ describe("Editor state after non-typing edits", () => {
 		assert.strictEqual(editor.getText(), "abc");
 	});
 
+	it("undoes an accepted Ctrl+R match identical to the draft back to the draft cursor", () => {
+		const editor = createEditor();
+		editor.addToHistory("abc");
+		for (const char of "abc") editor.handleInput(char);
+		editor.handleInput("\x1b[D"); // Left: cursor at column 2
+
+		editor.handleInput("\x12"); // Ctrl+R
+		editor.handleInput("\r"); // accept "abc", cursor moves to the end
+		assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 });
+
+		editor.handleInput("\x1b[45;5u"); // Ctrl+- undo
+		assert.strictEqual(editor.getText(), "abc");
+		assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 });
+	});
+
 	it("forgets a paste-marker snap column on undo", () => {
 		const editor = createEditor();
 		editor.setText("0123456789ABCDEF\nabcdefghijklmnop");

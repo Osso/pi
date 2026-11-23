@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed undo after accepting a Ctrl+R history match identical to the draft discarding the draft instead of restoring its cursor
 - `SelectList` renders line breaks in option labels as spaces without changing the selected item.
 - The native detach focus fixture allows more time for runtime startup and cleans up its owned detach master even when the runtime does not report ready.
 - Overlays without `maxHeight` clip to the available terminal rows within their margins instead of pushing base content into scrollback.
