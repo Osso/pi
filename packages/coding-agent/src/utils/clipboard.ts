@@ -108,22 +108,9 @@ export async function copyToClipboard(text: string): Promise<void> {
 					const hasX11Display = Boolean(process.env.DISPLAY);
 					const isWayland = isWaylandSession();
 					if (isWayland && hasWaylandDisplay) {
-						try {
-							// Verify wl-copy exists (spawn errors are async and won't be caught)
-							execSync("which wl-copy", { stdio: "ignore" });
-							// wl-copy with execSync hangs due to fork behavior; use spawn instead
-							// Detached for the same reason as runDetachedClipboardWriter.
-							const proc = spawn("wl-copy", [], { stdio: ["pipe", "ignore", "ignore"], detached: true });
-							proc.stdin.on("error", () => {
-								// Ignore EPIPE errors if wl-copy exits early
-							});
-							proc.stdin.write(text);
-							proc.stdin.end();
-							proc.unref();
-							copied = true;
-						} catch {
-							if (hasX11Display) copied = await copyToX11Clipboard(text);
-						}
+						// wl-copy forks a daemon that keeps selection ownership; its exit status reports the copy.
+						copied = await runDetachedClipboardWriter("wl-copy", [], text);
+						if (!copied && hasX11Display) copied = await copyToX11Clipboard(text);
 					} else if (hasX11Display) {
 						copied = await copyToX11Clipboard(text);
 					}

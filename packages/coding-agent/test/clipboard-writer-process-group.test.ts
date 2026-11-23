@@ -54,6 +54,20 @@ describe.skipIf(process.platform !== "linux")("clipboard writer process group", 
 		expect(await waitForFile(record)).not.toBe(processGroupOf(process.pid));
 	});
 
+	it("falls back to xclip when wl-copy fails", async () => {
+		vi.stubEnv("WAYLAND_DISPLAY", "wayland-test");
+		vi.stubEnv("DISPLAY", ":99");
+		writeFileSync(join(binDir, "wl-copy"), "#!/bin/sh\ncat >/dev/null\nexit 1\n");
+		chmodSync(join(binDir, "wl-copy"), 0o755);
+		const copied = join(binDir, "xclip.out");
+		writeFileSync(join(binDir, "xclip"), `#!/bin/sh\ncat > '${copied}'\n`);
+		chmodSync(join(binDir, "xclip"), 0o755);
+
+		await copyToClipboard("fallback text");
+
+		expect(await waitForFile(copied)).toBe("fallback text");
+	});
+
 	it("runs xclip outside pi's process group", async () => {
 		vi.stubEnv("WAYLAND_DISPLAY", "");
 		vi.stubEnv("XDG_SESSION_TYPE", "x11");
