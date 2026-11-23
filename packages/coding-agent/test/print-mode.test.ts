@@ -727,6 +727,36 @@ describe("runPrintMode", () => {
 	});
 
 	it.each(["error", "aborted"] as const)(
+		"still reports a model %s when an extension command handles the final input",
+		async (stopReason) => {
+			const harness = await createHarness({
+				extensionFactories: [
+					(pi) => {
+						pi.registerCommand("local-only", { description: "Runs without the model", handler: async () => {} });
+					},
+				],
+			});
+			try {
+				harness.setResponses([fauxAssistantMessage([], { stopReason, errorMessage: "fixture terminal failure" })]);
+				const output = captureStdout();
+				const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+				const runtimeHost = { ...createRuntimeHost([]), session: harness.session, dispose: vi.fn(async () => {}) };
+				const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+					mode: "json",
+					initialMessage: "question",
+					messages: ["/local-only"],
+				});
+				expect(harness.faux.state.callCount).toBe(1);
+				expect(output.join("")).toContain("fixture terminal failure");
+				expect(errorSpy).toHaveBeenCalledWith("fixture terminal failure");
+				expect(exitCode).toBe(1);
+			} finally {
+				harness.cleanup();
+			}
+		},
+	);
+
+	it.each(["error", "aborted"] as const)(
 		"reports a trailing %s without printing the earlier answer",
 		async (stopReason) => {
 			const output = captureStdout();

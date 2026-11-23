@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed print and JSON modes exiting 0 without a stderr diagnostic when the model reply failed or was aborted and an extension command handled the final input
 - Fixed nested Markdown skills in `.agents/skills` grouping folders, such as `.agents/skills/workflows/review.md`, not being discovered
 - Fixed root Markdown files such as `README.md` and `AGENTS.md` in skill directories being reported as broken skills unless they declare valid skill frontmatter
 - Fixed bash output showing only a trailing blank line, instead of the end of the preceding over-long line, when output exceeded the byte limit

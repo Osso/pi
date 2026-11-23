@@ -164,11 +164,12 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 			await trackPrompt(() => session.prompt(message));
 		}
 
-		const assistantMsg = lastPromptAddedMessages ? findLastPrintableAssistant(session.state.messages) : undefined;
+		// A failed reply stays the final assistant message even when a later input was handled locally.
+		const assistantMsg = findLastPrintableAssistant(session.state.messages);
 		if (assistantMsg?.stopReason === "error" || assistantMsg?.stopReason === "aborted") {
 			console.error(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
 			exitCode = 1;
-		} else if (mode === "text" && assistantMsg) {
+		} else if (mode === "text" && assistantMsg && lastPromptAddedMessages) {
 			for (const content of assistantMsg.content) {
 				const text = getAssistantContentText(content);
 				if (text !== undefined) writeRawStdout(`${text}\n`);
