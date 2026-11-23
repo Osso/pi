@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/hotkeys` lists the key that detaches a running tool to the background
 - `/copy` on Wayland waits for `wl-copy` to exit and falls back to X11 tools or OSC 52 when it fails, instead of reporting success after spawning it
 - A Pyrun runner that exits before reading a large request fails the evaluation instead of crashing Pi with an uncaught `EPIPE`
 - claude-bash-hook review no longer crashes Pi with an uncaught `EPIPE` when the hook exits before reading a large command

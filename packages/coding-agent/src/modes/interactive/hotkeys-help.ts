@@ -39,6 +39,7 @@ export function formatHotkeysMarkdown(shortcuts: ReadonlyMap<KeyId, ExtensionSho
 	const cycleModelForward = keyDisplayText("app.model.cycleForward");
 	const selectModel = keyDisplayText("app.model.select");
 	const expandTools = keyDisplayText("app.tools.expand");
+	const detachTool = keyDisplayText("app.tool.background");
 	const toggleThinking = keyDisplayText("app.thinking.toggle");
 	const externalEditor = keyDisplayText("app.editor.external");
 	const cycleModelBackward = keyDisplayText("app.model.cycleBackward");
@@ -84,6 +85,7 @@ export function formatHotkeysMarkdown(shortcuts: ReadonlyMap<KeyId, ExtensionSho
 | \`${cycleModelForward}\` / \`${cycleModelBackward}\` | Cycle models |
 | \`${selectModel}\` | Open model selector |
 | \`${expandTools}\` | Toggle tool output expansion |
+| \`${detachTool}\` | Detach running tool to background |
 | \`${toggleThinking}\` | Toggle thinking block visibility |
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${followUp}\` | Queue follow-up message |
