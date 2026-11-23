@@ -75,7 +75,7 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			if (nextPayload !== undefined) {
 				payload = nextPayload as ChatCompletionStreamRequest;
 			}
-			const mistralStream = await mistral.chat.stream(payload, buildRequestOptions(model, options));
+			const mistralStream = await openMistralStream(mistral, payload, model, options);
 			stream.push({ type: "start", partial: output });
 			const finished = await consumeChatStream(model, output, stream, mistralStream);
 
@@ -208,6 +208,33 @@ function safeJsonStringify(value: unknown): string {
 		return serialized === undefined ? String(value) : serialized;
 	} catch {
 		return String(value);
+	}
+}
+
+// The timeout covers only the wait for response headers, so long streams (e.g. extended thinking) are not cut off.
+async function openMistralStream(
+	mistral: Mistral,
+	payload: ChatCompletionStreamRequest,
+	model: Model<"mistral-conversations">,
+	options?: MistralOptions,
+) {
+	const requestOptions = buildRequestOptions(model, options);
+	const timeoutMs = options?.timeoutMs;
+	if (timeoutMs === undefined) return mistral.chat.stream(payload, requestOptions);
+	const controller = new AbortController();
+	const forwardAbort = () => controller.abort(options?.signal?.reason);
+	if (options?.signal?.aborted) forwardAbort();
+	else options?.signal?.addEventListener("abort", forwardAbort, { once: true });
+	const headerTimer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await mistral.chat.stream(payload, { ...requestOptions, signal: controller.signal });
+	} catch (error) {
+		if (controller.signal.aborted && !options?.signal?.aborted) {
+			throw new Error(`Mistral response headers timed out after ${timeoutMs}ms`);
+		}
+		throw error;
+	} finally {
+		clearTimeout(headerTimer);
 	}
 }
 

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Mistral ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Mistral reporting `finish_reason: "error"` as a non-retryable unknown error and treating unknown finish reasons as successful stops
 - Fixed Mistral empty content deltas opening empty text blocks and splitting thinking into several blocks, which Mistral rejects on replay
 - Fixed OpenAI Responses usage counting reported `cache_write_tokens` as uncached input; they are now reported as cache writes
