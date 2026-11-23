@@ -42,7 +42,7 @@ export function mapToolArgs(toolName: string, args: Record<string, unknown> | un
 	const result: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(input)) {
 		const piKey = renames?.[key] ?? key;
-		if (!(piKey in result)) result[piKey] = value; // first alias wins
+		if (!Object.hasOwn(result, piKey)) result[piKey] = value; // first alias wins
 	}
 	return result;
 }

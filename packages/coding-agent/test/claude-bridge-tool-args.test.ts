@@ -15,4 +15,12 @@ describe("Claude bridge tool arguments", () => {
 	it("renames Claude Code parameter names to pi's", () => {
 		expect(mapToolArgs("read", { file_path: "a.ts" })).toEqual({ path: "a.ts" });
 	});
+
+	it("passes through arguments named like Object.prototype members", () => {
+		expect(mapToolArgs("inspect_schema", { toString: "decimal", constructor: "Money", format: "short" })).toEqual({
+			toString: "decimal",
+			constructor: "Money",
+			format: "short",
+		});
+	});
 });
