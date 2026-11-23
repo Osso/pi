@@ -1271,11 +1271,9 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (parsed.listTools || parsed.listExtensions) {
 		await session.bindExtensions({});
-		if (parsed.listTools) {
-			listTools(session.getAllTools(), session.getActiveToolNames());
-		} else {
-			listExtensions(resourceLoader.getExtensions().extensions);
-		}
+		writeDiagnosticsToStderr(takeUnreportedDiagnostics(runtime)); // e.g. an extension that failed to load
+		if (parsed.listTools) listTools(session.getAllTools(), session.getActiveToolNames());
+		else listExtensions(resourceLoader.getExtensions().extensions);
 		process.exit(0);
 	}
 

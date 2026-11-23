@@ -26,6 +26,7 @@ async function runCli(
 	options?: {
 		projectExtension?: boolean;
 		captureCommands?: boolean;
+		brokenGlobalExtension?: boolean;
 		globalSettings?: Record<string, unknown>;
 		projectSettings?: Record<string, unknown>;
 	},
@@ -48,6 +49,15 @@ export default function(pi) {
 	});
 }
 `,
+			"utf8",
+		);
+	}
+	if (options?.brokenGlobalExtension) {
+		const globalExtensions = join(agentDir, "extensions");
+		mkdirSync(globalExtensions, { recursive: true });
+		await writeFile(
+			join(globalExtensions, "broken.ts"),
+			'export default function() { throw new Error("fixture startup failed"); }\n',
 			"utf8",
 		);
 	}
@@ -127,6 +137,14 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.commands).toContain("exit");
 		expect(result.commands).toContain("periodic-checks");
+	});
+
+	it.each([["extensions"], ["tools"]])("reports extension load errors from pi %s", async (command) => {
+		const result = await runCli([command], { brokenGlobalExtension: true });
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("fixture startup failed");
+		expect(result.stderr).toContain("broken.ts");
 	});
 
 	it("skips first-party extensions disabled in settings", async () => {
