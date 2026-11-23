@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenRouter rejecting requests with a 400 for models whose output limit is close to the context window: the default output limit now leaves 15% of the estimated input unused, and near a full window at most 32,768 output tokens are requested (port of upstream [#10497](https://github.com/earendil-works/pi/issues/10497))
 - Fixed Cloudflare's HTTP 525 (SSL handshake failed) not being retried like its 520 and 524 errors (port of upstream fb62c069b)
 - Fixed temporary provider failures not being retried automatically: Anthropic `api_error` events during streaming, OpenRouter's "Provider returned an empty response" and "stopped before completing the response", streams that end with `finish_reason: "error"`, and "Repeat the request later" and "admission ceiling" responses (port of upstream a00a5048d)
 - Fixed gateway errors such as "The provider is temporarily unavailable. Retry shortly.", "The provider ended the response before it was complete.", "The connection to the provider was reset.", and "The provider reported a failure while generating the response." not being retried (port of upstream [#12227](https://github.com/earendil-works/pi/issues/12227))
