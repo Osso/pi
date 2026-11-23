@@ -387,12 +387,15 @@ export function convertResponsesMessages<TApi extends Api>(
 						itemId = undefined;
 					}
 
+					// Replay the status OpenAI returned: after a Codex WebSocket resend, a call without it no longer
+					// matches OpenAI's stored copy and GPT-6.2 drops the reasoning after it (`prefix_mismatch`).
 					output.push({
 						type: "function_call",
 						id: itemId,
 						call_id: callId,
 						name: toolCall.name,
 						arguments: JSON.stringify(toolCall.arguments),
+						status: "completed",
 					});
 				}
 			}
