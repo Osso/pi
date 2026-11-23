@@ -55,9 +55,13 @@ function countUnchangedEdges(base: string[], edited: string[]): { prefix: number
  * LF keeps both breaks, so the written file normalizes to exactly the content the diff describes.
  */
 function joinLinePieces(pieces: string[]): string {
-	let result = "";
-	for (const piece of pieces) result += result.endsWith("\r") && piece.startsWith("\n") ? `\n${piece}` : piece;
-	return result;
+	const joined: string[] = [];
+	let endsWithCr = false;
+	for (const piece of pieces.filter(Boolean)) {
+		joined.push(endsWithCr && piece.startsWith("\n") ? `\n${piece}` : piece);
+		endsWithCr = piece.endsWith("\r");
+	}
+	return joined.join("");
 }
 
 type AffectedLineGroup = { startLine: number; endLine: number; editedContent: string };
