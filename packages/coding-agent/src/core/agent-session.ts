@@ -3398,9 +3398,7 @@ export class AgentSession {
 		}
 
 		const enabledModels = this.settingsManager.getEnabledModels();
-		if (!enabledModels || enabledModels.length === 0) {
-			return [];
-		}
+		if (!enabledModels || enabledModels.length === 0) return [];
 
 		return this._filterNarrowModelScope(await resolveModelScope(enabledModels, this._modelRegistry));
 	}
@@ -3410,9 +3408,7 @@ export class AgentSession {
 		const scopeCoversEveryAvailableModel = availableModels.every((model) =>
 			models.some((scoped) => modelsAreEqual(scoped.model, model)),
 		);
-		if (scopeCoversEveryAvailableModel) {
-			return [];
-		}
+		if (scopeCoversEveryAvailableModel) return [];
 		return [...models];
 	}
 
@@ -3420,7 +3416,11 @@ export class AgentSession {
 		direction: "forward" | "backward",
 		models: ReadonlyArray<ScopedModel>,
 	): Promise<ModelCycleResult | undefined> {
-		const scopedModels = models.filter((scoped) => this._modelRegistry.hasConfiguredAuth(scoped.model));
+		// The scope may predate a registry refresh that removed a model, so also require current catalog membership.
+		const scopedModels = models.filter(
+			({ model }) =>
+				this._modelRegistry.find(model.provider, model.id) && this._modelRegistry.hasConfiguredAuth(model),
+		);
 		const len = scopedModels.length;
 		const currentIndex = scopedModels.findIndex((sm) => modelsAreEqual(sm.model, this.model));
 		// An active model outside the scope cycles onto it: forward to the first entry, backward to the last.

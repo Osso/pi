@@ -327,6 +327,18 @@ describe("AgentSession model and extension characterization", () => {
 		expect((await harness.session.cycleModel("backward"))?.model.id).toBe("faux-3");
 	});
 
+	it("skips scoped models that are no longer in the model registry", async () => {
+		const harness = await createTrackedHarness({ models: [{ id: "faux-1", name: "One", reasoning: true }] });
+		const one = harness.getModel("faux-1");
+		if (!one) throw new Error("Expected faux model");
+		await harness.session.setModel(one);
+		// Same provider and credentials, but the model was removed from the catalog after the scope was resolved.
+		harness.session.setScopedModels([{ model: one }, { model: { ...one, id: "removed-model", name: "Removed" } }]);
+
+		expect(await harness.session.cycleModel()).toBeUndefined();
+		expect(harness.session.model?.id).toBe("faux-1");
+	});
+
 	it("clamps thinking levels to model capabilities and cycles available levels", async () => {
 		const harness = await createTrackedHarness({ models: [{ id: "faux-1", reasoning: false }] });
 
