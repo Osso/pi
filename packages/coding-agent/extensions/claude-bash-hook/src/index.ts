@@ -129,6 +129,8 @@ function runHookProcess(command: string, input: unknown): Promise<HookProcessRes
 		attachHookOutputListeners(child, output);
 		child.on("error", (error) => settleHookProcessError(error, timeout, resolve, reject));
 		child.on("close", () => settleHookProcessClose(timeout, output, resolve));
+		// A hook that exits before reading its input makes the write fail with EPIPE; its empty output reports it.
+		child.stdin.on("error", () => {});
 		child.stdin.end(JSON.stringify(input));
 	});
 }

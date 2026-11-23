@@ -87,4 +87,25 @@ describe("claude-bash-hook extension", () => {
 
 		expect(result).toEqual({ action: "allow" });
 	});
+
+	it("reports the hook unavailable when it exits without reading a large command", async () => {
+		const hookPath = join(tempDir, "early-exit-hook.sh");
+		writeFileSync(hookPath, "#!/bin/sh\nexit 0\n");
+		chmodSync(hookPath, 0o755);
+		process.env.PI_CLAUDE_BASH_HOOK = hookPath;
+		const uncaught: unknown[] = [];
+		const recordUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", recordUncaught);
+
+		try {
+			const event = makeToolCallEvent("bash", { command: `echo ${"x".repeat(4 * 1024 * 1024)}` });
+			const result = await reviewToolWithClaudeBashHook(event, "/repo");
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(result).toEqual({ action: "unavailable" });
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", recordUncaught);
+		}
+	});
 });
