@@ -44,5 +44,6 @@ export function matchesGrepGlob(relativePath: string, rawGlob: string): boolean 
 	if (!hasDirectoryPart(rawGlob)) return true;
 	const glob = withoutDotSlash(rawGlob);
 	const excluded = glob.startsWith("!");
-	return minimatch(relativePath, glob.replace(/^!?\/?/, ""), { dot: true }) !== excluded;
+	// nocomment: a leading "#" names a directory such as "#notes", not a comment.
+	return minimatch(relativePath, glob.replace(/^!?\/?/, ""), { dot: true, nocomment: true }) !== excluded;
 }

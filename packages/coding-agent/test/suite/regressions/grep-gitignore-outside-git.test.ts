@@ -74,6 +74,12 @@ describe("grep respects .gitignore outside git repositories", () => {
 		expect(await grepFiles("!*.ts")).toEqual(["kept.txt"]);
 	});
 
+	it.each(["#notes/*.ts", "./#notes/*.ts"])("matches a directory whose name starts with # (%s)", async (glob) => {
+		mkdirSync(join(tempRoot, "#notes"));
+		writeFileSync(join(tempRoot, "#notes", "kept.ts"), "needle\n");
+		expect(await grepFiles(glob)).toEqual(["#notes/kept.ts"]);
+	});
+
 	it("excludes only top-level files with a ./ exclusion glob", async () => {
 		mkdirSync(join(tempRoot, "src"));
 		writeFileSync(join(tempRoot, "src", "nested.txt"), "needle\n");
