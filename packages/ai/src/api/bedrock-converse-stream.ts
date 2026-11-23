@@ -575,14 +575,16 @@ function handleMetadata(
 	model: Model<"bedrock-converse-stream">,
 	output: AssistantMessage,
 ): void {
-	if (event.usage) {
-		output.usage.input = event.usage.inputTokens || 0;
-		output.usage.output = event.usage.outputTokens || 0;
-		output.usage.cacheRead = event.usage.cacheReadInputTokens || 0;
-		output.usage.cacheWrite = event.usage.cacheWriteInputTokens || 0;
-		output.usage.totalTokens = event.usage.totalTokens || output.usage.input + output.usage.output;
-		calculateCost(model, output.usage);
-	}
+	const { usage } = event;
+	if (!usage) return;
+	output.usage.input = usage.inputTokens || 0;
+	output.usage.output = usage.outputTokens || 0;
+	output.usage.cacheRead = usage.cacheReadInputTokens || 0;
+	output.usage.cacheWrite = usage.cacheWriteInputTokens || 0;
+	const longWrites = usage.cacheDetails?.filter((detail) => detail.ttl === CacheTTL.ONE_HOUR);
+	output.usage.cacheWrite1h = longWrites?.reduce((total, detail) => total + (detail.inputTokens ?? 0), 0);
+	output.usage.totalTokens = usage.totalTokens || output.usage.input + output.usage.output;
+	calculateCost(model, output.usage);
 }
 
 function handleContentBlockStop(
@@ -668,9 +670,7 @@ function mapThinkingLevelToEffort(
 
 /** Resolve cache retention: defaults to "short"; PI_CACHE_RETENTION is kept for backward compatibility. */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
+	if (cacheRetention) return cacheRetention;
 	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
 		return "long";
 	}
@@ -1008,9 +1008,7 @@ function getConfiguredBedrockCredentials(env?: ProviderEnv): BedrockRuntimeClien
 }
 
 function getStandardBedrockEndpointRegion(baseUrl: string | undefined): string | undefined {
-	if (!baseUrl) {
-		return undefined;
-	}
+	if (!baseUrl) return undefined;
 
 	try {
 		const { hostname } = new URL(baseUrl);
