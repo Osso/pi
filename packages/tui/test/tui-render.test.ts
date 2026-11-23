@@ -769,6 +769,44 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("keeps each row once in scrollback when rows are inserted above the viewport and visible rows change", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const heading = new TestComponent();
+		const body = new TestComponent();
+		tui.addChild(heading);
+		tui.addChild(body);
+		heading.lines = ["| table pending |"];
+		body.lines = Array.from({ length: 12 }, (_, i) => `body ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		// The off-screen table grows in the same frame that edits the last visible row, then appends a row.
+		for (const [headingRows, nextBody] of [
+			[4, [...body.lines.slice(0, 11), "body 11 edit"]],
+			[6, [...body.lines.slice(0, 11), "body 11 edit", "body 12"]],
+		] as const) {
+			heading.lines = ["| table |", ...Array.from({ length: headingRows - 1 }, (_, i) => `| wrapped row ${i} |`)];
+			body.lines = [...nextBody];
+			tui.requestRender();
+			await terminal.waitForRender();
+			const history = [...terminal.getScrollBuffer()];
+			for (const row of body.lines) {
+				assert.strictEqual(
+					history.filter((line) => line.trimEnd() === row).length,
+					1,
+					`${row} in ${JSON.stringify(history)}`,
+				);
+			}
+			assert.deepStrictEqual(
+				terminal.getViewport().map((line) => line.trimEnd()),
+				body.lines.slice(-5),
+			);
+		}
+
+		tui.stop();
+	});
+
 	it("renders chat growth before the editor without clearing scrollback", async () => {
 		const terminal = new LoggingVirtualTerminal(20, 5);
 		const tui = new TUI(terminal);
