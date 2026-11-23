@@ -67,10 +67,15 @@ async function* createEvents(
 }
 
 function getReplayedReasoning(model: Model<"azure-openai-responses">, assistant: AssistantMessage) {
+	// Reasoning is replayed only with a following output item, which OpenAI requires.
+	const answered: AssistantMessage = {
+		...assistant,
+		content: [...assistant.content, { type: "text", text: "answer" }],
+	};
 	const context: Context = {
 		messages: [
 			{ role: "user", content: "first", timestamp: Date.now() - 1 },
-			assistant,
+			answered,
 			{ role: "user", content: "follow-up", timestamp: Date.now() },
 		],
 	};

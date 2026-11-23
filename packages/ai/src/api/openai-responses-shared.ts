@@ -396,6 +396,9 @@ export function convertResponsesMessages<TApi extends Api>(
 					});
 				}
 			}
+			// OpenAI rejects a reasoning item without a following output item. One is left when an
+			// output-token cutoff drops the partial tool call that followed the reasoning.
+			while (output.at(-1)?.type === "reasoning") output.pop();
 			if (output.length === 0) continue;
 			messages.push(...output);
 		} else if (msg.role === "toolResult") {
