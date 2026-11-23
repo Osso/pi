@@ -275,12 +275,14 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 
 function getServiceTierCostMultiplier(
 	model: Pick<Model<"openai-responses">, "id">,
-	serviceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+	// The SDK types omit "fast", which the API returns at runtime.
+	serviceTier: ResponseCreateParamsStreaming["service_tier"] | "fast" | undefined,
 ): number {
 	switch (serviceTier) {
 		case "flex":
 			return 0.5;
 		case "priority":
+		case "fast": // GPT-6 models report Fast mode (priority processing) as "fast"
 			return model.id === "gpt-5.5" ? 2.5 : 2;
 		default:
 			return 1;
