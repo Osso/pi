@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed Claude bridge `/compact` cancelling instead of moving to the next account when Claude Code exits with an error after a quota rejection
 - Fixed oversized extension tool output turning array or primitive `details` into an object that the tool renderer could not read
 - Fixed a progress update sent by an extension tool after it returned overwriting the full-output file of its final result
 - Fixed `pi update` reporting success for a git package whose earlier update moved to the new commit but failed to install its dependencies; an already-current checkout with a missing dependency now installs its dependencies again (port of upstream b06dc76fd)

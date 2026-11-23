@@ -12,6 +12,7 @@ import { SettingsManager } from "../src/core/settings-manager.ts";
 let root: string | undefined;
 afterEach(() => {
 	__test.setQuery(null);
+	__test.setIsolatedQuery(null);
 	__test.resetSharedSession();
 	__test.resetAccountProfiles();
 	vi.unstubAllEnvs();
@@ -146,5 +147,64 @@ describe("Claude bridge account rotation", () => {
 		expect(reply?.content).toContainEqual({ type: "text", text: "Served on the next account." });
 		expect(retries).toEqual([]);
 		expect(configDirs[0]).toBe(profileDir("beta"));
+	});
+	it("summarizes /compact on the next account when the SDK throws after the quota error result", async () => {
+		const { profileDir } = setUpProfiles();
+		const configDirs: string[] = [];
+		__test.setIsolatedQuery((({ options }: { options: { env: Record<string, string> } }) => {
+			configDirs.push(options.env.CLAUDE_CONFIG_DIR);
+			const messages =
+				configDirs.length === 1
+					? quotaRejectedQuery()
+					: (async function* () {
+							yield { type: "result", subtype: "success", is_error: false, result: "summary from beta" };
+						})();
+			return Object.assign(messages, { interrupt: async () => {}, close: () => {} });
+		}) as never);
+		const handlers = new Map<string, (...args: unknown[]) => unknown>();
+		bridge({
+			cwd: root,
+			events: { on() {}, emit() {} },
+			on: (event: string, handler: (...args: unknown[]) => unknown) => handlers.set(event, handler),
+			registerProvider() {},
+			registerTool() {},
+		} as never);
+		const model = {
+			id: "claude-sonnet-4-5",
+			name: "Claude Sonnet 4.5",
+			api: "anthropic-messages",
+			provider: "claude-bridge",
+			baseUrl: "claude-bridge",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200_000,
+			maxTokens: 64_000,
+		};
+		const preparation = {
+			firstKeptEntryId: "kept",
+			messagesToSummarize: [{ role: "user", content: "old request", timestamp: 1 }],
+			turnPrefixMessages: [],
+			isSplitTurn: false,
+			tokensBefore: 1000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set(), modified: new Set() },
+			settings: { enabled: true, reserveTokens: 1000, keepRecentMessages: 1 },
+		};
+		const event = {
+			type: "compaction",
+			preparation,
+			branchEntries: [],
+			reason: "manual",
+			willRetry: false,
+			signal: new AbortController().signal,
+		};
+
+		const result = (await handlers.get("compaction")?.(event, { cwd: root, model, ui: {} })) as
+			| { cancel?: boolean; compaction?: { summary: string } }
+			| undefined;
+
+		expect(result?.cancel).toBeUndefined();
+		expect(result?.compaction?.summary).toContain("summary from beta");
+		expect(configDirs).toEqual([profileDir("alpha"), profileDir("beta")]);
 	});
 });

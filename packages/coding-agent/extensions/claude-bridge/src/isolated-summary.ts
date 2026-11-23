@@ -195,29 +195,34 @@ async function consumeIsolatedQuery(
 	let rejection: QueryContext["rateLimitRejection"] = null;
 	let quotaFailure: QueryContext["quotaFailure"] = null;
 	let firstEventLogged = false;
-	for await (const message of sdkQuery) {
-		if (!firstEventLogged) {
-			debug(`compact summary: first event type=${message.type}`);
-			firstEventLogged = true;
-		}
-		if (aborted()) break;
-
-		if (message.type === "assistant") {
-			for (const block of message.message?.content ?? []) {
-				if (block.type === "text" && typeof block.text === "string") assistantText += block.text;
+	try {
+		for await (const message of sdkQuery) {
+			if (!firstEventLogged) {
+				debug(`compact summary: first event type=${message.type}`);
+				firstEventLogged = true;
 			}
-		} else if (message.type === "rate_limit_event") {
-			const info = message.rate_limit_info;
-			if (info?.status === "rejected") rejection = info;
-		} else if (message.type === "result") {
-			logServedContextWindow("compact summary", message, model);
-			errorText = resultErrorText(message);
-			// A rejection belongs only to the failure Claude Code sends next.
-			quotaFailure = errorText ? classifyAccountFailure(errorText, rejection) : null;
-			if (errorText && rejection) errorText = describeRateLimitFailure(rejection, errorText);
-			rejection = null;
-			if (!errorText && message.subtype === "success") finalText = message.result || assistantText;
+			if (aborted()) break;
+
+			if (message.type === "assistant") {
+				for (const block of message.message?.content ?? []) {
+					if (block.type === "text" && typeof block.text === "string") assistantText += block.text;
+				}
+			} else if (message.type === "rate_limit_event") {
+				const info = message.rate_limit_info;
+				if (info?.status === "rejected") rejection = info;
+			} else if (message.type === "result") {
+				logServedContextWindow("compact summary", message, model);
+				errorText = resultErrorText(message);
+				// A rejection belongs only to the failure Claude Code sends next.
+				quotaFailure = errorText ? classifyAccountFailure(errorText, rejection) : null;
+				if (errorText && rejection) errorText = describeRateLimitFailure(rejection, errorText);
+				rejection = null;
+				if (!errorText && message.subtype === "success") finalText = message.result || assistantText;
+			}
 		}
+	} catch (error) {
+		// Claude Code exits non-zero after a quota error result, so the SDK throws; the caller still rotates accounts.
+		if (!quotaFailure) throw error;
 	}
 	return { text: finalText || assistantText, errorText, quotaFailure };
 }
