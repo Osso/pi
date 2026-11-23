@@ -84,7 +84,7 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			}
 
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
-				throw new Error("An unknown error occurred");
+				throw new Error(output.errorMessage || "An unknown error occurred");
 			}
 			if (!finished) throw new Error("Mistral stream ended without finish_reason");
 
@@ -351,7 +351,9 @@ async function consumeChatStream(
 		if (!choice) continue;
 
 		if (choice.finishReason) {
-			output.stopReason = mapChatStopReason(choice.finishReason);
+			const stopReasonResult = mapChatStopReason(choice.finishReason);
+			output.stopReason = stopReasonResult.stopReason;
+			if (stopReasonResult.errorMessage) output.errorMessage = stopReasonResult.errorMessage;
 			finished = true;
 		}
 
@@ -663,19 +665,20 @@ function mapToolChoice(
 	};
 }
 
-function mapChatStopReason(reason: string | null): StopReason {
-	if (reason === null) return "stop";
+function mapChatStopReason(reason: string | null): { stopReason: StopReason; errorMessage?: string } {
+	if (reason === null) return { stopReason: "stop" };
 	switch (reason) {
 		case "stop":
-			return "stop";
+			return { stopReason: "stop" };
 		case "length":
 		case "model_length":
-			return "length";
+			return { stopReason: "length" };
 		case "tool_calls":
-			return "toolUse";
+			return { stopReason: "toolUse" };
 		case "error":
-			return "error";
+			// Mistral reports transient server failures this way; "server error" makes the message retryable.
+			return { stopReason: "error", errorMessage: "Provider stopped with: error (server error)" };
 		default:
-			return "stop";
+			return { stopReason: "error", errorMessage: `Provider stopped with: ${reason}` };
 	}
 }

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Mistral reporting `finish_reason: "error"` as a non-retryable unknown error and treating unknown finish reasons as successful stops
 - Fixed Mistral empty content deltas opening empty text blocks and splitting thinking into several blocks, which Mistral rejects on replay
 - Fixed OpenAI Responses usage counting reported `cache_write_tokens` as uncached input; they are now reported as cache writes
 - Fixed Google AI Studio and Vertex ignoring string `thinkingLevelMap` values for Gemini 3 thinking levels; the mapped level is now sent
