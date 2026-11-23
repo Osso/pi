@@ -38,6 +38,7 @@ import {
 	formatCanonicalPyrunEvalResult,
 	type PyrunEvalParams,
 	type PyrunPiRequestDispatcher,
+	withStreamedConsole,
 } from "./eval-tool.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 import { ensurePyrunSessionProxy } from "./session-proxy.ts";
@@ -534,6 +535,8 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
 		}
 		return formatCompletedPyrunObservation(input.params, result, terminalAgent);
+	} catch (error) {
+		throw withStreamedConsole(error, reportProgress);
 	} finally {
 		progressAccumulator.close();
 		artifactWakeup.close();

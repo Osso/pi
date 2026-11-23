@@ -224,11 +224,14 @@ function boundProgressUpdate(update: CanonicalPyrunProgressUpdate): CanonicalPyr
 	return { ...update, text: capConsoleText(update.text) };
 }
 
-export function createPyrunProgressReporter(
-	onUpdate: PyrunProgressUpdateCallback | undefined,
-): (update: CanonicalPyrunProgressUpdate) => void {
+export interface PyrunProgressReporter {
+	(update: CanonicalPyrunProgressUpdate): void;
+	consoleText(): string;
+}
+
+export function createPyrunProgressReporter(onUpdate: PyrunProgressUpdateCallback | undefined): PyrunProgressReporter {
 	let streamedConsoleText = "";
-	return (update) => {
+	const report = (update: CanonicalPyrunProgressUpdate) => {
 		const boundedUpdate = boundProgressUpdate(update);
 		const formattedProgressText = formatProgressText(boundedUpdate);
 		const progressText =
@@ -243,6 +246,14 @@ export function createPyrunProgressReporter(
 			details: boundedUpdate,
 		});
 	};
+	return Object.assign(report, { consoleText: () => streamedConsoleText });
+}
+
+/** A runner failure carries no canonical result, so its error keeps the console text already streamed. */
+export function withStreamedConsole(error: unknown, reporter: PyrunProgressReporter): unknown {
+	const consoleText = reporter.consoleText().trimEnd();
+	if (!consoleText) return error;
+	return new Error(`${consoleText}\n\n${error instanceof Error ? error.message : String(error)}`, { cause: error });
 }
 
 export function createPyrunEvalExecutor(
@@ -266,12 +277,12 @@ export function createPyrunEvalExecutor(
 					return dispatchPiRequest(request, ctx, signal, activeToolCallId);
 				}
 			: undefined;
-		const result = await runner.evaluate(
-			createCanonicalPyrunEvalParams(params, ctx, piBridgeEnabled),
-			createPyrunProgressReporter(onUpdate),
-			signal,
-			onPiRequest,
-		);
+		const reporter = createPyrunProgressReporter(onUpdate);
+		const result = await runner
+			.evaluate(createCanonicalPyrunEvalParams(params, ctx, piBridgeEnabled), reporter, signal, onPiRequest)
+			.catch((error: unknown) => {
+				throw withStreamedConsole(error, reporter);
+			});
 		return formatCanonicalPyrunEvalResult(params, result);
 	};
 }

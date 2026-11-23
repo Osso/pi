@@ -2848,6 +2848,32 @@ setInterval(() => {}, 1000);
 		expect(store.listAgents()).toEqual([]);
 	});
 
+	it.each([
+		["foreground", false],
+		["durable foreground", true],
+	])("keeps streamed console text when a %s runner exits without a result", async (_case, durable) => {
+		const exitingRunnerPath = join(tempDir, "console-then-exit-pyrun-runner.mjs");
+		writeFileSync(
+			exitingRunnerPath,
+			`process.stdin.once("data", () => {
+  process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "retained-before-exit\\n" }) + "\\n", () => process.exit(7));
+});
+`,
+		);
+		process.env.PI_PYRUN_RUNNER_ARGS = JSON.stringify([exitingRunnerPath]);
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const harness = createPyrunHarness(
+			durable ? { backgroundJobs: { store }, detachRegistry: new ToolDetachRegistry() } : {},
+		);
+
+		const failure = await harness
+			.evaluate({ code: "print('retained-before-exit'); raise SystemExit(7)" })
+			.catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
+
+		expect(failure).toContain("retained-before-exit");
+		expect(failure).toContain("Pyrun runner exited with exit code 7");
+	});
+
 	it("reports runner exit errors with stderr", async () => {
 		const badRunnerPath = join(tempDir, "bad-pyrun-runner.mjs");
 		writeFileSync(badRunnerPath, 'process.stderr.write("bad runner\\n"); process.exit(7);\n');
