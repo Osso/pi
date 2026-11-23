@@ -49,6 +49,29 @@ describe("wrapToolDefinition", () => {
 		expect(readFileSync(requireFullOutputPath(result.details), "utf-8")).toContain("start\n");
 	});
 
+	it("ignores progress updates sent after the tool returned", async () => {
+		let sendUpdate: ((partial: AgentToolResult<unknown>) => void) | undefined;
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "late_update",
+				label: "Late update",
+				description: "Keeps its update callback after returning",
+				parameters: Type.Object({}),
+				async execute(_toolCallId, _params, _signal, onUpdate) {
+					sendUpdate = onUpdate;
+					return { content: [{ type: "text" as const, text: `${"x".repeat(12_000)}final` }], details: {} };
+				},
+			}),
+		);
+		const forwarded: AgentToolResult<unknown>[] = [];
+
+		const result = await tool.execute("late-call", {}, undefined, (partial) => forwarded.push(partial));
+		sendUpdate?.({ content: [{ type: "text", text: `${"y".repeat(12_000)}late` }], details: {} });
+
+		expect(forwarded).toEqual([]);
+		expect(readFileSync(requireFullOutputPath(result.details), "utf-8")).toBe(`${"x".repeat(12_000)}final`);
+	});
+
 	it("passes the agent lifecycle start timestamp into extension context", async () => {
 		let observedStartedAt: number | undefined;
 		const tool = wrapToolDefinition(

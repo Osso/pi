@@ -19,6 +19,8 @@ interface ToolOutputDetails {
 
 interface ToolOutputSpill {
 	fullOutputPath?: string;
+	/** Set once the tool returned: later progress updates must not overwrite the final output file. */
+	settled?: boolean;
 }
 
 function createFullOutputPath(): string {
@@ -123,10 +125,13 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 		execute: async (toolCallId, params, signal, onUpdate, execution: AgentToolExecutionContext | undefined) => {
 			const spill: ToolOutputSpill = {};
 			const cappedUpdate = onUpdate
-				? (partial: AgentToolResult<TDetails>) => onUpdate(capToolResultOutput(partial, spill))
+				? (partial: AgentToolResult<TDetails>) => {
+						if (!spill.settled) onUpdate(capToolResultOutput(partial, spill));
+					}
 				: undefined;
 			const context = createToolExecutionContext(ctxFactory, execution);
 			const result = await definition.execute(toolCallId, params, signal, cappedUpdate, context);
+			spill.settled = true;
 			return capToolResultOutput(result, spill);
 		},
 	};
