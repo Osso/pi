@@ -1,8 +1,8 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { type Api, fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
+import { type Api, fauxAssistantMessage, fauxThinking, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputEvent } from "../../src/core/extensions/index.ts";
@@ -257,6 +257,33 @@ describe("AgentSession prompt characterization", () => {
 
 		await harness.session.prompt("start");
 		await harness.session.continue();
+
+		expect(sawGuard).toBe(false);
+		expect(harness.getPendingResponseCount()).toBe(0);
+	});
+
+	it("resets duplicate detection when signed public narration changes", async () => {
+		const narrationSignature = (
+			JSON.parse(readFileSync(new URL("../fixtures/anthropic-narration.json", import.meta.url), "utf8")) as {
+				content: Array<{ thinkingSignature: string }>;
+			}
+		).content[1].thinkingSignature;
+		const narration = (thinking: string) =>
+			fauxAssistantMessage([{ ...fauxThinking(thinking), thinkingSignature: narrationSignature }]);
+		const harness = await createTrackedHarness({ initialActiveToolNames: [] });
+		let sawGuard = false;
+		harness.setResponses([
+			narration("Reading the config first."),
+			narration("The config sets two retries."),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
+				);
+				return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "done" }), { stopReason: "toolUse" });
+			},
+		]);
+
+		await harness.session.prompt("start");
 
 		expect(sawGuard).toBe(false);
 		expect(harness.getPendingResponseCount()).toBe(0);

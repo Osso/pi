@@ -87,6 +87,7 @@ import {
 import { CodexRestrictionRecoveryState } from "./agent-session-restriction-recovery.ts";
 import { reviewToolApproval } from "./agent-session-tool-approval.ts";
 import { callActiveTool } from "./agent-session-tool-call.ts";
+import { getAssistantContentText } from "./assistant-narration.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
@@ -284,6 +285,12 @@ function assistantMessagePrecedesCompaction(
 
 const DUPLICATE_TURN_GUARD_PROMPT =
 	"You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
+
+/** Public assistant prose, including signed narration, and the stop reason identify a repeated turn. */
+function duplicateTurnFingerprint(message: AssistantMessage): string {
+	const text = message.content.map((content) => getAssistantContentText(content) ?? "").join("");
+	return JSON.stringify({ text, stopReason: message.stopReason });
+}
 
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
@@ -544,9 +551,7 @@ function readSharedChannelMessageSnapshot(
 	lastSeenId: number,
 ): { lastMessageId: number; messages: SharedChannelMessage[] } | undefined {
 	const lastMessageId = readSharedChannelTail(controlDbPath);
-	if (lastMessageId <= lastSeenId) {
-		return undefined;
-	}
+	if (lastMessageId <= lastSeenId) return undefined;
 	const messages: SharedChannelMessage[] = [];
 	let pageCursor = lastSeenId;
 	while (pageCursor < lastMessageId) {
@@ -1172,7 +1177,7 @@ export class AgentSession {
 		if (message.stopReason === "aborted" || message.stopReason === "error") return;
 		if (message.content.some((item) => item.type === "toolCall")) return;
 
-		const fingerprint = JSON.stringify({ text: getAssistantMessageText(message), stopReason: message.stopReason });
+		const fingerprint = duplicateTurnFingerprint(message);
 		if (fingerprint === this._lastAssistantTurnFingerprint) markDuplicateTurnAssistantMessage(message);
 	}
 
@@ -1187,7 +1192,7 @@ export class AgentSession {
 			return;
 		}
 
-		const fingerprint = JSON.stringify({ text: getAssistantMessageText(message), stopReason: message.stopReason });
+		const fingerprint = duplicateTurnFingerprint(message);
 		if (fingerprint !== this._lastAssistantTurnFingerprint) {
 			this._lastAssistantTurnFingerprint = fingerprint;
 			this._duplicateTurnGuardInjected = false;
@@ -1496,9 +1501,7 @@ export class AgentSession {
 		const recoveryAvailable = dispatch?.recoveryUsed === false && dispatch.cancelled === false;
 		if (this._thinkingPhaseTimeoutError && recoveryAvailable) return true;
 		for (const message of [...event.messages].reverse()) {
-			if (message.role !== "assistant") {
-				continue;
-			}
+			if (message.role !== "assistant") continue;
 
 			const assistant = message as AssistantMessage;
 			const settings = this.settingsManager.getRetrySettings();
@@ -1527,9 +1530,7 @@ export class AgentSession {
 	private _findLastAssistantMessage(): AssistantMessage | undefined {
 		const messages = this.agent.state.messages;
 		for (const msg of [...messages].reverse()) {
-			if (msg.role === "assistant") {
-				return msg as AssistantMessage;
-			}
+			if (msg.role === "assistant") return msg as AssistantMessage;
 		}
 		return undefined;
 	}

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- The duplicate-turn guard compares signed public narration, so different narration-only replies are no longer treated as repeats
 - `pi -p` prints the answer when the duplicate-turn guard leads to a textless `end_turn`
 - `/usage reset` consumes the reset credit of the Codex account it read and confirmed, even if the model changes during the dialog
 - A follow-up queued in `agent_end` runs `before_agent_start` and no longer reuses the previous run's system prompt
