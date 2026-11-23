@@ -13,7 +13,8 @@ const gitTimeoutMs = 5000;
 const gitMaxBuffer = 64 * 1024;
 
 function parseChecklistInterval(content: string): number {
-	const header = /^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/.exec(content);
+	// The shared frontmatter parser accepts a UTF-8 BOM, so the header match does too.
+	const header = /^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/.exec(content);
 	if (!header) throw new Error("Missing or malformed YAML frontmatter");
 	const { frontmatter } = parseFrontmatter(header[0]);
 	if (typeof frontmatter !== "object" || Array.isArray(frontmatter)) {

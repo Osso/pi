@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed periodic checks rejecting a `periodic-checks.md` saved with a UTF-8 byte order mark as missing frontmatter
 - Fixed `web_search` sending the request to a newly selected model with the previous model's credentials when the model changed during authentication
 - Fixed `grep` reporting a match limit when the only further match was already shown in the last match's trailing context
 - Fixed `grep` turning a backslash in a POSIX filename into a path separator, which misreported the path and dropped the file from `glob` matches

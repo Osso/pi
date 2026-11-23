@@ -309,6 +309,18 @@ for (const seconds of [60, 1, 2147483]) {
 	});
 }
 
+test("arms a checklist saved with a UTF-8 byte order mark", async (t) => {
+	const f = await fixture(t);
+	f.restoreChecklist(`\uFEFF${configuredChecklist(60)}`);
+	f.emit("session_start");
+	assert.equal(
+		await f.status("status"),
+		`Periodic checks: armed\nChecklist: ${f.checklist}\ninterval_seconds: 60\nNext run: in 1 minute`,
+	);
+	await f.tick(60000);
+	assert.equal(f.calls.length, 1);
+});
+
 const invalidChecklists = [
 	["missing frontmatter", checklistBody],
 	["unclosed frontmatter", "---\ntype: Periodic Checks\ninterval_seconds: 60\n"],
