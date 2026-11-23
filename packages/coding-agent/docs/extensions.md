@@ -338,7 +338,7 @@ user sends another prompt ◄─────────────────
   └─► session_info_changed
 
 /compact or auto-compaction
-  ├─► session_before_compact (can cancel or customize)
+  ├─► session_before_compact (can cancel)
   └─► session_compact
 
 /tree navigation
@@ -457,19 +457,23 @@ pi.on("session_before_fork", async (event, ctx) => {
 After a successful fork or clone, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
 Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
-#### session_before_compact / session_compact
+#### session_before_compact / compaction / session_compact
 
-Fired on compaction. See [compaction.md](compaction.md) for details.
+Fired on compaction. `session_before_compact` can only cancel; `compaction` can cancel or supply the result. See [compaction.md](compaction.md) for details.
 
 ```typescript
 pi.on("session_before_compact", async (event, ctx) => {
   const { preparation, branchEntries, customInstructions, reason, willRetry, signal } = event;
 
-  // reason - "manual" (/compact), "threshold", or "overflow"
+  // reason - "manual" (/compact), "threshold", "overflow", or "idle"
   // willRetry - whether the aborted turn is retried after compaction (overflow recovery)
 
   // Cancel:
   return { cancel: true };
+});
+
+pi.on("compaction", async (event, ctx) => {
+  const { preparation } = event;
 
   // Custom summary:
   return {

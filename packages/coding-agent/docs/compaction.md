@@ -349,7 +349,7 @@ Extensions can intercept and customize both compaction and branch summarization.
 
 ### session_before_compact
 
-Fired before auto-compaction or `/compact`. Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
+Fired before auto-compaction or `/compact`. Can only cancel; return a custom summary from the [`compaction`](#compaction) event. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
 
 ```typescript
 pi.on("session_before_compact", async (event, ctx) => {
@@ -368,6 +368,19 @@ pi.on("session_before_compact", async (event, ctx) => {
   // willRetry - whether the interrupted turn resumes after compaction
   //             (overflow recovery, or a "length"-truncated turn at the threshold)
   // signal - AbortSignal (pass to LLM calls)
+
+  // Cancel:
+  return { cancel: true };
+});
+```
+
+### compaction
+
+Fired for auto-compaction and `/compact` (after `session_before_compact`), and for background compaction. Return a complete result to replace the built-in summarizer, or cancel. The event has the same fields as `session_before_compact`; see `CompactionEvent` and `CompactionEventResult` in the types file.
+
+```typescript
+pi.on("compaction", async (event, ctx) => {
+  const { preparation } = event;
 
   // Cancel:
   return { cancel: true };
@@ -391,7 +404,7 @@ To generate a summary with your own model, convert messages to text using `seria
 ```typescript
 import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
 
-pi.on("session_before_compact", async (event, ctx) => {
+pi.on("compaction", async (event, ctx) => {
   const { preparation } = event;
   
   // Convert AgentMessage[] to Message[], then serialize to text
@@ -417,8 +430,6 @@ pi.on("session_before_compact", async (event, ctx) => {
   };
 });
 ```
-
-See [custom-compaction.ts](../examples/extensions/custom-compaction.ts) for a complete example using a different model.
 
 ### session_before_tree
 
