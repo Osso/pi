@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a timed-out or cancelled Bash command leaving a SIGTERM-ignoring child running when the shell exited before the SIGKILL grace period ended
 - Fixed extension `ctx.waitForIdle()` returning during automatic retry backoff, which let print mode exit before the retry ran
 - Fixed JSON mode continuing model work while stdout is blocked, so queued JSONL grew without bound instead of pausing the run
 - Fixed print and JSON modes exiting 0 without a stderr diagnostic when the model reply failed or was aborted and an extension command handled the final input

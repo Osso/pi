@@ -250,7 +250,10 @@ async function waitForDetachedBashExit(
 	});
 	for (;;) {
 		identity ??= readDetachedBashActivation(manifest.activationPath);
-		if (exit) return { cancelReason, exit, identity, timedOut };
+		// The shell can exit on SIGTERM while a child in its group ignores it, so finish the escalation first.
+		if (exit && (killAt === undefined || !isPayloadGroupAlive(payload.pid))) {
+			return { cancelReason, exit, identity, timedOut };
+		}
 		cancelReason ??= cancelForegroundBashPayload(payload.pid, foregroundCancellationPath);
 		if (!timedOut && timeoutAt !== undefined && Date.now() >= timeoutAt) {
 			timedOut = true;
@@ -282,7 +285,8 @@ async function waitForDetachedBashExit(
 				terminatePayload();
 			}
 		}
-		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
+		const poll = new Promise((resolve) => setTimeout(resolve, 25));
+		await (exit ? poll : Promise.race([exitPromise, poll]));
 	}
 }
 
@@ -290,6 +294,16 @@ function cancelForegroundBashPayload(pid: number, cancellationPath: string): str
 	if (!existsSync(cancellationPath)) return undefined;
 	signalPayloadGroup(pid, "SIGKILL");
 	return "foreground cancellation";
+}
+
+function isPayloadGroupAlive(pid: number): boolean {
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		throw error;
+	}
 }
 
 function signalPayloadGroup(pid: number, signal: NodeJS.Signals): void {

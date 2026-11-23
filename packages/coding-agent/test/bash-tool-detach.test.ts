@@ -437,6 +437,36 @@ describe("bash tool background detach", () => {
 		expect(result.details?.backgroundJobId).toBeUndefined();
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"kills a SIGTERM-ignoring child after the timed-out shell exits",
+		async () => {
+			const cwd = await createTempDir();
+			const pidPath = join(cwd, "child.pid");
+			const store = new MultiAgentStore();
+			const tool = createBashToolDefinition(cwd, {
+				backgroundJobs: createBackgroundJobs(cwd, store),
+				detachRegistry: new BashToolDetachRegistry(),
+			});
+			const command = `sh -c 'trap "" TERM; echo $$ > ${quotePath(pidPath)}; sleep 30' & wait`;
+			let childPid: number | undefined;
+			try {
+				await expect(
+					tool.execute(
+						"tool-bash-timeout-escalation",
+						{ command, timeout: 0.5 },
+						undefined,
+						undefined,
+						{} as never,
+					),
+				).rejects.toThrow(/timed out/i);
+				childPid = Number(readFileSync(pidPath, "utf8").trim());
+				expect(isProcessAlive(childPid)).toBe(false);
+			} finally {
+				if (childPid && isProcessAlive(childPid)) process.kill(childPid, "SIGKILL");
+			}
+		},
+	);
+
 	it("keeps bash timeout active after detaching", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "timeout-running.mjs");
