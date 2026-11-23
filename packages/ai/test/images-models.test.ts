@@ -216,6 +216,31 @@ describe("ImagesModels", () => {
 		expect(result).toMatchObject({ stopReason: "error", output: [], errorMessage: "renderer unavailable" });
 	});
 
+	it("retries a dynamic refresh after the loader throws synchronously", async () => {
+		let calls = 0;
+		const models = createImagesModels();
+		models.setProvider(
+			createImagesProvider({
+				id: "dyn",
+				auth: { apiKey: { name: "Test", resolve: async () => ({ auth: {} }) } },
+				models: [testImageModel("dyn", "old")],
+				refreshModels: () => {
+					calls++;
+					if (calls === 1) throw new Error("loader not ready");
+					return Promise.resolve([testImageModel("dyn", "new")]);
+				},
+				api: { generateImages: async (model) => okResult(model) },
+			}),
+		);
+
+		await expect(models.refresh("dyn")).rejects.toMatchObject({ code: "model_source" });
+		expect(models.getModels("dyn").map((model) => model.id)).toEqual(["old"]);
+		await models.refresh("dyn");
+
+		expect(calls).toBe(2);
+		expect(models.getModels("dyn").map((model) => model.id)).toEqual(["new"]);
+	});
+
 	it("builtinImagesModels registers the openrouter provider with its catalog", async () => {
 		const models = builtinImagesModels({ authContext: fakeAuthContext({ OPENROUTER_API_KEY: "or-key" }) });
 		const providers = models.getProviders();
