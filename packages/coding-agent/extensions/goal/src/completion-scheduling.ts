@@ -47,6 +47,11 @@ export interface CompletionWaitScheduler {
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, ReviewedGoalResponse>>;
 
+/** The wait status replaces the rejection in the same displayed block, so it keeps the submitted report visible. */
+function completionWaitMessage(reason: string, completionReport: string): string {
+	return `Waiting: ${reason}\n\nSubmitted report:\n${completionReport}`;
+}
+
 async function scheduleCompletionReview(
 	options: CompletionSchedulingOptions,
 	scheduler: CompletionScheduler,
@@ -54,7 +59,7 @@ async function scheduleCompletionReview(
 	ctx: ExtensionContext,
 	decision: Extract<ReviewedGoalResponse["decision"], { kind: "wait" }>,
 ): Promise<void> {
-	const message = `Waiting: ${decision.reason}`;
+	const message = completionWaitMessage(decision.reason, waiting.completionReport);
 	await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
 		onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
 		onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
@@ -129,7 +134,7 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
 		isWaiting: (sessionId) => scheduler.hasScheduledWork(sessionId),
 		wait: async (goal, ctx, completionReport, statusReason, displayId) => {
-			const message = `Waiting: ${statusReason}`;
+			const message = completionWaitMessage(statusReason, completionReport);
 			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, completionReport }, [], {
 				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, displayId),
 				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),

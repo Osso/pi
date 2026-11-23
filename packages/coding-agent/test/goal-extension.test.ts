@@ -2233,7 +2233,7 @@ describe("goal extension", () => {
 			expect(harness.appendEntry).toHaveBeenCalledWith(
 				"supervisor-status",
 				expect.objectContaining({
-					message: "Waiting: child proof running",
+					message: "Waiting: child proof running\n\nSubmitted report:\ndone",
 					reviewAt: "2026-07-28T12:55:00.000Z",
 				}),
 			);
