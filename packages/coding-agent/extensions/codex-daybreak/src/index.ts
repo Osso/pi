@@ -124,7 +124,8 @@ export default function codexDaybreakExtension(pi: ExtensionAPI): void {
 		updateStatus(ctx, state, event.model);
 	});
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!state.cyber || isChildRuntime(ctx) || !isCodexProvider(ctx.model)) return undefined;
+		// Decide from the request model: in a pool session ctx.model is the pool, not the serving member.
+		if (!state.cyber || isChildRuntime(ctx) || !isCodexProvider(event.model)) return undefined;
 		if (!isPlainObject(event.payload)) {
 			ctx.ui.notify("Daybreak skipped: provider payload is not an object", "warning");
 			return undefined;

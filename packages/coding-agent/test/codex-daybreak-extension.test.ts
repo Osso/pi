@@ -67,9 +67,12 @@ function createHarness(options: DaybreakHarnessOptions = {}) {
 	if (!beforeProviderRequest) throw new Error("before_provider_request handler was not registered");
 	if (!modelSelect) throw new Error("model_select handler was not registered");
 	if (!sessionStart) throw new Error("session_start handler was not registered");
+	const handleRequest = beforeProviderRequest;
 	return {
 		appendEntry,
-		beforeProviderRequest,
+		// Without a pool the runtime sends the selected model as event.model.
+		beforeProviderRequest: (event: BeforeProviderRequestEvent, context: ExtensionContext) =>
+			handleRequest({ ...event, model: event.model ?? assertDefined(context.model) }, context),
 		command,
 		commandName,
 		ctx,
@@ -118,6 +121,18 @@ describe("Codex Daybreak extension", () => {
 			access_programs: { cyber: "daybreak_blue" },
 			model: "gpt-6-sol",
 			service_tier: "priority",
+		});
+	});
+
+	it("adds Blue when a model pool serves the request from an eligible Codex member", async () => {
+		const { beforeProviderRequest, command, ctx } = createHarness();
+		const codexMember = assertDefined(ctx.model);
+		await command.handler("blue", ctx);
+		setModel(ctx, "codex", "pool");
+
+		expect(beforeProviderRequest({ ...requestFor("gpt-6-sol"), model: codexMember }, ctx)).toEqual({
+			access_programs: { cyber: "daybreak_blue" },
+			model: "gpt-6-sol",
 		});
 	});
 

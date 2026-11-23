@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Daybreak Blue applies when a model pool serves the request from an eligible Codex member
 - Codex fast mode adds its service tier when a model pool serves the request from a Codex member
 - An approval reviewer that returns the mutated `event.input` as `updatedInput` runs the tool with its rewrite instead of empty arguments
 - Claude bridge compaction uses its Claude Code summary again instead of discarding it and running the built-in summarizer through the bridge
