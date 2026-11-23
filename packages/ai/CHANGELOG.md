@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenRouter chat completions reporting the catalog cost estimate instead of the billed cost that OpenRouter returns in the usage chunk
 - Fixed Google Generative AI and Vertex requests ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Azure OpenAI Responses errors dropping the provider-requested `Retry-After` delay from `retryAfterMs`
 - Fixed OpenAI Responses pricing a returned `service_tier: "fast"` (Fast mode) at the default rate instead of the priority rate

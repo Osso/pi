@@ -36,6 +36,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
+import { applyOpenRouterReportedCost, type OpenRouterUsageAccounting } from "../utils/openrouter-cost.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { getErrorRetryAfterMs, getRetryAfterMsFromText } from "../utils/retry-after.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
@@ -1116,19 +1117,17 @@ function parseChunkUsage(
 		prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
 		completion_tokens_details?: { reasoning_tokens?: number };
 		reasoning_tokens?: number; // GitHub Copilot reports reasoning tokens at the top level
-	},
+	} & OpenRouterUsageAccounting,
 	model: Model<"openai-completions">,
 ): AssistantMessage["usage"] {
 	const promptTokens = rawUsage.prompt_tokens || 0;
 	const cacheReadTokens = rawUsage.prompt_tokens_details?.cached_tokens ?? rawUsage.prompt_cache_hit_tokens ?? 0;
 	const cacheWriteTokens = rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
 
-	// Follow documented OpenAI/OpenRouter semantics: cached_tokens is cache-read tokens (hits). OpenAI does not
-	// document or emit cache_write_tokens, but OpenRouter-compatible providers can include it as a separate write
-	// count. OpenRouter's own provider/tests affirm the separate mapping:
-	// https://github.com/OpenRouterTeam/ai-sdk-provider/pull/409
+	// Follow documented OpenAI/OpenRouter semantics: cached_tokens is cache-read tokens (hits). OpenAI does not document
+	// or emit cache_write_tokens, but OpenRouter-compatible providers can include it as a separate write count (see
+	// https://github.com/OpenRouterTeam/ai-sdk-provider/pull/409 and https://github.com/antirez/ds4/pull/29).
 	// Do not subtract writes from cached_tokens, otherwise spec-compliant providers are under-reported.
-	// DS4 mirrors this contract too: https://github.com/antirez/ds4/pull/29
 	const input = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
 	// OpenAI completion_tokens already includes reasoning_tokens.
 	const outputTokens = rawUsage.completion_tokens || 0;
@@ -1142,6 +1141,7 @@ function parseChunkUsage(
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
 	calculateCost(model, usage);
+	applyOpenRouterReportedCost(model, usage, rawUsage);
 	return usage;
 }
 
