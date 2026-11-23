@@ -1247,7 +1247,7 @@ export async function main(args: string[], options?: MainOptions) {
 		bindAgentSessionMutationTargetResolver(created.session, resolveFirstPartySessionMutationTarget);
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
-			created.session.setThinkingLevel(created.session.thinkingLevel);
+			created.session.sessionManager.setSessionThinkingLevel(created.session.thinkingLevel);
 		}
 		// "Could not restore model x/y. Using a/b." is recomputed on /resume and /fork; every mode reports diagnostics.
 		if (created.modelFallbackMessage && created.session.model) {

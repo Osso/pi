@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed an explicit startup thinking level (`--thinking` or a `--model` `:level` suffix) not being saved to the session, so reopening it fell back to the default level.
 - Fixed `--export-terminal` rejecting a session's original `.jsonl` path after archival replaced it with `.jsonl.zst`.
 - Fixed a self-referencing `.md` symlink in a rules folder aborting rule loading instead of being skipped like other broken links.
 - Fixed `/usage deepseek` showing a 1969 date for a Command Code monthly reset reported as epoch zero instead of `-`.
