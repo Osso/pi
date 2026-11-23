@@ -1313,6 +1313,21 @@ describe("Coding Agent Tools", () => {
 			);
 		});
 
+		it("does not report a limit when the only extra match is inside the trailing context", async () => {
+			const testFile = join(testDir, "context.txt");
+			writeFileSync(testFile, "needle one\nneedle two\n");
+
+			const result = await grepTool.execute("grep-trailing-only", {
+				pattern: "needle",
+				path: testFile,
+				limit: 1,
+				context: 1,
+			});
+
+			expect(getTextOutput(result)).toBe("context.txt:1: needle one\ncontext.txt-2- needle two");
+			expect(result.details?.matchLimitReached).toBeUndefined();
+		});
+
 		it("should treat flag-like patterns as search text", async () => {
 			const marker = join(testDir, "grep-injection-marker");
 			const payload = join(testDir, "payload.sh");

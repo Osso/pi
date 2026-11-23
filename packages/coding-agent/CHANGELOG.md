@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `grep` reporting a match limit when the only further match was already shown in the last match's trailing context
 - Fixed `grep` turning a backslash in a POSIX filename into a path separator, which misreported the path and dropped the file from `glob` matches
 - Fixed print mode printing the previous prompt's answer when an extension command or `input` handler handles the final message without a model turn
 - Fixed split-turn compaction deleting carried-forward summary text after a `<read-files>` or `<modified-files>` block quoted in the summary body

@@ -165,7 +165,7 @@ class GrepLineCollector {
 		}
 		const inWindow = line.filePath === this.lastFile && line.lineNumber <= this.trailingContextEnd;
 		if (inWindow) this.lines.push({ ...line, isMatch: false });
-		if (line.isMatch) this.matchLimitReached = true;
+		if (line.isMatch && !inWindow) this.matchLimitReached = true;
 		return this.matchLimitReached && !(inWindow && line.lineNumber < this.trailingContextEnd);
 	}
 }
