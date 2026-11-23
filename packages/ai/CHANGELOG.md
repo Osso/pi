@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic reporting the `sensitive` stop reason as "An unknown error occurred"
 - Fixed Anthropic streams failing after valid output when a proxy sends `message_delta` without `usage`
 - Fixed Anthropic and Bedrock Claude requests failing when an error tool result contains images; the images are now sent after the tool results of the turn, so the model still sees them
 - Fixed Bedrock reporting unhandled stop reasons such as `content_filtered` or `guardrail_intervened` as "An unknown error occurred"

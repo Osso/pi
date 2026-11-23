@@ -414,6 +414,32 @@ describe("Anthropic raw SSE parsing", () => {
 		expect(result.usage.totalTokens).toBe(12);
 	});
 
+	it("reports the sensitive stop reason in the error message", async () => {
+		const model = getModel("anthropic", "claude-haiku-4-5");
+		const context: Context = {
+			messages: [{ role: "user", content: "Say hello.", timestamp: Date.now() }],
+		};
+		const response = createSseResponse(
+			minimalAnthropicEvents.map((event) =>
+				event.event === "message_delta"
+					? {
+							event: "message_delta",
+							data: JSON.stringify({
+								type: "message_delta",
+								delta: { stop_reason: "sensitive" },
+								usage: { output_tokens: 1 },
+							}),
+						}
+					: event,
+			),
+		);
+
+		const result = await streamAnthropic(model, context, { client: createFakeAnthropicClient(response) }).result();
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toBe("Anthropic stop_reason: sensitive");
+	});
+
 	it("ignores unknown SSE events after message_stop", async () => {
 		const model = getModel("anthropic", "claude-haiku-4-5");
 		const context: Context = {
