@@ -92,6 +92,9 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// Azure peak-load capacity errors (#9669).
 	"currently experiencing high demand",
 	"model is at capacity",
+	// A request that waited too long in the provider's queue, e.g. sference's "waited 73.4s in
+	// queue, reaching this model's admission ceiling of 60s; retry after the hinted delay".
+	"admission ceiling",
 	"\\b500\\b",
 	"\\b502\\b",
 	"\\b503\\b",
@@ -111,6 +114,11 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// "Provider returned error" responses (#2264) and gateway wording such as
 	// "The upstream provider returned an error" (#10842).
 	"provider.?returned.?(?:an.?)?error",
+	// Anthropic's internal error, which it sends as HTTP 500 before streaming and as an event
+	// without a status once the stream has started, e.g. {"type":"error","error":{"type":
+	// "api_error","message":"Unable to complete this request right now. Please try again."}}.
+	// Gateways that copy Anthropic's format use it for their own upstream failures as well.
+	'"type"\\s*:\\s*"api_error"',
 	// Gateway upstream failures relayed as OpenAI Responses `response.failed` events (#10920).
 	"unable to forward upstream",
 	"upstream.?request.?failed",
@@ -170,6 +178,13 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"http2 request did not get a response",
 	// Codex CLI mid-stream disconnect relayed by proxies that wrap the Codex CLI (#11057).
 	"stream disconnected before completion",
+	// An OpenAI-compatible stream that ended with `finish_reason: "error"`, which OpenRouter
+	// sends when its provider fails mid-stream; see `mapStopReason` in openai-completions.ts.
+	"provider finish_reason: error",
+	// OpenRouter: "Provider returned an empty response", and its wrapper for a provider that
+	// gave up, e.g. "Upstream error from Relace: The model stopped before completing the response."
+	"returned an empty response",
+	"stopped before completing the response",
 	// Gateway relaying a dropped upstream Anthropic stream (#11879).
 	"cut short after the reply had begun",
 	// Gateway mid-stream failures relayed as SSE `event: error` frames without a
@@ -193,6 +208,8 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"you can retry your request",
 	"try your request again",
 	"please retry your request",
+	// recursive: "Unable to process request. Repeat the request later."
+	"repeat the request later",
 
 	// gRPC based providers (e.g. NVIDIA NIM).
 	"ResourceExhausted",
