@@ -55,9 +55,7 @@ function segmentWithMarkers(
 	pastes: ReadonlyMap<number, string>,
 ): Iterable<Intl.SegmentData> {
 	// Fast path: no paste markers in the text or no pastes.
-	if (pastes.size === 0 || !text.includes("[paste #")) {
-		return baseSegmenter.segment(text);
-	}
+	if (pastes.size === 0 || !text.includes("[paste #")) return baseSegmenter.segment(text);
 
 	// Find all marker spans with valid IDs.
 	const markers: Array<{ start: number; end: number }> = [];
@@ -68,9 +66,7 @@ function segmentWithMarkers(
 		if (content === undefined || m[0] !== pasteMarker(id, content)) continue;
 		markers.push({ start: m.index, end: m.index + m[0].length });
 	}
-	if (markers.length === 0) {
-		return baseSegmenter.segment(text);
-	}
+	if (markers.length === 0) return baseSegmenter.segment(text);
 
 	// Build merged segment list.
 	const baseSegments = baseSegmenter.segment(text);
@@ -126,14 +122,10 @@ export interface TextChunk {
  * @returns Array of chunks with text and position information
  */
 export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl.SegmentData[]): TextChunk[] {
-	if (!line || maxWidth <= 0) {
-		return [{ text: "", startIndex: 0, endIndex: 0 }];
-	}
+	if (!line || maxWidth <= 0) return [{ text: "", startIndex: 0, endIndex: 0 }];
 
 	const lineWidth = visibleWidth(line);
-	if (lineWidth <= maxWidth) {
-		return [{ text: line, startIndex: 0, endIndex: line.length }];
-	}
+	if (lineWidth <= maxWidth) return [{ text: line, startIndex: 0, endIndex: line.length }];
 
 	const chunks: TextChunk[] = [];
 	const segments = preSegmented ?? [...graphemeSegmenter.segment(line)];
@@ -479,9 +471,7 @@ export class Editor implements Component, Focusable {
 		row: number,
 	): { text: string; position: { row: number; col: number } | undefined } {
 		const hasPrompt = promptPrefixWidth > 0 && this.scrollOffset + visibleLineIndex === 0;
-		if (!hasPrompt) {
-			return { text: " ".repeat(promptPrefixWidth), position: undefined };
-		}
+		if (!hasPrompt) return { text: " ".repeat(promptPrefixWidth), position: undefined };
 
 		const promptText = this.getPromptText();
 		return {
@@ -977,6 +967,10 @@ export class Editor implements Component, Focusable {
 			if (kb.matches(data, "tui.select.confirm")) {
 				const selected = this.autocompleteList.getSelectedItem();
 				if (selected && this.autocompleteProvider) {
+					// Only the command-name menu submits; path/argument menus can also have a "/" prefix (read before applying).
+					const beforeCursor = (this.state.lines[this.state.cursorLine] || "").slice(0, this.state.cursorCol);
+					const submitsCommand =
+						this.autocompletePrefix.startsWith("/") && this.isInSlashCommandNameContext(beforeCursor);
 					this.pushUndoSnapshot();
 					this.lastAction = null;
 					const result = this.autocompleteProvider.applyCompletion(
@@ -990,7 +984,7 @@ export class Editor implements Component, Focusable {
 					this.state.cursorLine = result.cursorLine;
 					this.setCursorCol(result.cursorCol);
 
-					if (this.autocompletePrefix.startsWith("/")) {
+					if (submitsCommand) {
 						this.cancelAutocomplete();
 						// Fall through to submit
 					} else {
@@ -2319,6 +2313,11 @@ export class Editor implements Component, Focusable {
 		return this.isSlashMenuAllowed() && textBeforeCursor.trimStart().startsWith("/");
 	}
 
+	// A slash command name is being typed: "/mo", not "/model cla" or "/open /tm".
+	private isInSlashCommandNameContext(textBeforeCursor: string): boolean {
+		return this.isInSlashCommandContext(textBeforeCursor) && !textBeforeCursor.trimStart().includes(" ");
+	}
+
 	// Autocomplete methods
 	/**
 	 * Find the best autocomplete item index for the given prefix.
@@ -2369,7 +2368,7 @@ export class Editor implements Component, Focusable {
 		const currentLine = this.state.lines[this.state.cursorLine] || "";
 		const beforeCursor = currentLine.slice(0, this.state.cursorCol);
 
-		if (this.isInSlashCommandContext(beforeCursor) && !beforeCursor.trimStart().includes(" ")) {
+		if (this.isInSlashCommandNameContext(beforeCursor)) {
 			this.handleSlashCommandCompletion();
 		} else {
 			this.forceFileAutocomplete(true);

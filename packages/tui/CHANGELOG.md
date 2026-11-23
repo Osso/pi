@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed Enter on an autocomplete menu submitting the prompt when the completed text started with `/`, such as a Tab path menu for an absolute path (`look at /tmp/fi`) or a slash command argument (`/open /tm`); Enter now submits only from the slash command name menu
 - Fixed Markdown hiding the visible text of an HTML block that starts and ends with comments, such as `- <!-- a -->text<!-- b -->`
 - Fixed undo after accepting a Ctrl+R history match identical to the draft discarding the draft instead of restoring its cursor
 - `SelectList` renders line breaks in option labels as spaces without changing the selected item.
