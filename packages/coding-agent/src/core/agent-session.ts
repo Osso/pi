@@ -901,18 +901,12 @@ export class AgentSession {
 
 		if (this._extensionRunner.hasHandlers("session_compaction_source")) {
 			const result = await this._extensionRunner.emit({ type: "session_compaction_source", reason, willRetry });
-			if (result?.source) {
-				return result.source;
-			}
+			if (result?.source) return result.source;
 		}
 
-		if (this._extensionRunner.hasHandlers("compaction")) {
-			return undefined;
-		}
+		if (this._extensionRunner.hasHandlers("compaction")) return undefined;
 
-		if (!this.settingsManager.getCompactionEnabled()) {
-			return undefined;
-		}
+		if (!this.settingsManager.getCompactionEnabled()) return undefined;
 
 		return { type: "local", provider: this.model.provider, model: this.model.id };
 	}
@@ -957,9 +951,7 @@ export class AgentSession {
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
 			const runner = this._extensionRunner;
-			if (!runner.hasHandlers("tool_result")) {
-				return undefined;
-			}
+			if (!runner.hasHandlers("tool_result")) return undefined;
 
 			const hookResult = await runner.emitToolResult({
 				type: "tool_result",
@@ -971,9 +963,7 @@ export class AgentSession {
 				isError,
 			});
 
-			if (!hookResult) {
-				return undefined;
-			}
+			if (!hookResult) return undefined;
 
 			return {
 				content: hookResult.content,
@@ -1256,9 +1246,7 @@ export class AgentSession {
 	};
 
 	private _getCurrentAgentActivityOwner(): AgentCurrentActivityOwner | undefined {
-		if (!this._multiAgentParentSessionId) {
-			return undefined;
-		}
+		if (!this._multiAgentParentSessionId) return undefined;
 		return {
 			ownerSessionId: this._multiAgentParentSessionId,
 			processIdentity: this._detachedJobProcessIdentity,
@@ -1396,13 +1384,9 @@ export class AgentSession {
 		lifecycle: AgentLifecycleState,
 		detail: string | undefined,
 	): boolean {
-		if (!this._multiAgentStore) {
-			return false;
-		}
+		if (!this._multiAgentStore) return false;
 		const current = this._multiAgentStore.getAgent(agentId);
-		if (!current || this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
-			return true;
-		}
+		if (!current || this._isTerminalMultiAgentLifecycle(current.lifecycle)) return true;
 		if (!this._isTerminalMultiAgentLifecycle(lifecycle)) return true;
 		const result = detail && lifecycle === "completed" ? { summary: detail } : undefined;
 		const error = lifecycle === "failed" ? { message: detail ?? "Runtime mailbox steering turn failed" } : undefined;
@@ -3312,6 +3296,21 @@ export class AgentSession {
 		this._emitQueueUpdate();
 		this.agent.abort();
 		await this.agent.waitForIdle();
+	}
+
+	/** Wait until the run settles: no streaming, retry backoff, or queued continuation remains. */
+	async waitForIdle(): Promise<void> {
+		await this.agent.waitForIdle();
+		while (this.isDispatching) {
+			await new Promise<void>((resolve) => {
+				const unsubscribe = this.subscribe((event) => {
+					if (event.type !== "agent_settled") return;
+					unsubscribe();
+					resolve();
+				});
+			});
+			await this.agent.waitForIdle();
+		}
 	}
 
 	registerSupervisorReviewCancellation(handler: () => void): () => void {

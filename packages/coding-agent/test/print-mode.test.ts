@@ -726,6 +726,48 @@ describe("runPrintMode", () => {
 		}
 	});
 
+	it("waits through retry backoff when an extension command calls ctx.waitForIdle()", async () => {
+		const order: string[] = [];
+		const harness = await createHarness({
+			settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 50 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("agent_settled", () => {
+						order.push("settled");
+					});
+					pi.registerCommand("check-idle", {
+						description: "Waits for the prompt it starts",
+						handler: async (_args, ctx) => {
+							pi.sendUserMessage("question");
+							while (!ctx.hasActiveRetry()) await new Promise((resolve) => setTimeout(resolve, 1));
+							await ctx.waitForIdle();
+							order.push("idle");
+						},
+					});
+				},
+			],
+		});
+		try {
+			harness.setResponses([
+				fauxAssistantMessage([], { stopReason: "error", errorMessage: "overloaded_error" }),
+				fauxAssistantMessage([fauxText("recovered"), fauxToolCall("end_turn", { reason: "finished" })], {
+					stopReason: "toolUse",
+				}),
+			]);
+			captureStdout();
+			const runtimeHost = { ...createRuntimeHost([]), session: harness.session, dispose: vi.fn(async () => {}) };
+			const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+				mode: "json",
+				initialMessage: "/check-idle",
+			});
+			expect(exitCode).toBe(0);
+			expect(harness.faux.state.callCount).toBe(2);
+			expect(order).toEqual(["settled", "idle"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it("does not start model work in JSON mode while stdout is blocked", async () => {
 		const harness = await createHarness();
 		try {

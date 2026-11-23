@@ -1432,7 +1432,7 @@ export class InteractiveMode {
 			commandContextActions: {
 				showApprovalSelector: () => this.showApprovalSelector(),
 				showSandboxSelector: () => this.showSandboxSelector(),
-				waitForIdle: () => this.session.agent.waitForIdle(),
+				waitForIdle: () => this.session.waitForIdle(),
 				newSession: async (options) => {
 					if (this.loadingAnimation) {
 						this.loadingAnimation.stop();

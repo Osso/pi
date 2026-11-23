@@ -425,7 +425,7 @@ export interface ExtensionCommandContext extends ExtensionContext {
 	/** Get the current base system-prompt construction options. */
 	getSystemPromptOptions(): BuildSystemPromptOptions;
 
-	/** Wait for the agent to finish streaming */
+	/** Wait for the agent to settle, including automatic retries and queued continuations */
 	waitForIdle(): Promise<void>;
 
 	/** Start a new session, optionally with initialization. */

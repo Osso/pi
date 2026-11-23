@@ -1204,7 +1204,7 @@ This reports the current base prompt inputs. It does not include per-turn `befor
 
 ### ctx.waitForIdle()
 
-Wait for the agent to finish streaming:
+Wait for the agent to fully settle, including automatic retries, auto-compaction retries, and queued continuations:
 
 ```typescript
 pi.registerCommand("my-cmd", {

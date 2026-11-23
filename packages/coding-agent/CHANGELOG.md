@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed extension `ctx.waitForIdle()` returning during automatic retry backoff, which let print mode exit before the retry ran
 - Fixed JSON mode continuing model work while stdout is blocked, so queued JSONL grew without bound instead of pausing the run
 - Fixed print and JSON modes exiting 0 without a stderr diagnostic when the model reply failed or was aborted and an extension command handled the final input
 - Fixed nested Markdown skills in `.agents/skills` grouping folders, such as `.agents/skills/workflows/review.md`, not being discovered
