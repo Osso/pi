@@ -48,7 +48,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 }
 ```
 
-`defaultProvider`, `defaultModel`, and `defaultThinkingLevel` initialize new sessions only. `/model` and `/effort` persist to the current session without rewriting these settings. When a running subagent is selected, they persist only to that child session.
+`defaultProvider`, `defaultModel`, and `defaultThinkingLevel` initialize new sessions. In the main session, `/model` and `/effort` persist to the current session and also update these defaults. When a running subagent is selected, they persist only to that child session and leave these settings unchanged.
 
 `defaultThinkingLevel` controls reasoning only; delegation mode is not a global settings value. Sessions start in proactive mode, `/multi-agent explicit` changes the current session branch to explicit mode, and the selected delegation mode is restored on reload and branch navigation.
 
