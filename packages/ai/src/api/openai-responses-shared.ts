@@ -31,6 +31,7 @@ import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash, truncateWithHash } from "../utils/hash.ts";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { backfillReasoningSignatures } from "./openai-responses-reasoning-backfill.ts";
 import { settleUnfinishedToolCalls } from "./openai-responses-unfinished-call.ts";
 import { mapResponsesUsage } from "./openai-responses-usage.ts";
 import { transformMessages } from "./transform-messages.ts";
@@ -555,6 +556,7 @@ export async function processResponsesStream<TApi extends Api>(
 		response: Extract<ResponseStreamEvent, { type: "response.completed" | "response.incomplete" }>["response"],
 	): void => {
 		sawTerminalResponseEvent = true;
+		backfillReasoningSignatures(output.content, response?.output ?? []);
 		if (response?.id) {
 			output.responseId = response.id;
 		}

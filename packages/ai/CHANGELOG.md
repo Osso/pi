@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Azure OpenAI Responses dropping encrypted reasoning from the next request when the provider sends it only in the terminal response event
 - Fixed Gemini tool schemas sending string and number `const` constraints, which Gemini ignores; they are now sent as single-value `enum`s
 - Fixed Gemini 3 requests omitting tool call IDs from replayed function calls and responses
 - Fixed GitHub Copilot Chat Completions usage reporting zero reasoning tokens when the provider sends them at the top level of `usage`
