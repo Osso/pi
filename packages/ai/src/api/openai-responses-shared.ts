@@ -32,6 +32,7 @@ import { shortHash, truncateWithHash } from "../utils/hash.ts";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { settleUnfinishedToolCalls } from "./openai-responses-unfinished-call.ts";
+import { mapResponsesUsage } from "./openai-responses-usage.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -563,19 +564,7 @@ export async function processResponsesStream<TApi extends Api>(
 		if (imageGenerationItem?.type === "image_generation_call" && imageGenerationItem.result) {
 			output.imageGenerationResult = { type: "image", data: imageGenerationItem.result, mimeType: "image/png" };
 		}
-		if (response?.usage) {
-			const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
-			output.usage = {
-				// OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
-				input: (response.usage.input_tokens || 0) - cachedTokens,
-				output: response.usage.output_tokens || 0,
-				cacheRead: cachedTokens,
-				cacheWrite: 0,
-				reasoning: response.usage.output_tokens_details?.reasoning_tokens || 0,
-				totalTokens: response.usage.total_tokens || 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			};
-		}
+		if (response?.usage) output.usage = mapResponsesUsage(response.usage);
 		calculateCost(model, output.usage);
 		if (options?.applyServiceTierPricing) {
 			const serviceTier = options.resolveServiceTier

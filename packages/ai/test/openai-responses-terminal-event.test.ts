@@ -300,6 +300,31 @@ describe("OpenAI Responses terminal event handling", () => {
 		});
 	});
 
+	it("separates reported cache-write tokens from uncached input", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.completed",
+				sequence_number: 0,
+				response: {
+					id: "resp_cache_write",
+					status: "completed",
+					usage: {
+						input_tokens: 12000,
+						output_tokens: 20,
+						total_tokens: 12020,
+						input_tokens_details: { cached_tokens: 4000, cache_write_tokens: 7000 },
+					},
+				},
+			} as unknown as ResponseStreamEvent; // cache_write_tokens is not in the SDK types yet
+		}
+
+		await processResponsesStream(events(), output, new AssistantMessageEventStream(), model);
+
+		expect(output.usage).toMatchObject({ input: 1000, cacheRead: 4000, cacheWrite: 7000, output: 20 });
+	});
+
 	it("finalizes max-output incomplete terminal events as length with terminal metadata", async () => {
 		const model = createModel();
 		const output = createOutput(model);

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses usage counting reported `cache_write_tokens` as uncached input; they are now reported as cache writes
 - Fixed Google AI Studio and Vertex ignoring string `thinkingLevelMap` values for Gemini 3 thinking levels; the mapped level is now sent
 - A terminal stream event completes the other pending iterators after delivering the event to one reader.
 - Tool argument validation preserves values that already satisfy a plain JSON Schema `oneOf` instead of coercing them into overlapping branches.
