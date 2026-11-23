@@ -66,6 +66,7 @@ import { listExtensions } from "./cli/list-extensions.ts";
 import { listModels } from "./cli/list-models.ts";
 import { listTools } from "./cli/list-tools.ts";
 import { handleLoginCommand } from "./cli/login-command.ts";
+import { forkSessionOrExit, openSessionOrExit } from "./cli/open-session.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { parseResidentConsoleArgs, runResidentConsoleCommand } from "./cli/resident-console-command.ts";
 import { selectSession } from "./cli/session-picker.ts";
@@ -379,27 +380,6 @@ export async function runInteractiveActionOrReportTerminalError(
 	}
 }
 
-function openSessionOrExit(path: string, sessionDir?: string, controlDbPath?: string): SessionManager {
-	try {
-		const restoredPath = controlDbPath ? restoreArchivedSession(controlDbPath, path) : path;
-		return SessionManager.open(restoredPath, sessionDir);
-	} catch (error: unknown) {
-		const message = error instanceof Error ? error.message : String(error);
-		console.error(chalk.red(`Error: ${message}`));
-		process.exit(1);
-	}
-}
-
-function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string, sessionId?: string): SessionManager {
-	try {
-		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId });
-	} catch (error: unknown) {
-		const message = error instanceof Error ? error.message : String(error);
-		console.error(chalk.red(`Error: ${message}`));
-		process.exit(1);
-	}
-}
-
 async function createSessionManager(
 	parsed: Args,
 	cwd: string,
@@ -445,7 +425,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "found":
-				return openSessionOrExit(resolved.path, sessionDir, controlDbPath);
+				return openSessionOrExit(resolved.path, sessionDir, controlDbPath, resolved.type === "found");
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
