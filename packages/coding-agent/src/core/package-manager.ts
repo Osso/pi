@@ -386,14 +386,13 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			if (mode === "pi" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
+			// pi roots load direct .md files; .agents roots load .md files only from nested grouping folders.
+			const markdownHere = mode === "pi" ? dir === root : dir !== root;
+			if (isFile && entry.name.endsWith(".md") && markdownHere && !ig.ignores(relPath)) {
 				entries.push(fullPath);
 				continue;
 			}
-
-			if (!isDir) continue;
-			if (ig.ignores(`${relPath}/`)) continue;
-
+			if (!isDir || ig.ignores(`${relPath}/`)) continue;
 			entries.push(...collectSkillEntries(fullPath, mode, ig, root));
 		}
 	} catch {

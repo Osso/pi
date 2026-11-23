@@ -553,13 +553,18 @@ Content`,
 			expect(sharedSkills).toHaveLength(1);
 		});
 
-		it("should ignore root markdown files in .agents/skills", async () => {
+		it("should ignore root markdown files in .agents/skills but discover nested markdown skills", async () => {
 			const agentsSkillsDir = join(tempDir, ".agents", "skills");
 			mkdirSync(join(agentsSkillsDir, "nested-skill"), { recursive: true });
+			mkdirSync(join(agentsSkillsDir, "third-party", "vendor", "pack"), { recursive: true });
 			const rootSkill = join(agentsSkillsDir, "root-file.md");
 			const nestedSkill = join(agentsSkillsDir, "nested-skill", "SKILL.md");
+			const nestedMarkdownSkill = join(agentsSkillsDir, "third-party", "child-skill.md");
+			const deeplyNestedMarkdownSkill = join(agentsSkillsDir, "third-party", "vendor", "pack", "deep-skill.md");
 			writeFileSync(rootSkill, "---\nname: root-file\ndescription: Root markdown file\n---\n");
 			writeFileSync(nestedSkill, "---\nname: nested-skill\ndescription: Nested skill\n---\n");
+			writeFileSync(nestedMarkdownSkill, "---\nname: child-skill\ndescription: Nested markdown skill\n---\n");
+			writeFileSync(deeplyNestedMarkdownSkill, "---\nname: deep-skill\ndescription: Deep markdown skill\n---\n");
 
 			const pm = new DefaultPackageManager({
 				cwd: join(tempDir, "work"),
@@ -571,6 +576,8 @@ Content`,
 			const result = await pm.resolve();
 			expect(result.skills.some((r) => r.path === rootSkill)).toBe(false);
 			expect(result.skills.some((r) => r.path === nestedSkill && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === nestedMarkdownSkill && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === deeplyNestedMarkdownSkill && r.enabled)).toBe(true);
 		});
 
 		it("should keep ~/.agents/skills user-scoped when cwd is under home in a non-git directory", async () => {
