@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed a non-capturing overlay that ends right before the focused cursor moving the hardware cursor away from it
 - Fixed file path completion missing paths after opening wrappers such as `(` or backticks and after CJK punctuation such as `：`
 - Fixed Enter on an autocomplete menu submitting the prompt when the completed text started with `/`, such as a Tab path menu for an absolute path (`look at /tmp/fi`) or a slash command argument (`/open /tm`); Enter now submits only from the slash command name menu
 - Fixed Markdown hiding the visible text of an HTML block that starts and ends with comments, such as `- <!-- a -->text<!-- b -->`

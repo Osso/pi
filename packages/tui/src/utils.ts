@@ -843,8 +843,8 @@ export function extractSegments(
 			// Include ANSI codes in their respective segments
 			if (currentCol < beforeEnd) {
 				pendingAnsiBefore += ansi.code;
-			} else if (currentCol >= afterStart && currentCol < afterEnd && afterStarted) {
-				// Only include after we've started "after" (styling already prepended)
+			} else if (currentCol >= afterStart && currentCol < afterEnd && (afterStarted || ansi.code[1] === "_")) {
+				// SGR joins "after" once it started (styling is prepended); APC cursor markers also join at its start
 				after += ansi.code;
 			}
 			i += ansi.length;

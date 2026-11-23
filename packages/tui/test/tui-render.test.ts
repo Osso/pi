@@ -902,4 +902,25 @@ describe("TUI cursor markers", () => {
 			assert.ok(output.includes(`\x1b[${cursorColumn}G`), "the bottom marker still places the cursor");
 		});
 	}
+
+	it("keeps a cursor marker that starts right after a non-capturing overlay", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const { tui, component } = createTestTui(terminal);
+		component.lines = [`> abcdef${CURSOR_MARKER}gh`];
+		tui.start();
+		await terminal.waitForRender();
+		tui.showOverlay(
+			{ render: () => ["POP"], invalidate: () => {} },
+			{ row: 0, col: 5, width: 3, nonCapturing: true },
+		);
+		await terminal.waitForRender();
+		tui.stop();
+
+		const output = terminal.getWrites();
+		assert.strictEqual(terminal.getViewport()[0]?.trimEnd(), "> abcPOPgh");
+		assert.ok(
+			output.lastIndexOf("\x1b[9G") > output.lastIndexOf("POP"),
+			"the cursor returns to the marker after the overlay",
+		);
+	});
 });
