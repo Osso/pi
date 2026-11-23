@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a failed `/tree` summary write moving the session leaf, which made the next prompt reopen on the wrong branch
 - Fixed a timed-out or cancelled Bash command leaving a SIGTERM-ignoring child running when the shell exited before the SIGKILL grace period ended
 - Fixed extension `ctx.waitForIdle()` returning during automatic retry backoff, which let print mode exit before the retry ran
 - Fixed JSON mode continuing model work while stdout is blocked, so queued JSONL grew without bound instead of pausing the run

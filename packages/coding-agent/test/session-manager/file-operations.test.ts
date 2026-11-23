@@ -873,6 +873,26 @@ describe("SessionManager failed writes", () => {
 		expect(reopened.getBranch()).toHaveLength(3);
 	});
 
+	it("keeps the current leaf when writing a branch summary fails", () => {
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendMessage(userMsg("first"));
+		const firstReply = session.appendMessage(assistantMsg("reply one"));
+		session.appendMessage(userMsg("second"));
+		const secondReply = session.appendMessage(assistantMsg("reply two"));
+		const file = session.getSessionFile() ?? "";
+
+		chmodSync(file, 0o444);
+		expect(() => session.branchWithSummary(firstReply, "summary of the second turn")).toThrow();
+		expect(session.getLeafId()).toBe(secondReply);
+
+		chmodSync(file, 0o644);
+		const thirdId = session.appendMessage(userMsg("third"));
+		expect(session.getEntry(thirdId)?.parentId).toBe(secondReply);
+		const reopened = SessionManager.open(file, tempDir);
+		expect(reopened.getBranch().map((entry) => entry.id)).toEqual(session.getBranch().map((entry) => entry.id));
+		expect(reopened.getBranch()).toHaveLength(5);
+	});
+
 	it("does not keep an entry in memory when creating the file fails", () => {
 		const sessionDir = join(tempDir, "sessions");
 		mkdirSync(sessionDir);

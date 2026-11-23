@@ -1789,7 +1789,7 @@ export class SessionManager {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
 		const fromId = this.leafId ?? "root";
-		this.leafId = branchFromId;
+		// The append moves the leaf; a failed write then keeps the current leaf.
 		const entry: BranchSummaryEntry = {
 			type: "branch_summary",
 			id: generateId(this.byId),
