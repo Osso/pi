@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A completed Bash card no longer shows a second, wrong duration (`Took 0.0s`) under its recorded elapsed time after the transcript is rebuilt
 - `/import` of a session whose working directory no longer exists no longer leaves a stored copy when cancelled, or a second copy when continued in another directory
 - `edit` no longer blocks the session for seconds to minutes on a small edit to a large file: restoring line endings copied untouched lines in quadratic time (over 80 s for one line of a 5.6 MB file)
 - Provider and request headers now replace default provider attribution headers spelled in another case (`http-referer` over `HTTP-Referer`), instead of sending both values

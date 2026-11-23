@@ -310,7 +310,7 @@ const BASH_UPDATE_THROTTLE_MS = 100;
 
 type BashRenderState = {
 	startedAt: number | undefined;
-	endedAt: number | undefined;
+	/** Redraws the card every second while running, so its live elapsed time ticks. */
 	interval: NodeJS.Timeout | undefined;
 };
 
@@ -326,10 +326,6 @@ class BashResultRenderComponent extends Container {
 		cachedLines: undefined,
 		cachedSkipped: undefined,
 	};
-}
-
-function formatDuration(ms: number): string {
-	return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function formatBashCall(args: { command?: string; timeout?: number } | undefined): string {
@@ -356,8 +352,6 @@ function rebuildBashResultRenderComponent(
 	},
 	options: ToolRenderResultOptions,
 	showImages: boolean,
-	startedAt: number | undefined,
-	endedAt: number | undefined,
 ): void {
 	const state = component.state;
 	component.clear();
@@ -422,12 +416,7 @@ function rebuildBashResultRenderComponent(
 		}
 		component.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
 	}
-
-	if (startedAt !== undefined) {
-		const label = options.isPartial ? "Elapsed" : "Took";
-		const endTime = endedAt ?? Date.now();
-		component.addChild(new Text(`\n${theme.fg("muted", `${label} ${formatDuration(endTime - startedAt)}`)}`, 0, 0));
-	}
+	// The tool card shows the recorded elapsed time and completion clock.
 }
 
 export function createBashToolDefinition(
@@ -646,7 +635,6 @@ export function createBashToolDefinition(
 			const state = context.state;
 			if (context.executionStarted && state.startedAt === undefined) {
 				state.startedAt = Date.now();
-				state.endedAt = undefined;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			text.setText(formatBashCall(args));
@@ -658,7 +646,6 @@ export function createBashToolDefinition(
 				state.interval = setInterval(() => context.invalidate(), 1000);
 			}
 			if (!options.isPartial || context.isError) {
-				state.endedAt ??= Date.now();
 				if (state.interval) {
 					clearInterval(state.interval);
 					state.interval = undefined;
@@ -666,14 +653,7 @@ export function createBashToolDefinition(
 			}
 			const component =
 				(context.lastComponent as BashResultRenderComponent | undefined) ?? new BashResultRenderComponent();
-			rebuildBashResultRenderComponent(
-				component,
-				result,
-				options,
-				context.showImages,
-				state.startedAt,
-				state.endedAt,
-			);
+			rebuildBashResultRenderComponent(component, result, options, context.showImages);
 			component.invalidate();
 			return component;
 		},
