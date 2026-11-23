@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import loopExtension from "../extensions/loop/src/index.ts";
 import type {
-	AgentEndEvent,
+	AgentSettledEvent,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -10,12 +10,12 @@ import type {
 } from "../src/core/extensions/types.ts";
 
 type RegisteredLoopCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
-type AgentEndHandler = (event: AgentEndEvent, ctx: ExtensionContext) => Promise<void> | void;
+type AgentSettledHandler = (event: AgentSettledEvent, ctx: ExtensionContext) => Promise<void> | void;
 
 function createLoopHarness() {
 	let command: RegisteredLoopCommand | undefined;
 	let tool: ToolDefinition | undefined;
-	let agentEndHandler: AgentEndHandler | undefined;
+	let agentSettledHandler: AgentSettledHandler | undefined;
 	let idle = true;
 	let invalidated = false;
 	const sessionShutdownHandlers: Array<(event: unknown, ctx: ExtensionContext) => void> = [];
@@ -26,8 +26,8 @@ function createLoopHarness() {
 
 	const pi = {
 		on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void) {
-			if (event === "agent_end") {
-				agentEndHandler = handler;
+			if (event === "agent_settled") {
+				agentSettledHandler = handler;
 			}
 			if (event === "session_shutdown") {
 				sessionShutdownHandlers.push(handler);
@@ -87,9 +87,9 @@ function createLoopHarness() {
 		setIdle: (value: boolean) => {
 			idle = value;
 		},
-		runAgentEnd: async (messages: AgentEndEvent["messages"] = []) => {
-			if (!agentEndHandler) throw new Error("agent_end handler was not registered");
-			await agentEndHandler({ type: "agent_end", messages }, ctx);
+		runAgentSettled: async () => {
+			if (!agentSettledHandler) throw new Error("agent_settled handler was not registered");
+			await agentSettledHandler({ type: "agent_settled" }, ctx);
 		},
 		runCommand: async (args: string) => registeredCommand.handler(args, ctx),
 		runShutdown: () => {
@@ -187,7 +187,7 @@ describe("loop extension", () => {
 		expect(harness.sendMessage).not.toHaveBeenCalled();
 
 		harness.setIdle(true);
-		await harness.runAgentEnd();
+		await harness.runAgentSettled();
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.sendMessage).toHaveBeenCalledTimes(1);
@@ -206,7 +206,7 @@ describe("loop extension", () => {
 		await harness.runCommand("stop");
 
 		harness.setIdle(true);
-		await harness.runAgentEnd();
+		await harness.runAgentSettled();
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.sendMessage).not.toHaveBeenCalled();
@@ -222,7 +222,7 @@ describe("loop extension", () => {
 		await harness.runCommand("1s new prompt");
 
 		harness.setIdle(true);
-		await harness.runAgentEnd();
+		await harness.runAgentSettled();
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.sendMessage).not.toHaveBeenCalled();
@@ -237,7 +237,7 @@ describe("loop extension", () => {
 		await harness.runCommand(`1s ${prompt}`);
 		await vi.advanceTimersByTimeAsync(1_000);
 		harness.setIdle(true);
-		await harness.runAgentEnd();
+		await harness.runAgentSettled();
 
 		expect(harness.sendMessage.mock.calls[0]?.[0]).toMatchObject({
 			customType: "loop",

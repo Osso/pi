@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/loop` no longer queues a second loop prompt when an interval passes while the previous loop turn waits for an automatic retry
 - `pi control restart` no longer sends SIGHUP to a PID from a healthy session row when that process is no longer Pi
 - With `--no-session`, `/fork` and `/clone` show the outgoing session to `session_shutdown` handlers instead of the replacement
 - Print mode prints the answer before an `end_turn` response whose only text is whitespace instead of the whitespace

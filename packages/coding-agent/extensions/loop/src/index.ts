@@ -15,7 +15,7 @@ interface ActiveLoop {
 	deferred: boolean;
 	generation: number;
 	inFlight: boolean;
-	/** The in-flight loop prompt entered a run; that run's agent_end (even an aborted one) settles it. */
+	/** The in-flight loop prompt entered a run; that run's agent_settled (even an aborted one) settles it. */
 	started: boolean;
 	intervalMs: number;
 	prompt: string;
@@ -113,7 +113,7 @@ class LoopController {
 		if (loop && this.isLoopPrompt(message, loop)) loop.started = true;
 	}
 
-	handleAgentEnd(ctx: LoopRuntimeContext): void {
+	handleAgentSettled(ctx: LoopRuntimeContext): void {
 		const loop = this.activeLoop;
 		if (!loop || loop.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (loop.started) {
@@ -199,9 +199,9 @@ export default function loopExtension(pi: ExtensionAPI) {
 	pi.on("message_end", (event) => {
 		loop.handleMessageEnd(event.message);
 	});
-	pi.on("agent_end", (event, ctx) => {
-		if (event.sessionContinuation) return;
-		loop.handleAgentEnd(ctx);
+	// agent_end fires before an automatic retry or queued continuation; the loop prompt is settled only after them.
+	pi.on("agent_settled", (_event, ctx) => {
+		loop.handleAgentSettled(ctx);
 	});
 
 	pi.registerTool({
