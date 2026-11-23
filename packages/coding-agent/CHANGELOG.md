@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/reload` during a Supervisor due-task poll no longer delivers the same reminder twice
 - Quitting a session before its first message no longer launches the claude-memory indexer for a transcript that was never written
 - Extension tool results that exceed the text cap keep their image blocks instead of dropping them with the truncated text
 - Daybreak Blue applies when a model pool serves the request from an eligible Codex member

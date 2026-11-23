@@ -242,6 +242,28 @@ describe("Supervisor due-task reminders", () => {
 		expect(notices).toEqual([]);
 	});
 
+	// /reload stops the old poller while its GET /tasks/due is in flight; the reloaded poller sends the task again.
+	it("does not deliver a due task whose response arrives after the poller stopped", async () => {
+		const { stub, url } = await startStub();
+		stub.due = [DUE_TASK];
+		const sent: unknown[] = [];
+		const delivery = new DueTaskDelivery(
+			{ sendMessage: (message: unknown) => sent.push(message) } as unknown as ExtensionAPI,
+			{
+				intervalMs: 10,
+				readToken: () => {
+					delivery.stop(); // the session reloads while the request is being sent
+					return "secret";
+				},
+			},
+		);
+		delivery.start({ sessionManager: { getEntries: () => [] } } as unknown as ExtensionContext, url);
+		await waitFor(() => stub.requests.length === 1, "the due-task request");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		expect(sent).toEqual([]);
+	});
+
 	it("does not poll outside the Supervisor session or without tasksUrl", async () => {
 		const { stub, url } = await startStub();
 		stub.due = [DUE_TASK];

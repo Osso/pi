@@ -107,10 +107,14 @@ export class DueTaskDelivery {
 
 	private async deliverDue(ctx: ExtensionContext): Promise<void> {
 		if (!this.tasksUrl) return; // stopped while this check was queued
+		const generation = this.generation;
 		await this.acknowledgeWritten(ctx);
 		const response = await this.request("GET", "/tasks/due");
 		if (!response.ok) throw new Error(`GET /tasks/due returned ${response.status}: ${await response.text()}`);
-		for (const task of (await response.json()) as DueTask[]) {
+		const tasks = (await response.json()) as DueTask[];
+		// Stopped (for example by /reload) while the request was in flight: the next poller delivers these.
+		if (generation !== this.generation) return;
+		for (const task of tasks) {
 			if (this.pending.has(task.id)) continue;
 			const token = randomUUID();
 			this.pending.set(task.id, { token, dueAt: task.due_at });
