@@ -2,7 +2,13 @@
  * Shared utilities for Google Generative AI and Google Vertex providers.
  */
 
-import { type Content, FinishReason, FunctionCallingConfigMode, type Part } from "@google/genai";
+import {
+	type Content,
+	FinishReason,
+	FunctionCallingConfigMode,
+	type GenerateContentParameters,
+	type Part,
+} from "@google/genai";
 import type { Context, ImageContent, Model, StopReason, TextContent, ThinkingLevel, Tool } from "../types.ts";
 import { truncateWithHash } from "../utils/hash.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
@@ -418,5 +424,34 @@ export function mapStopReason(reason: FinishReason): StopReason {
 			const _exhaustive: never = reason;
 			throw new Error(`Unhandled stop reason: ${_exhaustive}`);
 		}
+	}
+}
+
+/**
+ * Open a Gemini content stream. `timeoutMs` covers only the wait for response headers, so long streams
+ * (e.g. extended thinking) are not cut off. The SDK's own `httpOptions.timeout` is not used because it also
+ * aborts the response body.
+ */
+export async function openGoogleStream<T>(
+	params: GenerateContentParameters,
+	request: (params: GenerateContentParameters) => Promise<T>,
+	timeoutMs: number | undefined,
+	signal: AbortSignal | undefined,
+): Promise<T> {
+	if (timeoutMs === undefined) return request(params);
+	const controller = new AbortController();
+	const forwardAbort = () => controller.abort(signal?.reason);
+	if (signal?.aborted) forwardAbort();
+	else signal?.addEventListener("abort", forwardAbort, { once: true });
+	const headerTimer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await request({ ...params, config: { ...params.config, abortSignal: controller.signal } });
+	} catch (error) {
+		if (controller.signal.aborted && !signal?.aborted) {
+			throw new Error(`Google response headers timed out after ${timeoutMs}ms`);
+		}
+		throw error;
+	} finally {
+		clearTimeout(headerTimer);
 	}
 }

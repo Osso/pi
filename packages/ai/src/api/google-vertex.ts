@@ -38,6 +38,7 @@ import {
 	mapGoogleThinkingLevel,
 	mapStopReason,
 	mapToolChoice,
+	openGoogleStream,
 	retainThoughtSignature,
 	usesServerManagedThinking,
 } from "./google-shared.ts";
@@ -105,7 +106,12 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
 			}
-			const googleStream = await client.models.generateContentStream(params);
+			const googleStream = await openGoogleStream(
+				params,
+				(request) => client.models.generateContentStream(request),
+				options?.timeoutMs,
+				options?.signal,
+			);
 
 			stream.push({ type: "start", partial: output });
 			let currentBlock: TextContent | ThinkingContent | null = null;

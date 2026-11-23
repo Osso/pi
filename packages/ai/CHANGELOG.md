@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Google Generative AI and Vertex requests ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Azure OpenAI Responses errors dropping the provider-requested `Retry-After` delay from `retryAfterMs`
 - Fixed OpenAI Responses pricing a returned `service_tier: "fast"` (Fast mode) at the default rate instead of the priority rate
 - Fixed Azure OpenAI Responses dropping encrypted reasoning from the next request when the provider sends it only in the terminal response event
