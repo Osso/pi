@@ -38,7 +38,7 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
-import { groupToolResults, transformMessages } from "./transform-messages.ts";
+import { groupToolResults, moveErrorToolResultImages, transformMessages } from "./transform-messages.ts";
 
 /**
  * Resolve cache retention preference.
@@ -1015,20 +1015,14 @@ function convertMessages(
 		if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				if (msg.content.trim().length > 0) {
-					params.push({
-						role: "user",
-						content: sanitizeSurrogates(msg.content),
-					});
+					params.push({ role: "user", content: sanitizeSurrogates(msg.content) });
 				}
 			} else {
 				const filteredBlocks = msg.content
 					.map(convertContentBlock)
 					.filter((block) => block.type !== "text" || block.text.trim().length > 0);
 				if (filteredBlocks.length === 0) continue;
-				params.push({
-					role: "user",
-					content: filteredBlocks,
-				});
+				params.push({ role: "user", content: filteredBlocks });
 			}
 		} else if (msg.role === "assistant") {
 			const blocks: ContentBlockParam[] = [];
@@ -1090,10 +1084,14 @@ function convertMessages(
 				content: blocks,
 			});
 		} else {
-			// All consecutive tool results go in one user message, needed for z.ai Anthropic endpoint
+			// All consecutive tool results go in one user message (needed for z.ai); error-result images follow them.
+			const { results, trailing } = moveErrorToolResultImages(msg.results);
 			params.push({
 				role: "user",
-				content: msg.results.map((result) => convertToolResultMessage(result)),
+				content: [
+					...results.map((result) => convertToolResultMessage(result)),
+					...trailing.map(convertContentBlock),
+				],
 			});
 		}
 	}

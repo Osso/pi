@@ -60,7 +60,7 @@ import {
 	clampMaxTokensToContext,
 	clampReasoning,
 } from "./simple-options.ts";
-import { groupToolResults, transformMessages } from "./transform-messages.ts";
+import { groupToolResults, moveErrorToolResultImages, transformMessages } from "./transform-messages.ts";
 
 export type BedrockThinkingDisplay = "summarized" | "omitted";
 
@@ -818,10 +818,7 @@ function convertMessages(
 					}
 					if (content.length === 0) content.push({ text: EMPTY_TEXT_PLACEHOLDER });
 				}
-				result.push({
-					role: ConversationRole.USER,
-					content,
-				});
+				result.push({ role: ConversationRole.USER, content });
 				break;
 			}
 			case "assistant": {
@@ -895,26 +892,29 @@ function convertMessages(
 				if (contentBlocks.length === 0) {
 					continue;
 				}
-				result.push({
-					role: ConversationRole.ASSISTANT,
-					content: contentBlocks,
-				});
+				result.push({ role: ConversationRole.ASSISTANT, content: contentBlocks });
 				break;
 			}
 			case "toolResults": {
-				// Bedrock requires all tool results of a turn in one user message
-				result.push({
-					role: ConversationRole.USER,
-					content: m.results.map(
-						(toolResult): ContentBlock.ToolResultMember => ({
-							toolResult: {
-								toolUseId: toolResult.toolCallId,
-								content: convertToolResultContent(toolResult.content),
-								status: toolResult.isError ? ToolResultStatus.ERROR : ToolResultStatus.SUCCESS,
-							},
-						}),
-					),
-				});
+				// Bedrock requires all tool results of a turn in one user message. Claude rejects images in error
+				// results, so for Claude they follow the tool results (#10794); other models keep them in place.
+				const { results, trailing } = isAnthropicClaudeModel(model)
+					? moveErrorToolResultImages(m.results)
+					: { results: m.results, trailing: [] };
+				const toolResults = results.map(
+					(toolResult): ContentBlock.ToolResultMember => ({
+						toolResult: {
+							toolUseId: toolResult.toolCallId,
+							content: convertToolResultContent(toolResult.content),
+							status: toolResult.isError ? ToolResultStatus.ERROR : ToolResultStatus.SUCCESS,
+						},
+					}),
+				);
+				const trailingBlocks = trailing.map(
+					(c): ContentBlock =>
+						c.type === "image" ? { image: createImageBlock(c.mimeType, c.data) } : { text: c.text },
+				);
+				result.push({ role: ConversationRole.USER, content: [...toolResults, ...trailingBlocks] });
 				break;
 			}
 			default:

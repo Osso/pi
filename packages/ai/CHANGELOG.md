@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic and Bedrock Claude requests failing when an error tool result contains images; the images are now sent after the tool results of the turn, so the model still sees them
 - Fixed Bedrock reporting unhandled stop reasons such as `content_filtered` or `guardrail_intervened` as "An unknown error occurred"
 - Fixed Mistral ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Mistral reporting `finish_reason: "error"` as a non-retryable unknown error and treating unknown finish reasons as successful stops

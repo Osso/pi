@@ -12,6 +12,7 @@ import type {
 
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+const ERROR_TOOL_IMAGE_PLACEHOLDER = "(image attached after the tool results)";
 
 function replaceImagesWithPlaceholder(content: (TextContent | ImageContent)[], placeholder: string): TextContent[] {
 	const result: TextContent[] = [];
@@ -281,4 +282,24 @@ export function groupToolResults(messages: Message[]): Array<UserMessage | Assis
 		else groups.push({ role: "toolResults", results: [message] });
 	}
 	return groups;
+}
+
+/**
+ * Move the images out of error tool results, for APIs that reject images in error results (Anthropic, and Claude
+ * on Bedrock). Send the returned results first, then `trailing` (a caption naming each tool call, followed by its
+ * images) in the same user message, so the model still sees the images (#10794).
+ */
+export function moveErrorToolResultImages(results: ToolResultMessage[]): {
+	results: ToolResultMessage[];
+	trailing: (TextContent | ImageContent)[];
+} {
+	const trailing: (TextContent | ImageContent)[] = [];
+	const movedResults = results.map((result) => {
+		const images = result.isError ? result.content.filter((block) => block.type === "image") : [];
+		if (images.length === 0) return result;
+		const caption = `Images from the error result of tool call ${result.toolCallId} (${result.toolName}):`;
+		trailing.push({ type: "text", text: caption }, ...images);
+		return { ...result, content: replaceImagesWithPlaceholder(result.content, ERROR_TOOL_IMAGE_PLACEHOLDER) };
+	});
+	return { results: movedResults, trailing };
 }
