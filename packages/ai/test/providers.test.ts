@@ -139,6 +139,24 @@ describe("builtin providers", () => {
 		expect(result?.env).toEqual({ CLOUDFLARE_ACCOUNT_ID: "account-id" });
 	});
 
+	// Upstream #6021: a key-only credential (from `/login` or an apiKey override) keeps ambient account and gateway IDs.
+	it("falls back to ambient Cloudflare IDs when the credential carries only the API key", async () => {
+		const auth = cloudflareAIGatewayProvider().auth.apiKey;
+		if (!auth) throw new Error("expected api-key auth");
+		const model = builtinModels().getModels("cloudflare-ai-gateway")[0];
+
+		const result = await auth.resolve({
+			model,
+			ctx: fakeAuthContext({ CLOUDFLARE_ACCOUNT_ID: "account-id", CLOUDFLARE_GATEWAY_ID: "gateway-id" }),
+			credential: { type: "api_key", key: "explicit-key" },
+		});
+
+		expect(result?.auth).toEqual({
+			headers: { "cf-aig-authorization": "Bearer explicit-key", Authorization: null, "x-api-key": null },
+			baseUrl: "https://gateway.ai.cloudflare.com/v1/account-id/gateway-id/anthropic",
+		});
+	});
+
 	it("requires Cloudflare AI Gateway account and gateway config and returns scoped env headers", async () => {
 		const missingGateway = createModels({
 			authContext: fakeAuthContext({ CLOUDFLARE_API_KEY: "cf-key", CLOUDFLARE_ACCOUNT_ID: "account-id" }),

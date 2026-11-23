@@ -12,11 +12,9 @@ async function resolveValue(
 	ctx: AuthContext,
 	credential: ApiKeyCredential | undefined,
 ): Promise<string | undefined> {
-	if (credential) {
-		if (name === CLOUDFLARE_API_KEY) return credential.key;
-		return credential.env?.[name];
-	}
-	return ctx.env(name);
+	// Per-field merge: a key-only credential still takes the account and gateway IDs from ambient env.
+	const fromCredential = name === CLOUDFLARE_API_KEY ? credential?.key : credential?.env?.[name];
+	return fromCredential ?? ctx.env(name);
 }
 
 function resolveCloudflareBaseUrl(

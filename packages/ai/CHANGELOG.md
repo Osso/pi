@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Cloudflare Workers AI and AI Gateway now take the account and gateway IDs from the environment when the credential or `apiKey` override carries only the API key, instead of requesting a `{CLOUDFLARE_ACCOUNT_ID}` placeholder URL
 - Bedrock prices one-hour cache writes from `cacheDetails` at the one-hour rate instead of the five-minute rate (port of upstream 8a7b0c03d, [#9457](https://github.com/earendil-works/pi-mono/issues/9457))
 - Codex image generation drops the streamed preview when only the terminal response reports the image call failed
 - Image model refresh retries after a dynamic loader throws synchronously; the failed call no longer stays cached
