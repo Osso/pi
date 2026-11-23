@@ -140,4 +140,26 @@ describe("ask_questions panel free text", () => {
 		expect(Math.max(...widths())).toBeLessThanOrEqual(50);
 		expect(Math.max(...panel.render(20).map((line) => visibleWidth(line)))).toBeLessThanOrEqual(20);
 	});
+
+	it("renders a multiline option description on one row per choice after moving the cursor", () => {
+		const { press, text } = setup([
+			{
+				question: "Which database?",
+				options: [{ label: "SQLite", description: "Runs locally.\nNo server needed." }, { label: "Postgres" }],
+			},
+		]);
+		press(KEY.down);
+		const rows = text().split("\n");
+		expect(rows.filter((row) => row.includes("SQLite"))).toEqual([
+			"   ○ 1. SQLite — Runs locally. No server needed.",
+		]);
+		expect(rows.filter((row) => row.includes("Postgres"))).toHaveLength(1);
+		expect(text()).toContain("Other");
+	});
+
+	it("opens Other within a 12-column terminal", () => {
+		const { panel, press } = setup([choice]);
+		press(KEY.down, KEY.down, KEY.enter);
+		expect(Math.max(...panel.render(12).map((line) => visibleWidth(line)))).toBeLessThanOrEqual(12);
+	});
 });

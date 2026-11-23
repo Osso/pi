@@ -219,7 +219,8 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		rows.push({ text: `${answer.custom === undefined ? "  " : "✎ "}${other}`, active: cursor === rows.length });
 		return rows.map((row) => {
 			const prefix = row.active ? theme.fg("accent", "> ") : "  ";
-			return truncateToWidth(` ${prefix}${row.active ? theme.fg("accent", row.text) : row.text}`, width);
+			const text = row.text.replace(/\s*\r?\n\s*/g, " "); // One terminal row per choice.
+			return truncateToWidth(` ${prefix}${row.active ? theme.fg("accent", text) : text}`, width);
 		});
 	}
 
@@ -246,7 +247,11 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 			const input = inputs[tab];
 			if (!input) throw new Error(`Question input ${tab} is missing`);
 			input.focused = focused;
-			lines.push("", ` ${theme.fg("muted", "Your answer:")}`, ...input.render(Math.max(1, width - 2)));
+			lines.push(
+				"",
+				truncateToWidth(` ${theme.fg("muted", "Your answer:")}`, width),
+				...input.render(Math.max(1, width - 2)),
+			);
 		}
 		return lines;
 	}
