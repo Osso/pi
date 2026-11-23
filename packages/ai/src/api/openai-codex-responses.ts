@@ -252,6 +252,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (transport !== "sse") {
 				let websocketStarted = false;
 				let retriedWebSocketConnectionLimit = false;
+				let retriedMissingContinuation = false;
+				let startEmitted = false;
 				while (true) {
 					websocketStarted = false;
 					diagnostic?.begin("websocket", retriedWebSocketConnectionLimit ? 2 : 1);
@@ -265,6 +267,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							model,
 							() => {
 								websocketStarted = true;
+								if (!startEmitted) stream.push({ type: "start", partial: output });
+								startEmitted = true;
 							},
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
@@ -272,9 +276,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							diagnostic,
 						);
 
-						if (options?.signal?.aborted) {
-							throw new Error("Request was aborted");
-						}
+						if (options?.signal?.aborted) throw new Error("Request was aborted");
 						stream.push({
 							type: "done",
 							reason: output.stopReason as "stop" | "length" | "toolUse",
@@ -286,6 +288,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						diagnostic?.fail(error);
 						const aborted = options?.signal?.aborted;
 						const connectionLimitBeforeStart = !websocketStarted && isWebSocketConnectionLimitReachedError(error);
+						// A cached continuation the backend no longer has: resend the full context once on a new socket.
+						const missingContinuation =
+							error instanceof CodexApiError && error.code === "previous_response_not_found";
+						if (!aborted && missingContinuation && !retriedMissingContinuation) {
+							retriedMissingContinuation = true;
+							continue;
+						}
 						if (!aborted && connectionLimitBeforeStart && !retriedWebSocketConnectionLimit) {
 							retriedWebSocketConnectionLimit = true;
 							options?.onRetry?.(
@@ -294,9 +303,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							);
 							continue;
 						}
-						if (aborted || (isCodexNonTransportError(error) && !connectionLimitBeforeStart)) {
-							throw error;
-						}
+						if (aborted || (isCodexNonTransportError(error) && !connectionLimitBeforeStart)) throw error;
 						appendAssistantMessageDiagnostic(
 							output,
 							createAssistantMessageDiagnostic("provider_transport_failure", error, {
@@ -417,9 +424,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				}
 			}
 
-			if (!response?.ok) {
-				throw lastError ?? new Error("Failed after retries");
-			}
+			if (!response?.ok) throw lastError ?? new Error("Failed after retries");
 
 			if (!response.body) {
 				throw new Error("No response body");
@@ -1486,8 +1491,6 @@ function buildCachedWebSocketRequestBody(entry: CachedWebSocketConnection, body:
 
 async function* startWebSocketOutputOnFirstEvent(
 	events: AsyncIterable<ResponseStreamEvent>,
-	output: AssistantMessage,
-	stream: AssistantMessageEventStream,
 	onStart: () => void,
 ): AsyncGenerator<ResponseStreamEvent> {
 	let started = false;
@@ -1495,7 +1498,6 @@ async function* startWebSocketOutputOnFirstEvent(
 		if (!started) {
 			started = true;
 			onStart();
-			stream.push({ type: "start", partial: output });
 		}
 		yield event;
 	}
@@ -1554,8 +1556,6 @@ async function processWebSocketStream(
 		await processResponsesStream(
 			startWebSocketOutputOnFirstEvent(
 				mapCodexEvents(parseWebSocket(socket, liveness, options?.signal, idleTimeoutMs)),
-				output,
-				stream,
 				onStart,
 			),
 			output,

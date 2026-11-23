@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Codex cached WebSocket turns failing with `previous_response_not_found`; the request is resent once with the full context on a new WebSocket
 - Fixed OpenAI Codex sending session IDs longer than 64 characters unclamped in the `session-id` and `x-client-request-id` headers
 - Fixed OpenRouter chat completions reporting the catalog cost estimate instead of the billed cost that OpenRouter returns in the usage chunk
 - Fixed Google Generative AI and Vertex requests ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
