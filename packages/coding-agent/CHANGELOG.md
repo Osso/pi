@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/usage deepseek` showing a 1969 date for a Command Code monthly reset reported as epoch zero instead of `-`.
 - Fixed HTML export dropping the `$` from the session cost and corrupting embedded syntax highlighting, because template substitution expanded `$$` and `$&` in the bundled scripts.
 - Fixed idle shared-channel delivery stalling when the newest relayed message had expired before the cleanup sweep removed it.
 - Fixed the scoped `/model` picker offering a model or pool that a `models.json` change removed from the registry, such as a pool whose last member became disabled.

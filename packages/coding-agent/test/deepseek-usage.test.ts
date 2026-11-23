@@ -228,6 +228,15 @@ describe("DeepSeek usage payload mapping", () => {
 		});
 	});
 
+	it("leaves an epoch-zero Command Code monthly reset unreported", () => {
+		const usage = mapCommandCodeUsage(
+			{ credits: { monthlyCredits: 10 } },
+			{ data: { currentPeriodEnd: "1970-01-01T00:00:00.000Z" } },
+			{ totalMonthlyCredits: 5 },
+		);
+		expect(usage.month).toEqual({ percent: (5 / 15) * 100, resetsAt: null });
+	});
+
 	it("reads the USD balance and reports nothing for malformed payloads", () => {
 		expect(mapDeepseekBalance(deepseekBalancePayload())).toEqual({ balance: "$50.00" });
 		expect(mapDeepseekBalance({ is_available: false, balance_infos: [] })).toEqual({ balance: null });

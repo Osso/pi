@@ -147,8 +147,6 @@ export function mapCommandCodeUsage(
 	const monthlyRemaining = readFiniteNumber(monthly?.monthlyCredits);
 	const monthlyUsed = readFiniteNumber(summary?.totalMonthlyCredits);
 	const allowance = monthlyRemaining !== null && monthlyUsed !== null ? monthlyRemaining + monthlyUsed : null;
-	const periodEnd =
-		typeof subscription?.currentPeriodEnd === "string" ? Date.parse(subscription.currentPeriodEnd) : Number.NaN;
 
 	return {
 		day: windowPercent(windows?.fiveHour),
@@ -157,7 +155,7 @@ export function mapCommandCodeUsage(
 			allowance !== null && allowance > 0 && monthlyUsed !== null
 				? {
 						percent: (monthlyUsed / allowance) * 100,
-						resetsAt: Number.isFinite(periodEnd) ? Math.round(periodEnd / 1000) : null,
+						resetsAt: readIsoEpochSeconds(subscription?.currentPeriodEnd),
 					}
 				: null,
 		balance: monthlyRemaining === null ? null : formatUsd(monthlyRemaining),
