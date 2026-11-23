@@ -43,7 +43,7 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 		// A truncated response is reported even when the limit hit before any visible text.
 		if (message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length")
 			return message;
-		if (message.content.some((content) => getAssistantContentText(content))) return message;
+		if (message.content.some((content) => getAssistantContentText(content)?.trim())) return message;
 		if (message.content.some((content) => content.type === "toolCall" && content.name === "end_turn")) continue;
 		return undefined;
 	}

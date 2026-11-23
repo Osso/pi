@@ -654,6 +654,21 @@ describe("runPrintMode", () => {
 		expect(output.join("")).toBe("final answer\n");
 	});
 
+	it("prints a separate answer before a whitespace-only end_turn assistant", async () => {
+		const output = captureStdout();
+		const runtimeHost = createRuntimeHost([
+			{ role: "user", content: "question", timestamp: 1 },
+			createAssistantMessage({ text: "final answer" }),
+			createAssistantMessage({ text: " \n", stopReason: "toolUse", endTurn: true }),
+			{ role: "toolResult", toolCallId: "finish", toolName: "end_turn", content: [], isError: false, timestamp: 2 },
+		]);
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+		expect(exitCode).toBe(0);
+		expect(output.join("")).toBe("final answer\n");
+	});
+
 	it("prints the answer when a rejected end_turn is retried", async () => {
 		const output = captureStdout();
 		const runtimeHost = createRuntimeHost([

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Print mode prints the answer before an `end_turn` response whose only text is whitespace instead of the whitespace
 - `/reload` during a Supervisor due-task poll no longer delivers the same reminder twice
 - Quitting a session before its first message no longer launches the claude-memory indexer for a transcript that was never written
 - Extension tool results that exceed the text cap keep their image blocks instead of dropping them with the truncated text
