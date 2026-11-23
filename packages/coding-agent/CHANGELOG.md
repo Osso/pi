@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Slash-command completion no longer offers a prompt template whose name a built-in command such as `/reload` takes, since submitting it runs the built-in
 - `/usage reset` now redacts the access token from a failed reset request error, as the usage read already did
 - `/usage reset` now reports a consumed reset credit when the follow-up usage read fails, instead of showing only the refresh error
 - `grep` with a glob whose directory part starts with `#`, such as `#notes/*.ts`, now matches that directory instead of returning no matches

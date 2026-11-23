@@ -59,4 +59,14 @@ describe("interactive slash-command completion", () => {
 
 		expect(await suggestionValues(provider, "/deploy pro")).toEqual(["prod"]);
 	});
+
+	test("hides a prompt template whose name a built-in command takes", async () => {
+		const provider = createProvider([], ["reload", "review"]);
+		const result = await provider.getSuggestions(["/re"], 0, 3, { signal: new AbortController().signal });
+		const descriptions = result?.items.map((item) => item.description) ?? [];
+
+		// Dispatch runs the built-in /reload, so its template row could never be invoked.
+		expect(descriptions).not.toContain("template reload");
+		expect(descriptions).toContain("template review");
+	});
 });

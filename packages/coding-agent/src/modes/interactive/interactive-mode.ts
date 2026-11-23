@@ -811,10 +811,10 @@ export class InteractiveMode {
 				description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
 				getArgumentCompletions: cmd.getArgumentCompletions,
 			}));
-		// Prompt templates, minus names an extension command takes: dispatch runs the extension instead
-		const extensionCommandNames = new Set(extensionCommands.map((c) => c.name));
+		// Prompt templates, minus names a built-in or extension command takes: dispatch runs that command instead
+		const takenCommandNames = new Set([...builtinCommandNames, ...extensionCommands.map((c) => c.name)]);
 		const templateCommands: SlashCommand[] = this.session.promptTemplates
-			.filter((cmd) => !extensionCommandNames.has(cmd.name))
+			.filter((cmd) => !takenCommandNames.has(cmd.name))
 			.map((cmd) => ({
 				name: cmd.name,
 				description: this.prefixAutocompleteDescription(cmd.description, cmd.sourceInfo),
