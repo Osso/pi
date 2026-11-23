@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Cloudflare's HTTP 525 (SSL handshake failed) not being retried like its 520 and 524 errors (port of upstream fb62c069b)
 - Fixed temporary provider failures not being retried automatically: Anthropic `api_error` events during streaming, OpenRouter's "Provider returned an empty response" and "stopped before completing the response", streams that end with `finish_reason: "error"`, and "Repeat the request later" and "admission ceiling" responses (port of upstream a00a5048d)
 - Fixed gateway errors such as "The provider is temporarily unavailable. Retry shortly.", "The provider ended the response before it was complete.", "The connection to the provider was reset.", and "The provider reported a failure while generating the response." not being retried (port of upstream [#12227](https://github.com/earendil-works/pi/issues/12227))
 - Reduced context-limit request failures by estimating input at 3.5 characters per token instead of 4 when calculating output limits (port of upstream [#10497](https://github.com/earendil-works/pi/issues/10497))

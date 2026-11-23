@@ -101,6 +101,8 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"\\b504\\b",
 	"\\b520\\b",
 	"\\b524\\b",
+	// Cloudflare: failed TLS handshake with the provider's origin, usually while it restarts.
+	"\\b525\\b",
 	// Also matches "The service is temporarily unavailable" (#10965).
 	"service.?(?:is.?)?(?:temporarily.?)?unavailable",
 	// Gateway wording such as "The provider is temporarily unavailable. Retry shortly." (#12227).

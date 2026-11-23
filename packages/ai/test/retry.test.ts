@@ -284,6 +284,14 @@ describe("provider retry classification", () => {
 			isRetryableAssistantError(
 				fauxAssistantMessage("", {
 					stopReason: "error",
+					errorMessage: "525 <!DOCTYPE html><title>SSL handshake failed</title>",
+				}),
+			),
+		).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
 					errorMessage:
 						"The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
 				}),
