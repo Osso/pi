@@ -263,7 +263,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				} else if (item.contentBlockStop) {
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
-					output.stopReason = mapStopReason(item.messageStop.stopReason);
+					const rawStopReason = item.messageStop.stopReason;
+					output.stopReason = mapStopReason(rawStopReason);
+					if (output.stopReason === "error" && rawStopReason)
+						output.errorMessage = `Provider stopped with: ${rawStopReason}`;
 					messageStopped = true;
 				} else if (item.metadata) {
 					handleMetadata(item.metadata, model, output);
@@ -280,13 +283,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				}
 			}
 
-			if (options.signal?.aborted) {
-				throw new Error("Request was aborted");
-			}
+			if (options.signal?.aborted) throw new Error("Request was aborted");
 
-			if (output.stopReason === "error" || output.stopReason === "aborted") {
-				throw new Error("An unknown error occurred");
-			}
+			if (output.stopReason === "error" || output.stopReason === "aborted")
+				throw new Error(output.errorMessage || "An unknown error occurred");
 			if (!messageStopped) throw new Error("Bedrock stream ended before messageStop");
 
 			// A stream can settle without stopping every block: finalize here too, with the block stop's strict parsing.

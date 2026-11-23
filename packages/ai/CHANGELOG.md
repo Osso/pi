@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Bedrock reporting unhandled stop reasons such as `content_filtered` or `guardrail_intervened` as "An unknown error occurred"
 - Fixed Mistral ignoring `timeoutMs`; it now limits the wait for response headers without cutting off long streams
 - Fixed Mistral reporting `finish_reason: "error"` as a non-retryable unknown error and treating unknown finish reasons as successful stops
 - Fixed Mistral empty content deltas opening empty text blocks and splitting thinking into several blocks, which Mistral rejects on replay
