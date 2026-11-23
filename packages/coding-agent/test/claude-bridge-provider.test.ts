@@ -161,4 +161,54 @@ describe("claude bridge provider registration", () => {
 		expect(listed.map((entry) => entry.name)).toEqual(["read"]);
 		expect(listed[0].inputSchema).toEqual(tool.parameters);
 	});
+
+	it("supplies the /compact summary through the compaction hook", async () => {
+		__test.setIsolatedQuery((() => {
+			async function* messages() {
+				yield { type: "result", subtype: "success", result: "bridge summary" };
+			}
+			return Object.assign(messages(), { close() {} });
+		}) as never);
+		const { handlers } = activate();
+		const model = {
+			id: "claude-sonnet-4-5",
+			name: "Claude Sonnet 4.5",
+			api: "anthropic-messages",
+			provider: "claude-bridge",
+			baseUrl: "claude-bridge",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200_000,
+			maxTokens: 64_000,
+		};
+		const preparation = {
+			firstKeptEntryId: "kept",
+			messagesToSummarize: [{ role: "user", content: "old request", timestamp: 1 }],
+			turnPrefixMessages: [],
+			isSplitTurn: false,
+			tokensBefore: 1000,
+			fileOps: {
+				read: new Set<string>(),
+				written: new Set<string>(),
+				edited: new Set<string>(),
+				modified: new Set<string>(),
+			},
+			settings: { enabled: true, reserveTokens: 1000, keepRecentMessages: 1 },
+		};
+		const event = {
+			type: "compaction",
+			preparation,
+			branchEntries: [],
+			reason: "manual",
+			willRetry: false,
+			signal: new AbortController().signal,
+		};
+		const ctx = { cwd: testRoot, model, ui: {} };
+
+		const [handler] = handlers.get("compaction") ?? [];
+		const result = (await handler?.(event, ctx)) as { compaction?: { summary: string } } | undefined;
+
+		expect(result?.compaction?.summary).toContain("bridge summary");
+	});
 });

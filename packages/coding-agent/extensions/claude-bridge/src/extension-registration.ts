@@ -182,10 +182,11 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 		clearSession("session_shutdown");
 	});
 
-	pi.on("session_before_compact", async (event, ctx) => {
+	// The compaction hook supplies the result; session_before_compact can only cancel.
+	pi.on("compaction", async (event, ctx) => {
 		if (ctx.model?.baseUrl !== "claude-bridge") return undefined;
 		debug(
-			`session_before_compact: takeover reason=${event.reason} willRetry=${event.willRetry} ` +
+			`compaction: takeover reason=${event.reason} willRetry=${event.willRetry} ` +
 				`isSplitTurn=${event.preparation.isSplitTurn} messages=${event.preparation.messagesToSummarize.length} ` +
 				`turnPrefix=${event.preparation.turnPrefixMessages.length}`,
 		);
@@ -202,11 +203,11 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 				(model, context, options) => isolatedStreamFn(model, context, { ...options, cwd: ctx.cwd }),
 				undefined,
 			);
-			debug(`session_before_compact: takeover complete summaryLen=${compaction.summary.length}`);
+			debug(`compaction: takeover complete summaryLen=${compaction.summary.length}`);
 			return { compaction };
 		} catch (err) {
 			const msg = errorMessage(err);
-			debug("session_before_compact: takeover failed; cancelling to avoid native compact fallback", err);
+			debug("compaction: takeover failed; cancelling to avoid native compact fallback", err);
 			ctx.ui?.notify?.(
 				`Claude bridge compact failed (${msg}); cancelled to avoid known hang. Retry, switch model, or reduce context.`,
 				"error",
