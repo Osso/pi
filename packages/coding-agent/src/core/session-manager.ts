@@ -1203,9 +1203,7 @@ export class SessionManager {
 		shouldMoveToTargetDefaultDir: boolean,
 		targetSessionDir: string,
 	): string | undefined {
-		if (!this.persist || !oldSessionFile) {
-			return undefined;
-		}
+		if (!this.persist || !oldSessionFile) return undefined;
 		return shouldMoveToTargetDefaultDir ? join(targetSessionDir, basename(oldSessionFile)) : oldSessionFile;
 	}
 
@@ -1230,7 +1228,9 @@ export class SessionManager {
 	private applyRelocation(resolvedTargetCwd: string, plan: SessionRelocationPlan): void {
 		this.cwd = resolvedTargetCwd;
 		this.sessionDir = plan.targetSessionDir;
-		if (plan.destination) this.sessionFile = plan.destination;
+		if (!plan.destination) return;
+		if (this.unterminatedSessionFile === this.sessionFile) this.unterminatedSessionFile = plan.destination;
+		this.sessionFile = plan.destination;
 	}
 
 	private removeRelocatedSourceFile(plan: SessionRelocationPlan): void {

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Relocating a resumed session whose transcript ends in an interrupted partial line no longer joins the next entry to that fragment, which lost the entry on reopen
 - Fixed repeated `wait_agent` turns stacking `Thought for` lines with nothing between them, because the settled wait row is hidden
 - Fixed a failed `/tree` summary write moving the session leaf, which made the next prompt reopen on the wrong branch
 - Fixed a timed-out or cancelled Bash command leaving a SIGTERM-ignoring child running when the shell exited before the SIGKILL grace period ended

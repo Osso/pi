@@ -78,6 +78,29 @@ describe("SessionManager append after an interrupted write", () => {
 		expect(reopenedTexts(file)).toEqual(["one", "reply", "two", "three"]);
 	});
 
+	it("drops a partial last line when the resumed session is relocated before its next append", () => {
+		const agentDir = join(dir, "agent");
+		const defaultDir = (cwd: string) =>
+			join(agentDir, "sessions", `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
+		const projectA = join(dir, "project-a");
+		const projectB = join(dir, "project-b");
+		const session = SessionManager.create(projectA, defaultDir(projectA));
+		session.appendMessage({ role: "user", content: "one", timestamp: 1 });
+		session.appendMessage(assistantReply);
+		const sourceFile = session.getSessionFile();
+		if (!sourceFile) throw new Error("session was not persisted");
+		appendFileSync(sourceFile, '{"type":"message","id":"partial","parentId":');
+
+		const resumed = SessionManager.open(sourceFile, defaultDir(projectA));
+		resumed.relocate(projectB, agentDir);
+		resumed.appendMessage({ role: "user", content: "two", timestamp: 3 });
+		const movedFile = resumed.getSessionFile();
+		if (!movedFile) throw new Error("relocated session has no file");
+
+		expect(movedFile).not.toBe(sourceFile);
+		expect(reopenedTexts(movedFile)).toEqual(["one", "reply", "two"]);
+	});
+
 	it("leaves the file unchanged when it is only opened", () => {
 		appendFileSync(file, '{"type":"message","id":"partial"');
 		const before = readFileSync(file, "utf8");
