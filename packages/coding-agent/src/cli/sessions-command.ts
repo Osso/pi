@@ -4,6 +4,7 @@ import {
 	archiveSessionsOlderThan,
 	getControlDbPath,
 	listArchivedSessionMetadata,
+	listSessionMetadata,
 	type SessionMetadata,
 	writeSessionMetadata,
 } from "../core/session-control-db.ts";
@@ -71,8 +72,11 @@ export async function handleSessionsCommand(
 		await dependencies.refreshMetadata(controlDbPath);
 	} else {
 		const sessions = await SessionManager.listAll();
+		// The transcript header holds the initial cwd; the index holds the current one after a relocation.
+		const indexedCwds = new Map(listSessionMetadata(controlDbPath).map((row) => [row.sessionPath, row.cwd]));
 		for (const session of sessions) {
-			writeSessionMetadata(controlDbPath, writableMetadata(session));
+			const cwd = indexedCwds.get(session.path) ?? session.cwd;
+			writeSessionMetadata(controlDbPath, { ...writableMetadata(session), cwd });
 		}
 	}
 

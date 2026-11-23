@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSessionsCommand } from "../src/cli/sessions-command.ts";
 import {
 	archiveSession,
@@ -15,6 +15,7 @@ describe("sessions command", () => {
 
 	afterEach(() => {
 		process.exitCode = undefined;
+		vi.unstubAllEnvs();
 		for (const directory of tempDirs.splice(0)) rmSync(directory, { force: true, recursive: true });
 	});
 
@@ -34,6 +35,41 @@ describe("sessions command", () => {
 		expect(handled).toBe(true);
 		expect(cutoff?.toISOString()).toBe("2026-07-05T00:00:00.000Z");
 		expect(output).toEqual(["Archived 2 sessions older than 5 days.\n"]);
+	});
+
+	it("keeps a relocated session's indexed cwd when it refreshes metadata before archiving", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-sessions-archive-cwd-"));
+		tempDirs.push(agentDir);
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+		const projectA = join(agentDir, "project-a");
+		const projectB = join(agentDir, "project-b");
+		const sessionDir = join(agentDir, "sessions", "--project-a--");
+		mkdirSync(sessionDir, { recursive: true });
+		const sessionPath = join(sessionDir, "relocated.jsonl");
+		writeFileSync(
+			sessionPath,
+			`${JSON.stringify({ type: "session", version: 3, id: "relocated", timestamp: "2026-07-01T00:00:00.000Z", cwd: projectA })}\n` +
+				`${JSON.stringify({ type: "message", id: "1", parentId: null, timestamp: "2026-07-01T00:00:01.000Z", message: { role: "user", content: "hi", timestamp: 1 } })}\n`,
+		);
+		const controlDbPath = getControlDbPath(agentDir);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath,
+			id: "relocated",
+			cwd: projectB,
+			createdAt: "2026-07-01T00:00:00.000Z",
+			modifiedAt: "2026-07-01T00:00:01.000Z",
+			messageCount: 1,
+			firstMessage: "hi",
+		});
+
+		await handleSessionsCommand(["sessions", "archive"], {
+			controlDbPath,
+			stdout: () => {},
+			now: () => new Date("2026-07-10T00:00:00.000Z"),
+			archiveOlderThan: () => [],
+		});
+
+		expect(readSessionMetadata(controlDbPath, sessionPath)?.cwd).toBe(projectB);
 	});
 
 	it("accepts an explicit day cutoff", async () => {
