@@ -10,6 +10,12 @@ describe("compactionRetryCooldownMs", () => {
 		).toBe(767_207);
 	});
 
+	it("honors a compound minutes-and-seconds hint", () => {
+		expect(compactionRetryCooldownMs("429 Too Many Requests: Rate limit reached. Please try again in 2m4s.")).toBe(
+			124_000,
+		);
+	});
+
 	it("uses a default cooldown for a rate limit without a hint", () => {
 		expect(compactionRetryCooldownMs("Summarization failed: 429 Too Many Requests")).toBe(60_000);
 	});

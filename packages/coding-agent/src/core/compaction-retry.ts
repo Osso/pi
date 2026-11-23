@@ -1,4 +1,4 @@
-import { isRateLimitErrorText } from "@earendil-works/pi-ai/compat";
+import { getRetryAfterMsFromText, isRateLimitErrorText } from "@earendil-works/pi-ai/compat";
 
 const RETRY_HINT_PATTERN = /try again in\s+([\d.]+)\s*(ms|s|sec(?:ond)?s?|m|min(?:ute)?s?)/i;
 const DEFAULT_COOLDOWN_MS = 60_000;
@@ -16,6 +16,9 @@ export function compactionRetryCooldownMs(errorMessage: string): number | undefi
 	if (!isRateLimitErrorText(errorMessage)) {
 		return undefined;
 	}
+	// pi-ai reads compound hints such as "2m4s"; the local pattern adds "ms" and bare-minute hints.
+	const compoundMs = getRetryAfterMsFromText(errorMessage);
+	if (compoundMs !== undefined && compoundMs > 0) return clampCooldown(compoundMs);
 	const hint = RETRY_HINT_PATTERN.exec(errorMessage);
 	if (!hint) {
 		return DEFAULT_COOLDOWN_MS;
@@ -28,5 +31,9 @@ export function compactionRetryCooldownMs(errorMessage: string): number | undefi
 	if (unit === undefined) throw new Error("cooldown hint unit missing");
 	const normalizedUnit = unit.toLowerCase();
 	const factor = normalizedUnit === "ms" ? 1 : normalizedUnit.startsWith("m") ? 60_000 : 1_000;
-	return Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.round(value * factor)));
+	return clampCooldown(value * factor);
+}
+
+function clampCooldown(ms: number): number {
+	return Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.round(ms)));
 }

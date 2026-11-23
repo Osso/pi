@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Automatic compaction now waits the full provider cooldown for a compound hint such as `try again in 2m4s`, instead of retrying after only the minutes part
 - A blocked Codex restriction recovery now tells the user to send a new request, as its spec requires, in every blocked case instead of only after the recovery budget was used
 - Slash-command completion no longer offers a prompt template whose name a built-in command such as `/reload` takes, since submitting it runs the built-in
 - `/usage reset` now redacts the access token from a failed reset request error, as the usage read already did
