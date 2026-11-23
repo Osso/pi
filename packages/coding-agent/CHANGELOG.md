@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/reload` leaving the previous extension version's `pi.events` listeners active, so each reload added another copy of every handler
 - A `models.json` model header override now replaces a provider header spelled in another case (`x-proxy-token` over `X-Proxy-Token`), instead of failing when the provider header's variable is unset or sending both
 - Automatic compaction now waits the full provider cooldown for a compound hint such as `try again in 2m4s`, instead of retrying after only the minutes part
 - A blocked Codex restriction recovery now tells the user to send a new request, as its spec requires, in every blocked case instead of only after the recovery budget was used

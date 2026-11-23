@@ -33,6 +33,36 @@ export function createEventBus(): EventBusController {
 	};
 }
 
+export interface ReloadableEventBus extends EventBus {
+	/** Starts a new extension set and returns a function that removes the listeners the previous set added. */
+	renew(): () => void;
+}
+
+/** A view of `bus` for the loaded extension set. Listeners added straight to `bus` survive every reload. */
+export function createReloadableEventBus(bus: EventBus): ReloadableEventBus {
+	let removers = new Set<() => void>();
+	return {
+		emit: (channel, data) => bus.emit(channel, data),
+		on: (channel, handler) => {
+			const owner = removers;
+			const off = bus.on(channel, handler);
+			const remove = () => {
+				owner.delete(remove);
+				off();
+			};
+			owner.add(remove);
+			return remove;
+		},
+		renew: () => {
+			const previous = removers;
+			removers = new Set();
+			return () => {
+				for (const remove of [...previous]) remove();
+			};
+		},
+	};
+}
+
 /**
  * One extension's `pi.events`. A throwing handler goes to `runtime.reportError` like other extension
  * errors; console.error would draw over the interactive TUI. Before the runner sets a reporter, the

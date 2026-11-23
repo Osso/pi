@@ -8,7 +8,7 @@ import type { ResourceDiagnostic } from "./diagnostics.ts";
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
 import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
-import { createEventBus, type EventBus } from "./event-bus.ts";
+import { createEventBus, createReloadableEventBus, type EventBus, type ReloadableEventBus } from "./event-bus.ts";
 import { applyFlagDefaultsInOrder } from "./extensions/flag-defaults.ts";
 import {
 	clearExtensionCache,
@@ -264,7 +264,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private cwd: string;
 	private agentDir: string;
 	private settingsManager: SettingsManager;
-	private eventBus: EventBus;
+	private eventBus: ReloadableEventBus;
 	private packageManager: DefaultPackageManager;
 	private additionalExtensionPaths: string[];
 	private additionalSkillPaths: string[];
@@ -323,7 +323,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.cwd = resolvePath(options.cwd);
 		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager ?? SettingsManager.create(this.cwd, this.agentDir);
-		this.eventBus = options.eventBus ?? createEventBus();
+		this.eventBus = createReloadableEventBus(options.eventBus ?? createEventBus());
 		this.packageManager = new DefaultPackageManager({
 			cwd: this.cwd,
 			agentDir: this.agentDir,
@@ -458,9 +458,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	async reload(options?: ResourceLoaderReloadOptions): Promise<void> {
 		resetTimings("extensions");
 
-		if (this.loaded) {
-			clearExtensionCache();
-		}
+		if (this.loaded) clearExtensionCache();
+		const removePreviousExtensionListeners = this.eventBus.renew();
 
 		let preTrustExtensions: LoadExtensionsResult | undefined;
 		if (options?.resolveProjectTrust) {
@@ -535,6 +534,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			}
 		}
 		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
+		removePreviousExtensionListeners();
 		this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
 
 		const skillPaths = this.noSkills
