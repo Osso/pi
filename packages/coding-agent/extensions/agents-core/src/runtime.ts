@@ -20,10 +20,12 @@ import { backgroundCommand, formatAgentStatus, isChildAgentRuntime, spawnAgent }
 import type { WaitingDesktopNotificationHandles } from "./dispatch-pipeline.ts";
 import { closeWaitingDesktopNotification, publishCoordinatorSnapshot } from "./dispatch-pipeline.ts";
 import {
+	consumeNotifications,
 	createMultiAgentRuntimeHandles,
 	mirrorLifecycleRuntimeMailboxMessage,
 	mirrorPendingLifecycleRuntimeMailboxMessages,
 	waitAgents,
+	waitNotifications,
 } from "./wait.ts";
 
 export type {
@@ -56,10 +58,7 @@ import {
 } from "../../../src/core/extensions/types.ts";
 import { type AgentSnapshot, isActiveLifecycle, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { isProcessIdentityAlive, isSupersededRuntimeIdentity } from "../../../src/core/runtime-process.ts";
-import {
-	readMultiAgentRuntimeOwnership,
-	releaseRuntimeMailboxMessageClaim,
-} from "../../../src/core/session-control-db.ts";
+import { readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
 import { registerSetAgentModelTool } from "./agent-model-tool.ts";
@@ -160,13 +159,9 @@ export function createMultiAgentPiRequestHandler(options: MultiAgentExtensionOpt
 
 		if (request.method === "agents.wait") {
 			assertNoWaitAgentsParams(request.params, "pi.agents.wait");
-			const waited = await waitAgents(store, runtimeHandles, signal, ctx);
+			const wake = await waitNotifications(store, runtimeHandles, signal, ctx);
 			// The bridge returns only a wake, not accepted session input. Leave coordination for the session checkpoint.
-			const delivery = waited.details.runtimeMailboxDelivery;
-			if (delivery) {
-				for (const message of delivery.messages)
-					releaseRuntimeMailboxMessageClaim(delivery.controlDbPath, message.id);
-			}
+			if (wake.kind !== "coordination") consumeNotifications(store, wake, ctx);
 			return null;
 		}
 

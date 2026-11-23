@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `pi.agents.wait()` in Pyrun no longer marks shared-channel posts as read without delivering them; the session still receives them at its next checkpoint
 - RPC mode no longer hangs when stdin closes during startup and an extension then opens another dialog; dialogs opened after stdin closes resolve as cancelled
 - Relocating a resumed session whose transcript ends in an interrupted partial line no longer joins the next entry to that fragment, which lost the entry on reopen
 - Fixed repeated `wait_agent` turns stacking `Thought for` lines with nothing between them, because the settled wait row is hidden

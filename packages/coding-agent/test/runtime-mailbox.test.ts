@@ -1487,6 +1487,34 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("pending");
 	});
 
+	it("Pyrun bridge wait leaves a shared-channel post unread for session delivery", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = MultiAgentStore.fromSessionManager(parentSession);
+		registerMainListener(controlDbPath, parentSession);
+		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
+		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		postSharedChannelMessage(controlDbPath, {
+			body: "Restart /tmp/shared after the bridge wait",
+			sender: { agentId: null, sessionId: "other-session" },
+		});
+		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		expect(
+			await createMultiAgentPiRequestHandler({ store })({ method: "agents.wait", params: {} }, ctx, undefined),
+		).toBeNull();
+
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+		const waited = await collectMultiAgentTools(store)
+			.get("wait_agent")
+			?.execute("wait", {}, undefined, undefined, ctx);
+		expect(waited?.content[0]).toMatchObject({
+			text: expect.stringContaining("Restart /tmp/shared after the bridge wait"),
+		});
+	});
+
 	it("Pyrun multi-agent bridge agents.wait observes the mirrored completion notification", async () => {
 		const { controlDbPath, parentSession, store } = openParentStore();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
