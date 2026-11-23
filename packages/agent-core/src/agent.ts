@@ -9,7 +9,7 @@ import {
 	type ThinkingBudgets,
 	type Transport,
 } from "@earendil-works/pi-ai/compat";
-import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
+import { restoredPendingToolMessage, runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
 import { hasToolCall, updateBlockOpen } from "./steering-interruption.ts";
 import type {
 	AfterToolCallContext,
@@ -392,7 +392,9 @@ export class Agent {
 		}
 
 		const lastMessage = this._state.messages[this._state.messages.length - 1];
-		if (options.processQueuedMessagesFirst || lastMessage?.role === "assistant") {
+		// Unfinished restored tool calls run first; the continuation loop then delivers queued messages.
+		const hasPendingToolCalls = restoredPendingToolMessage(this._state.messages) !== undefined;
+		if (!hasPendingToolCalls && (options.processQueuedMessagesFirst || lastMessage?.role === "assistant")) {
 			const queuedSteering = this.steeringQueue.drain();
 			if (queuedSteering.length > 0) {
 				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
