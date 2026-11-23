@@ -293,7 +293,9 @@ export async function handleUsageReset(ctx: ExtensionCommandContext, pi: Extensi
 		headers: createCodexHeaders(token, { "content-type": "application/json" }),
 		body: JSON.stringify({ redeem_request_id: createRedeemRequestId() }),
 	});
-	const payload = (await decodeJsonResponse(response)) as ConsumeResetCreditResponse;
+	const payload = (await decodeJsonResponse(response).catch((error: unknown) => {
+		throw redactToken(error, token);
+	})) as ConsumeResetCreditResponse;
 	// The credit is already consumed; a failed refresh must not hide that from the user.
 	const after = await readCodexUsage(ctx, providerId).then(formatCodexUsage, (error: unknown) => {
 		return `Usage refresh failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -316,10 +318,14 @@ export async function readCodexUsage(
 			email: resolveCodexDisplayEmail(token, storedEmail),
 		};
 	} catch (error) {
-		// An upstream error body may echo the request credentials.
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(message.replaceAll(token, "[redacted]"));
+		throw redactToken(error, token);
 	}
+}
+
+/** An upstream error body may echo the request credentials. */
+function redactToken(error: unknown, token: string): Error {
+	const message = error instanceof Error ? error.message : String(error);
+	return new Error(message.replaceAll(token, "[redacted]"));
 }
 
 function resolveStoredCodexEmail(ctx: ExtensionCommandContext, providerId: string): string | null {

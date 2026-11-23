@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/usage reset` now redacts the access token from a failed reset request error, as the usage read already did
 - `/usage reset` now reports a consumed reset credit when the follow-up usage read fails, instead of showing only the refresh error
 - `grep` with a glob whose directory part starts with `#`, such as `#notes/*.ts`, now matches that directory instead of returning no matches
 - The agents status widget no longer shows a broken character when a tool detail is cut at 160 characters inside an emoji

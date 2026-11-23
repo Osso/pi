@@ -781,6 +781,21 @@ describe("registered /usage provider routing", () => {
 		});
 	});
 
+	it("redacts credentials from a failed reset request", async () => {
+		const h = registerUsage("openai-codex");
+		h.fetch
+			.mockResolvedValueOnce(usageResponse(42, 3))
+			.mockResolvedValueOnce(new Response(`request failed; token=${h.token}`, { status: 502 }));
+
+		const error = await h.command.handler("reset", h.ctx).then(
+			() => undefined,
+			(reason: unknown) => reason,
+		);
+
+		expect(String(error)).toContain("(502): request failed; token=[redacted]");
+		expect(String(error)).not.toContain(h.token);
+	});
+
 	it("resets the account whose usage it read when the model changes before confirmation", async () => {
 		const h = registerUsage("openai-codex-gc");
 		h.confirm.mockImplementationOnce(async () => {
