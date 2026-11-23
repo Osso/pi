@@ -859,6 +859,7 @@ Content`,
 			const rulesDir = join(agentDir, "rules");
 			mkdirSync(join(rulesDir, "archive.md"), { recursive: true });
 			symlinkSync(join(rulesDir, "missing-target.md"), join(rulesDir, "broken.md"));
+			symlinkSync("loop.md", join(rulesDir, "loop.md"));
 			writeFileSync(join(rulesDir, "valid.md"), "Valid rule.");
 
 			const loader = new DefaultResourceLoader({ cwd, agentDir });

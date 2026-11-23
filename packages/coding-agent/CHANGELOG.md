@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a self-referencing `.md` symlink in a rules folder aborting rule loading instead of being skipped like other broken links.
 - Fixed `/usage deepseek` showing a 1969 date for a Command Code monthly reset reported as epoch zero instead of `-`.
 - Fixed HTML export dropping the `$` from the session cost and corrupting embedded syntax highlighting, because template substitution expanded `$$` and `$&` in the bundled scripts.
 - Fixed idle shared-channel delivery stalling when the newest relayed message had expired before the cleanup sweep removed it.

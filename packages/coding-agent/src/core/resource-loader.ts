@@ -207,13 +207,12 @@ export function loadRulesFilesFromDir(dirPath: string): Array<{ path: string; co
 		return [];
 	}
 
+	// existsSync is false for broken links, including links that loop.
 	return readdirSync(dirPath)
-		.filter((entry) => entry.endsWith(".md") && statSync(join(dirPath, entry), { throwIfNoEntry: false })?.isFile())
+		.map((entry) => join(dirPath, entry))
+		.filter((filePath) => filePath.endsWith(".md") && existsSync(filePath) && statSync(filePath).isFile())
 		.sort() // code-unit order, independent of the host locale
-		.map((entry) => {
-			const filePath = join(dirPath, entry);
-			return { path: filePath, content: readFileSync(filePath, "utf-8").trim() };
-		})
+		.map((filePath) => ({ path: filePath, content: readFileSync(filePath, "utf-8").trim() }))
 		.filter((file) => file.content.length > 0);
 }
 
