@@ -130,7 +130,7 @@ Example shape:
 
 Filter modes are: default, no-tools, user-only, labeled-only, and all. Configure the default with `treeFilterMode` in [Settings](settings.md).
 
-On the active branch after compaction, user-only mode is compaction-aware: it shows the generated summary first, followed by retained and later user prompts in canonical context order. Compacted-away prompts are omitted. Default and other filters continue to show the full persisted tree, and trees before compaction are unchanged.
+On the active branch after compaction, user-only mode is compaction-aware: it shows the generated summary first, followed by retained and later user prompts in canonical context order. Compacted-away prompts are omitted. Default and other filters show the loaded tree, and trees before compaction are unchanged. After a compacted session is reopened, the loaded tree is only its active slice from the latest compaction, so compacted-away prompts and branches that leave before it are not shown ([session format](session-format.md)).
 
 ### Selection Behavior
 
