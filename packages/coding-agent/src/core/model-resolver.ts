@@ -296,8 +296,15 @@ export async function resolveModelScopeWithDiagnostics(
 				availableModels.filter(
 					(m) => matchesModelGlob(`${m.provider}/${m.id}`, glob) || matchesModelGlob(m.id, glob),
 				);
+			// A literal ID with glob characters (e.g. "vendor/sonnet[fast]") selects that model, not a glob expansion.
+			const exactModel = findExactModelReferenceMatch(pattern, availableModels);
+			const exactBase =
+				exactModel || !levelSuffix
+					? undefined
+					: findExactModelReferenceMatch(pattern.slice(0, colonIdx), availableModels);
+			if (exactBase) thinkingLevel = levelSuffix;
 			// The full pattern comes first, so a literal ":high" tag in a model ID is not a thinking level.
-			let matchingModels = matchGlob(pattern);
+			let matchingModels = exactModel ? [exactModel] : exactBase ? [exactBase] : matchGlob(pattern);
 			if (matchingModels.length === 0 && suffix !== undefined) {
 				matchingModels = matchGlob(pattern.substring(0, colonIdx));
 				thinkingLevel = levelSuffix;

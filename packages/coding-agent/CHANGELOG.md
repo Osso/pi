@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `--models` and `enabledModels` entries naming a model ID that contains glob characters (such as `vendor/sonnet[fast]`) expanding as a glob instead of selecting that exact model
 - Fixed the host relay answering a remote session inspection request that expired in transit
 - Fixed `/tree` branch summarization ignoring cancellation while a `session_before_tree` extension handler was still running, which then appended the extension summary and moved the leaf
 - Fixed `/restart` and `restart_self` reapplying the original `--name` argument, which replaced a later session rename
