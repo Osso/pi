@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Aborting a persisted Pyrun call while its named session proxy starts no longer runs the Python code afterwards
 - A Pyrun evaluation whose Python process exits without a result now keeps its streamed console output in the failure instead of reporting only the exit code
 - Expanded tool output no longer counts a final newline as an extra line, which hid one real line at the 100-line display cap
 - `pi.agents.wait()` in Pyrun no longer marks shared-channel posts as read without delivering them; the session still receives them at its next checkpoint

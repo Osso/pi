@@ -2874,6 +2874,30 @@ setInterval(() => {}, 1000);
 		expect(failure).toContain("Pyrun runner exited with exit code 7");
 	});
 
+	it("does not start a durable foreground evaluation whose call was already aborted", async () => {
+		const markerPath = join(tempDir, "aborted-evaluation-ran");
+		const markingRunnerPath = join(tempDir, "marking-pyrun-runner.mjs");
+		writeFileSync(
+			markingRunnerPath,
+			`import { writeFileSync } from "node:fs";
+process.stdin.once("data", (line) => {
+  const request = JSON.parse(String(line));
+  writeFileSync(${JSON.stringify(markerPath)}, "executed");
+  process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, value: 42 }) + "\\n");
+});
+`,
+		);
+		process.env.PI_PYRUN_RUNNER_ARGS = JSON.stringify([markingRunnerPath]);
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry: new ToolDetachRegistry() });
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(harness.evaluate({ code: "42" }, undefined, controller.signal)).rejects.toThrow("aborted");
+		await delay(300);
+		expect(existsSync(markerPath)).toBe(false);
+	});
+
 	it("reports runner exit errors with stderr", async () => {
 		const badRunnerPath = join(tempDir, "bad-pyrun-runner.mjs");
 		writeFileSync(badRunnerPath, 'process.stderr.write("bad runner\\n"); process.exit(7);\n');

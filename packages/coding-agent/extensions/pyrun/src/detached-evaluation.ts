@@ -72,10 +72,12 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	if (restored?.kind === "lost_runtime") {
 		return formatLostPyrunRuntime(input.params, restored.records, restored.outputPath);
 	}
-	const runner =
-		restored?.kind === "resume"
-			? restored.runner
-			: launchForegroundPyrunRunner(input, persistence, controller, startedAt, await ensureSessionProxy(input));
+	if (restored?.kind === "resume")
+		return observeDetachablePyrunEvaluation({ ...input, controller, runner: restored.runner });
+	const proxySocket = await ensureSessionProxy(input);
+	// The abort listener is registered only while the runner is observed, so an earlier abort must stop the launch.
+	if (input.signal?.aborted) throw new Error("Pyrun tool call aborted");
+	const runner = launchForegroundPyrunRunner(input, persistence, controller, startedAt, proxySocket);
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
 }
 
