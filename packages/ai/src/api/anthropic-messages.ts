@@ -667,25 +667,25 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							output.errorMessage = stopReasonResult.errorMessage;
 						}
 					}
-					// Only update usage fields if present (not null).
-					// Preserves input_tokens from message_start when proxies omit it in message_delta.
-					if (event.usage.input_tokens != null) {
+					// Update only fields present (not null): proxies may omit fields, such as input_tokens, or the whole usage.
+					if (event.usage?.input_tokens != null) {
 						output.usage.input = event.usage.input_tokens;
 					}
-					if (event.usage.output_tokens != null) {
+					if (event.usage?.output_tokens != null) {
 						output.usage.output = event.usage.output_tokens;
 					}
-					if (event.usage.cache_read_input_tokens != null) {
+					if (event.usage?.cache_read_input_tokens != null) {
 						output.usage.cacheRead = event.usage.cache_read_input_tokens;
 					}
-					if (event.usage.cache_creation_input_tokens != null) {
+					if (event.usage?.cache_creation_input_tokens != null) {
 						output.usage.cacheWrite = event.usage.cache_creation_input_tokens;
 					}
 					// Anthropic reports reasoning tokens in `output_tokens_details.thinking_tokens` on the
 					// final message_delta usage (a subset of output_tokens). SDK 0.91.1 omits the field from
 					// its Usage type, so read it through a narrow cast. Verified against the live API.
-					const thinkingTokens = (event.usage as { output_tokens_details?: { thinking_tokens?: number } })
-						.output_tokens_details?.thinking_tokens;
+					const thinkingTokens = (
+						event.usage as { output_tokens_details?: { thinking_tokens?: number } } | undefined
+					)?.output_tokens_details?.thinking_tokens;
 					if (thinkingTokens != null) {
 						output.usage.reasoning = thinkingTokens;
 					}
