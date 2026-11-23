@@ -111,7 +111,7 @@ async function runBrowserCliBatch(
 		const result = await waitForAbort(runCommand(BROWSER_CLI_EXECUTABLE, args, session, signal), signal);
 		const execution = { args: [...args], ...result };
 		if (result.exitCode !== 0) {
-			throw new Error(formatBrowserCliFailure(index, execution));
+			throw new Error(formatBrowserCliFailure(index, results, execution));
 		}
 		results.push(execution);
 	}
@@ -183,8 +183,17 @@ function formatBrowserCliBatchOutput(commands: BrowserCliCommandExecution[]): st
 		.join("");
 }
 
-function formatBrowserCliFailure(index: number, result: BrowserCliCommandExecution): string {
-	const output = [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join("\n");
-	const detail = output ? `: ${output}` : "";
-	return `browser-cli command ${index + 1} exited with code ${result.exitCode ?? "unknown"}${detail}`;
+/**
+ * Earlier results, then the failing command's output, then the failure line. Oversized tool errors keep their tail,
+ * so the exit code and stderr stay visible after a large stdout.
+ */
+function formatBrowserCliFailure(
+	index: number,
+	completed: BrowserCliCommandExecution[],
+	failed: BrowserCliCommandExecution,
+): string {
+	const output = formatBrowserCliBatchOutput([...completed, { ...failed, stderr: "" }]);
+	const lines = [output.trimEnd(), failed.stderr.trim()].filter(Boolean);
+	lines.push(`browser-cli command ${index + 1} exited with code ${failed.exitCode ?? "unknown"}`);
+	return lines.join("\n");
 }

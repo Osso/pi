@@ -128,6 +128,38 @@ describe("browser-cli extension", () => {
 		expect(runCommand).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps earlier results and ends a failure with its stderr and exit code", async () => {
+		const largeStdout = `STDOUT BEGIN\n${"x\n".repeat(5_000)}STDOUT END\n`;
+		const runCommand = vi
+			.fn<BrowserCliCommandRunner>()
+			.mockResolvedValueOnce({ stdout: "Report title: June\n", stderr: "", exitCode: 0 })
+			.mockResolvedValueOnce({ stdout: largeStdout, stderr: "selector not found\n", exitCode: 7 });
+		const tool = createBrowserCliToolDefinition({ runCommand });
+
+		const error = await tool
+			.execute(
+				"call-fail",
+				{
+					commands: [
+						["get", "title"],
+						["click", "#missing"],
+					],
+				},
+				undefined,
+				undefined,
+				sessionContext(),
+			)
+			.then(
+				() => undefined,
+				(reason: unknown) => reason,
+			);
+
+		const message = error instanceof Error ? error.message : "";
+		expect(message.startsWith("Report title: June\nSTDOUT BEGIN\n")).toBe(true);
+		// Oversized tool errors keep their tail, so the diagnostic must come last.
+		expect(message.split("\n").slice(-2)).toEqual(["selector not found", "browser-cli command 2 exited with code 7"]);
+	});
+
 	it("rejects a running command when its signal is aborted", async () => {
 		const runCommand = vi
 			.fn<BrowserCliCommandRunner>()
