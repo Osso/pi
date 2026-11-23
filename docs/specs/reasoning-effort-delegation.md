@@ -10,7 +10,7 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 - [x] `/multi-agent proactive|disabled` changes agent availability independently of reasoning effort.
 - [x] Proactive delegation is the default and persists as the `proactive` session value, while every UI display uses `active`.
 - [x] Disabled mode persists across session reload and active-branch restoration; absent saved state defaults to proactive.
-- [x] Disabled mode removes the Pi multi-agent policy and all active sub-agent tools (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`, `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) with their generated guidance. It does not cancel existing children. Pyrun agent-bridge methods require their corresponding active tool.
+- [x] Disabled mode removes the Pi multi-agent policy and all active sub-agent tools (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`, `set_agent_model`, `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) with their generated guidance. It does not cancel existing children. Pyrun agent-bridge methods require their corresponding active tool.
 - [x] Selecting another effort preserves multi-agent mode; selecting `ultra` enables proactive mode.
 - [x] Selecting disabled mode while `ultra` is active retains maximum provider reasoning and displays `max`.
 - [x] The active delegation policy is observable in the model-facing prompt and current status; disabled mode adds no replacement delegation policy.

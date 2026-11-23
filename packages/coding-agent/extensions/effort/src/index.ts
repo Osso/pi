@@ -24,6 +24,7 @@ const SUBAGENT_TOOLS = new Set([
 	"wait_agent",
 	"close_agent",
 	"rename_agent",
+	"set_agent_model",
 	"steer_agent",
 	"agent_viewer",
 	"send_agent_message",
