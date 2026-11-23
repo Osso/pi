@@ -35,7 +35,8 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
 		if (message === undefined) throw new Error("Message missing while finding last printable assistant message");
-		if (message.role === "toolResult" && message.toolName === "end_turn" && !message.isError) continue;
+		// A rejected end_turn (for example a blank reason) is retried; neither result ends the answer search.
+		if (message.role === "toolResult" && message.toolName === "end_turn") continue;
 		// Extension notes appended after the turn (e.g. from turn_end) and the duplicate-turn nudge do not end it.
 		if (message.role === "custom" || isDuplicateTurnGuardMessage(message)) continue;
 		if (message.role !== "assistant") return undefined;

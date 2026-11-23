@@ -654,6 +654,23 @@ describe("runPrintMode", () => {
 		expect(output.join("")).toBe("final answer\n");
 	});
 
+	it("prints the answer when a rejected end_turn is retried", async () => {
+		const output = captureStdout();
+		const runtimeHost = createRuntimeHost([
+			{ role: "user", content: "What is six times seven?", timestamp: 1 },
+			createAssistantMessage({ text: "42" }),
+			createAssistantMessage({ stopReason: "toolUse", endTurn: true }),
+			{ role: "toolResult", toolCallId: "finish", toolName: "end_turn", content: [], isError: true, timestamp: 2 },
+			createAssistantMessage({ stopReason: "toolUse", endTurn: true }),
+			{ role: "toolResult", toolCallId: "finish", toolName: "end_turn", content: [], isError: false, timestamp: 3 },
+		]);
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+		expect(exitCode).toBe(0);
+		expect(output.join("")).toBe("42\n");
+	});
+
 	it("does not print intermediate tool chatter as the final answer", async () => {
 		const output = captureStdout();
 		const runtimeHost = createRuntimeHost([
