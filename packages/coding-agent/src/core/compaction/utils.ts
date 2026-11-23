@@ -82,10 +82,14 @@ export function computeFileLists(fileOps: FileOperations): { readFiles: string[]
 
 /** Remove the file lists appended by formatFileOperations, so a carried-forward summary ends up with one current block. */
 export function stripFileOperations(summary: string): string {
-	return summary.replace(
-		/(\n\n<read-files>\n[\s\S]*?\n<\/read-files>)?(\n\n<modified-files>\n[\s\S]*?\n<\/modified-files>)?$/,
-		"",
-	);
+	let stripped = summary;
+	// Only the trailing blocks are the footer; the summary body may quote the same tags.
+	for (const tag of ["modified-files", "read-files"]) {
+		if (!stripped.endsWith(`\n</${tag}>`)) continue;
+		const start = stripped.lastIndexOf(`\n\n<${tag}>\n`);
+		if (start !== -1) stripped = stripped.slice(0, start);
+	}
+	return stripped;
 }
 
 /**
