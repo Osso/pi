@@ -6,6 +6,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
+import { importRelayChannel } from "../src/core/host-relay-store.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { formatSharedChannelPrompt } from "../src/core/runtime-coordination-format.ts";
@@ -2582,6 +2583,44 @@ describe("runtime SQLite mailbox delivery", () => {
 			}),
 		);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(lastMessageId);
+	});
+
+	it("delivers fresh shared channel messages when a newer-ID relay message expired first", async () => {
+		const { controlDbPath, harness } = await createBoundMailboxHarness();
+		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const fresh = postSharedChannelMessage(controlDbPath, {
+			body: "Pause writes to /shared/active-index.",
+			sender: { agentId: null, sessionId: "sender-session-1" },
+		});
+		const now = Date.now();
+		const day = 24 * 60 * 60 * 1000;
+		importRelayChannel(controlDbPath, {
+			type: "channel",
+			originHost: "agent-server",
+			originId: 7,
+			senderSessionId: "remote-session",
+			senderAgentId: null,
+			body: "Release /shared/old-index.",
+			createdAt: new Date(now - day + 1_000).toISOString(),
+		});
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(now + 2_000);
+		try {
+			await harness.session.drainRuntimeCoordination();
+			await harness.session.agent.waitForIdle();
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				customType: "shared_channel",
+				content: sharedChannelPromptContent(["Pause writes to /shared/active-index."], recipient.sessionId),
+			}),
+		);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBeGreaterThan(fresh);
 	});
 
 	it("retains every unread shared channel message after a failed batch delivery", async () => {

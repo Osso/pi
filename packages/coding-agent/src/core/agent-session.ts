@@ -552,9 +552,8 @@ function readSharedChannelMessageSnapshot(
 	while (pageCursor < lastMessageId) {
 		const page = listSharedChannelMessagesAfter(controlDbPath, pageCursor, undefined, lastMessageId);
 		const lastPageMessage = page.at(-1);
-		if (!lastPageMessage) {
-			return undefined;
-		}
+		// Every remaining row through the tail expired; the cursor may pass them.
+		if (!lastPageMessage) break;
 		messages.push(...page);
 		pageCursor = lastPageMessage.id;
 	}
