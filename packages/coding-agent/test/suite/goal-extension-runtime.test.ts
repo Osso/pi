@@ -170,6 +170,46 @@ describe("goal extension runtime", () => {
 		}
 	});
 
+	it("does not start an idle review or another turn after Supervisor pauses goal completion", async () => {
+		const idleReviews: string[] = [];
+		const pauseCompletion = (pi: ExtensionAPI): void => {
+			goalExtension(pi, {
+				reviewGoal: async ({ kind }) => {
+					if (kind === "goal_completion_review") return { kind: "pause", reason: "User must approve deployment." };
+					idleReviews.push(kind);
+					return { kind: "continue", reason: "unexpected idle review", instructions: "Continue working." };
+				},
+			});
+		};
+		const harness = await createHarness({ extensionFactories: [pauseCompletion], uiContext: createUiContext() });
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({
+				objective: "Deploy after user approval",
+				branch: "test",
+				createdAt: new Date().toISOString(),
+			}),
+		);
+		harness.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall("manage_goal", {
+					action: "complete",
+					completionReport: "Tests passed; deployment approval is still required.",
+				}),
+				{ stopReason: "toolUse" },
+			),
+			fauxCompletedAssistantMessage("Awaiting deployment approval."),
+			fauxCompletedAssistantMessage("unexpected extra turn"),
+		]);
+
+		await harness.session.prompt("finish the deployment goal");
+		await waitForProviderCalls(harness, 3);
+
+		expect(idleReviews).toEqual([]);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(readStoredGoal(harness).objective).toBe("Deploy after user approval");
+	});
+
 	it("reports one skipped status only after retryable errors are exhausted", async () => {
 		const pauseAfterRetry = (pi: ExtensionAPI): void => {
 			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });

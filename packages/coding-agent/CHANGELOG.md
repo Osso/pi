@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the goal extension starting an idle Supervisor review, and possibly another turn, after a completion review paused the goal
 - Fixed periodic checks rejecting a `periodic-checks.md` saved with a UTF-8 byte order mark as missing frontmatter
 - Fixed `web_search` sending the request to a newly selected model with the previous model's credentials when the model changed during authentication
 - Fixed `grep` reporting a match limit when the only further match was already shown in the last match's trailing context
