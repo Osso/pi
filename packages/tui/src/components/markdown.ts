@@ -8,10 +8,11 @@ import { renderCachedTokens, type TokenRenderCache } from "./markdown-token-cach
 import { padTableCell } from "./table-cell.ts";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
-const HTML_COMMENT_ONLY_REGEX = /^<!--[\s\S]*-->$/;
+// An unclosed comment runs to the end of an HTML block, as in CommonMark, so streamed comments stay hidden.
+const HTML_COMMENT_REGEX = /<!--[\s\S]*?(?:-->|$)/g;
 
-function isHtmlCommentOnly(html: string): boolean {
-	return HTML_COMMENT_ONLY_REGEX.test(html.trim());
+function stripHtmlComments(html: string): string {
+	return html.replace(HTML_COMMENT_REGEX, "");
 }
 
 function getTokenRawHtml(token: Token): string | undefined {
@@ -467,10 +468,8 @@ export class Markdown implements Component {
 
 			case "html": {
 				// Render HTML as plain text, but keep HTML comments invisible.
-				const rawHtml = getTokenRawHtml(token);
-				if (rawHtml && !isHtmlCommentOnly(rawHtml)) {
-					lines.push(this.applyDefaultStyle(rawHtml.trim()));
-				}
+				const visibleHtml = stripHtmlComments(getTokenRawHtml(token) ?? "").trim();
+				if (visibleHtml) lines.push(this.applyDefaultStyle(visibleHtml));
 				break;
 			}
 
@@ -568,10 +567,8 @@ export class Markdown implements Component {
 
 				case "html": {
 					// Render inline HTML as plain text, but keep HTML comments invisible.
-					const rawHtml = getTokenRawHtml(token);
-					if (rawHtml && !isHtmlCommentOnly(rawHtml)) {
-						result += applyTextWithNewlines(rawHtml);
-					}
+					const visibleHtml = stripHtmlComments(getTokenRawHtml(token) ?? "");
+					if (visibleHtml) result += applyTextWithNewlines(visibleHtml);
 					break;
 				}
 

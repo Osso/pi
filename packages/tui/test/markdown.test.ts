@@ -38,6 +38,21 @@ describe("Markdown component", () => {
 			assert.ok(!lines.some((line) => line.includes("<!--")), "Should not render HTML comments");
 		});
 
+		it("keeps visible text between HTML comments", () => {
+			const markdown = new Markdown(
+				"- <!-- start -->visible<!-- end -->\n\n<!-- a -->block text<!-- b -->",
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.ok(lines.includes("- visible"), `Should keep list item text: ${JSON.stringify(lines)}`);
+			assert.ok(lines.includes("block text"), `Should keep block text: ${JSON.stringify(lines)}`);
+			assert.ok(!lines.some((line) => line.includes("<!--")), "Should not render HTML comments");
+		});
+
 		it("should return the same lines from the cache for text with no visible output", () => {
 			const markdown = new Markdown("<!-- hidden -->", 0, 0, defaultMarkdownTheme);
 
