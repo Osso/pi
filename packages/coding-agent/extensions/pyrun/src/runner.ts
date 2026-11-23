@@ -264,6 +264,9 @@ export class PyrunRunnerClient {
 		child.stdout.on("data", (chunk: string) => this.handleStdout(generation, chunk));
 		child.stderr.on("data", (chunk: string) => generation.stderr.push(chunk));
 		child.on("error", (error) => this.rejectGeneration(generation, error));
+		// A runner that exits before reading a request fails the write with EPIPE; the write callback and the
+		// exit handler reject the evaluation, so the stream error only must not go unhandled.
+		child.stdin.on("error", () => {});
 		child.on("exit", (code, signal) => {
 			if (detached && process.platform !== "win32" && child.pid !== undefined) {
 				signalProcessGroup(child.pid, "SIGTERM");

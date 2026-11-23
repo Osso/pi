@@ -52,4 +52,22 @@ describe("PyrunRunnerClient concurrency", () => {
 			runner.dispose();
 		}
 	});
+
+	it("rejects the evaluation when the runner exits before reading a large request", async () => {
+		const runnerPath = join(tempDir, "early-exit-runner.mjs");
+		writeFileSync(runnerPath, "process.exit(3);\n");
+		const runner = new PyrunRunnerClient({ args: [runnerPath], command: process.execPath, detached: false });
+		const uncaught: unknown[] = [];
+		const recordUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", recordUncaught);
+		try {
+			await expect(runner.evaluate({ code: "x".repeat(4 * 1024 * 1024) })).rejects.toThrow();
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", recordUncaught);
+			runner.dispose();
+		}
+	});
 });

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A Pyrun runner that exits before reading a large request fails the evaluation instead of crashing Pi with an uncaught `EPIPE`
 - claude-bash-hook review no longer crashes Pi with an uncaught `EPIPE` when the hook exits before reading a large command
 - claude-memory enrichment no longer crashes Pi with an uncaught `EPIPE` when the helper exits before reading the prompt
 - Automatic retry waits at least the provider-reported `retryAfterMs`, so a model pool retry reaches the member whose cooldown expires first
