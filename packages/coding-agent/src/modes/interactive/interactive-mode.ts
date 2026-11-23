@@ -3276,6 +3276,7 @@ export class InteractiveMode {
 		this.editor.setText("");
 		try {
 			await this.session.prompt(text, { streamingBehavior });
+			this.clipboardTempFiles.cleanupReferencedIn(text, this.session);
 		} catch (error: unknown) {
 			this.showError(error instanceof Error ? error.message : String(error));
 		}
@@ -3291,9 +3292,7 @@ export class InteractiveMode {
 
 			this.closeResponseCompleteNotification();
 
-			if (text.startsWith("/")) {
-				this.addSubmittedTextToHistory(text);
-			}
+			if (text.startsWith("/")) this.addSubmittedTextToHistory(text);
 
 			text = normalizeBuiltinSlashCommandSeparator(text);
 			if (text === "/settings") {

@@ -27,6 +27,7 @@ function createEditorFixture(harness: Harness, wake: () => void) {
 		isBashMode: false,
 		defaultEditor: {} as { onSubmit?: (text: string) => Promise<void>; onEscape?: () => void },
 		editor: { setText: vi.fn(), addToHistory: vi.fn() },
+		clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
 		options: { wakeWaitAgentsAfterSteering: wake },
 		compactionQueuedMessages: [] as Array<{ text: string; mode: "steer" | "followUp" }>,
 		pendingUserInputs: [] as string[],

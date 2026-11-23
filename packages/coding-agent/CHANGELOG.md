@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed pasted clipboard images in prompts queued during streaming (Enter steer or Alt+Enter follow-up) staying in the temp directory after the answer
 - Fixed the `ask_questions` panel rendering a multiline option description across rows, which corrupted the choice list after cursor movement, and overflowing narrow terminals when Other opens
 - Fixed RPC `steer` and `follow_up` queuing unknown slash commands as user messages and passing them to `input` handlers; they are now rejected like `prompt`
 - Fixed `--session <id>` starting a new session with a new ID at the old path when the indexed transcript had been removed; the lookup now fails with the missing path
