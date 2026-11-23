@@ -146,6 +146,36 @@ describe("codex web search extension", () => {
 		expect(result).toMatchObject({ content: [{ type: "text", text: "Search result text" }] });
 	});
 
+	it("keeps the authenticated model when the session model changes during authentication", async () => {
+		const runSearch = vi.fn(async () => "Search result text");
+		const tool = createWebSearchToolDefinition({ runSearch });
+		const modelA = { ...model("openai-responses"), id: "model-a", baseUrl: "https://a.invalid/v1" };
+		const modelB = { ...model("openai-responses"), id: "model-b", baseUrl: "https://b.invalid/v1" };
+		let releaseAuth = () => {};
+		const ctx = {
+			model: modelA,
+			modelRegistry: {
+				getApiKeyAndHeaders: vi.fn(
+					(requested: Model<Api>) =>
+						new Promise((resolve) => {
+							releaseAuth = () => resolve({ ok: true, apiKey: `key-for-${requested.id}` });
+						}),
+				),
+			},
+		} as unknown as ExtensionContext & { model: Model<Api> };
+
+		const result = tool.execute("call-1", { query: "pi web search" }, undefined, undefined, ctx);
+		await vi.waitFor(() => expect(ctx.modelRegistry.getApiKeyAndHeaders).toHaveBeenCalledOnce());
+		ctx.model = modelB;
+		releaseAuth();
+		await result;
+
+		expect(runSearch).toHaveBeenCalledWith(
+			expect.objectContaining({ model: modelA, apiKey: "key-for-model-a" }),
+			expect.anything(),
+		);
+	});
+
 	it("times out slow hosted web search calls with a clear error", async () => {
 		vi.useFakeTimers();
 		let capturedSignal: AbortSignal | undefined;

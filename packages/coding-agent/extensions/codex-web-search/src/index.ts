@@ -85,17 +85,19 @@ async function executeWebSearch(
 ): Promise<string> {
 	const query = params.query.trim();
 	if (!query) throw new Error("web_search query is required");
-	if (!isOpenAIHostedWebSearchModel(ctx.model)) {
+	// The session model can change while authentication is pending; keep the model with its credentials.
+	const model = ctx.model;
+	if (!isOpenAIHostedWebSearchModel(model)) {
 		throw new Error("web_search requires an OpenAI Responses model");
 	}
 
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok) throw new Error(auth.error);
 
 	return runSearchWithTimeout(
 		{
 			query,
-			model: ctx.model,
+			model,
 			apiKey: auth.apiKey,
 			headers: auth.headers,
 			env: auth.env,
