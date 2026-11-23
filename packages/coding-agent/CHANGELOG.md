@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Startup no longer repeats old changelog entries when the last seen version has a prerelease or build suffix such as `0.1.5-20261020.7`; a saved version without `major.minor.patch` is replaced by the installed version (upstream [#11703](https://github.com/earendil-works/pi/issues/11703))
 - `pi update --self` works again when `PI_SKIP_VERSION_CHECK` is set; the variable now skips only the automatic version check (upstream [#6977](https://github.com/earendil-works/pi/issues/6977))
 - `--session codex/<uuid>` now finds a Codex rollout whose `session_meta` lacks an ID by the UUID at the end of its file name
 - Detached Bash and Pyrun output of an archived session now expires after 24 hours like other job output instead of being kept indefinitely

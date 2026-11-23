@@ -1335,14 +1335,13 @@ export class InteractiveMode {
 		const changelogPath = getChangelogPath();
 		const entries = parseChangelog(changelogPath);
 
-		if (!lastVersion) {
-			// Fresh install - record the version, send telemetry, don't show changelog
+		const newEntries = lastVersion ? getNewEntries(entries, lastVersion) : undefined;
+		if (!newEntries) {
+			// Fresh install or unreadable saved version - record the version, send telemetry, don't show changelog
 			this.settingsManager.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
 			return undefined;
 		}
-
-		const newEntries = getNewEntries(entries, lastVersion);
 		if (newEntries.length > 0) {
 			this.settingsManager.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
