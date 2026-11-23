@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Page Up and Page Down now refresh or close an open editor autocomplete menu, so a following Tab no longer applies the old line's suggestion to the line the cursor moved to
 - `@` completion inside a filename replaces the rest of the path when CJK punctuation follows it
 - `Input` undo restores the empty value after the first word typed following `setValue()`
 - Fixed rows repeated in terminal scrollback when content above the viewport grew in the same frame that changed or appended visible rows

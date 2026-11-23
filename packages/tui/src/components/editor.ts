@@ -1131,12 +1131,8 @@ export class Editor implements Component, Focusable {
 		}
 
 		// Page up/down - scroll by page and move cursor
-		if (kb.matches(data, "tui.editor.pageUp")) {
-			this.pageScroll(-1);
-			return;
-		}
-		if (kb.matches(data, "tui.editor.pageDown")) {
-			this.pageScroll(1);
+		if (kb.matches(data, "tui.editor.pageUp") || kb.matches(data, "tui.editor.pageDown")) {
+			this.pageScroll(kb.matches(data, "tui.editor.pageUp") ? -1 : 1);
 			return;
 		}
 
@@ -2076,6 +2072,7 @@ export class Editor implements Component, Focusable {
 		const targetVisualLine = Math.max(0, Math.min(visualLines.length - 1, currentVisualLine + direction * pageSize));
 
 		this.moveToVisualLine(visualLines, currentVisualLine, targetVisualLine);
+		this.refreshStaleAutocomplete();
 	}
 
 	private moveWordBackwards(): void {

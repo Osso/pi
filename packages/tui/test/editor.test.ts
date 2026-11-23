@@ -2634,6 +2634,34 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "/he");
 		});
 
+		it("re-queries the autocomplete picker after Page Down moves to another line", async () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setAutocompleteProvider({
+				getSuggestions: async (lines, cursorLine, cursorCol) => {
+					const before = (lines[cursorLine] || "").slice(0, cursorCol);
+					return before.startsWith("/") ? { items: [{ value: "help", label: "help" }], prefix: before } : null;
+				},
+				applyCompletion,
+			});
+
+			editor.handleInput("\x1b[200~plain\nplain\x1b[201~");
+			editor.handleInput("\x1b[A"); // Up to line 0
+			editor.handleInput("\x01"); // Ctrl+A
+			for (const ch of "/he") {
+				editor.handleInput(ch);
+				await flushAutocomplete();
+			}
+			assert.strictEqual(editor.isShowingAutocomplete(), true);
+
+			editor.handleInput("\x1b[6~"); // Page Down to line 1, where the provider has no suggestions
+			await flushAutocomplete();
+			assert.strictEqual(editor.isShowingAutocomplete(), false);
+
+			editor.handleInput("\t");
+			await flushAutocomplete();
+			assert.strictEqual(editor.getText(), "/heplain\nplain");
+		});
+
 		it("debounces # autocomplete while typing", async () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			let suggestionCalls = 0;
