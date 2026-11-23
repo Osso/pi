@@ -138,9 +138,7 @@ const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
 
 function isCompleteJsonlFile(filePath: string): boolean {
 	const size = fs.statSync(filePath).size;
-	if (size === 0) {
-		return true;
-	}
+	if (size === 0) return true;
 	const buffer = Buffer.alloc(1);
 	const file = fs.openSync(filePath, "r");
 	try {
@@ -291,9 +289,7 @@ function resolveEnabledModelsPersistTarget(
 	projectEnabledModels: string[] | undefined,
 	patterns: string[] | undefined,
 ): { patterns: string[] | undefined; scope: SettingsScope } {
-	if (projectEnabledModels === undefined) {
-		return { patterns, scope: "global" };
-	}
+	if (projectEnabledModels === undefined) return { patterns, scope: "global" };
 	return { patterns: patterns ?? [], scope: "project" };
 }
 
@@ -2548,9 +2544,12 @@ export class InteractiveMode {
 				return { consume: true };
 			}
 			if (!this.session.isStreaming) return undefined;
-			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
-				this.showError(error instanceof Error ? error.message : String(error));
-			});
+			// Compaction inside a turn shows its own cancel hint, so Escape cancels the compaction, not the turn.
+			if (this.session.isCompacting) this.session.abortCompaction();
+			else
+				void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
+					this.showError(error instanceof Error ? error.message : String(error));
+				});
 			return { consume: true };
 		});
 	}

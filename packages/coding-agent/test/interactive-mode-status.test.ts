@@ -1876,6 +1876,31 @@ describe("InteractiveMode key handlers", () => {
 		expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
 	});
 
+	test("cancels compaction that runs inside a streaming turn instead of interrupting the turn", () => {
+		const listeners: Array<(data: string) => { consume?: boolean } | undefined> = [];
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const abortCompaction = vi.fn();
+		const fakeThis = {
+			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
+			session: { isStreaming: true, isCompacting: true, abortCompaction },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui: {
+				addInputListener: (listener: (data: string) => { consume?: boolean } | undefined) => {
+					listeners.push(listener);
+					return () => {};
+				},
+			},
+		};
+
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		const result = listeners[0]?.("\x1b");
+
+		expect(result).toEqual({ consume: true });
+		expect(abortCompaction).toHaveBeenCalledTimes(1);
+		expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+	});
+
 	test("raw terminal escape closes the tree selector without interrupting a streaming turn", async () => {
 		const terminal = new VirtualTerminal(80, 24);
 		const ui = new TUI(terminal);

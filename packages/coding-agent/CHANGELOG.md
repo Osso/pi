@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Escape during compaction inside a running turn now cancels the compaction, as its hint says, instead of interrupting the turn and saving the summary anyway
 - `/compact` during a turn no longer discards steering and follow-up messages queued before it; the resumed turn delivers them once
 - `/multi-agent disabled` now also removes `set_agent_model` and its guidance from the model request
 - `/archive`, `/delete`, and `/unarchive` before the first message now warn that the session is not persisted instead of quitting and failing to archive a transcript that does not exist yet
