@@ -204,10 +204,11 @@ export class OutputAccumulator {
 			return this.tailText;
 		}
 
+		// Clipping drops the partial first line. When only blank lines would remain, the tail is the end of one
+		// over-long line, so keep it.
 		const firstNewline = this.tailText.indexOf("\n");
-		return firstNewline === -1 || firstNewline === this.tailText.length - 1
-			? this.tailText
-			: this.tailText.slice(firstNewline + 1);
+		const clipped = firstNewline === -1 ? "" : this.tailText.slice(firstNewline + 1);
+		return clipped.trim().length === 0 ? this.tailText : clipped;
 	}
 
 	/** A final newline ends the last line and counts toward no limit, as in `truncateTail`. */

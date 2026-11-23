@@ -533,8 +533,10 @@ export function createBashToolDefinition(
 					const startLine = truncation.totalLines - truncation.outputLines + 1;
 					const endLine = truncation.totalLines;
 					if (truncation.lastLinePartial) {
-						const lastLineSize = formatSize(output.getLastLineBytes());
-						text += `\n\n[Showing last ${formatSize(truncation.outputBytes)} of line ${endLine} (line is ${lastLineSize}). Full output: ${snapshot.fullOutputPath}]`;
+						// After trailing blank lines the last line is not the clipped one, so its size is unknown.
+						const lineBytes = output.getLastLineBytes();
+						const lineSize = lineBytes >= truncation.outputBytes ? ` (line is ${formatSize(lineBytes)})` : "";
+						text += `\n\n[Showing last ${formatSize(truncation.outputBytes)} of line ${startLine}${lineSize}. Full output: ${snapshot.fullOutputPath}]`;
 					} else if (truncation.truncatedBy === "lines") {
 						text += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines}. Full output: ${snapshot.fullOutputPath}]`;
 					} else {

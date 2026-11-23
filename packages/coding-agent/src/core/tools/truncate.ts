@@ -218,12 +218,15 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 
 		if (outputBytesCount + lineBytes > maxBytes) {
 			truncatedBy = "bytes";
-			// Edge case: if we haven't added ANY lines yet and this line exceeds maxBytes,
-			// take the end of the line (partial)
-			if (outputLinesArr.length === 0) {
-				const truncatedLine = truncateStringToBytesFromEnd(line, maxBytes);
+			// Edge case: if this line exceeds the limit and nothing or only blank lines come after it,
+			// take the end of the line (partial) so the output is not just the blank lines
+			const remainingBytes = maxBytes - outputBytesCount - (outputLinesArr.length > 0 ? 1 : 0);
+			const onlyBlankAfter = line.trim().length > 0 && outputLinesArr.every((after) => after.trim().length === 0);
+			if (outputLinesArr.length === 0 || (onlyBlankAfter && remainingBytes > 0)) {
+				const truncatedLine = truncateStringToBytesFromEnd(line, remainingBytes);
 				outputLinesArr.unshift(truncatedLine);
-				outputBytesCount = Buffer.byteLength(truncatedLine, "utf-8");
+				outputBytesCount +=
+					lineBytes - Buffer.byteLength(line, "utf-8") + Buffer.byteLength(truncatedLine, "utf-8");
 				lastLinePartial = true;
 			}
 			break;

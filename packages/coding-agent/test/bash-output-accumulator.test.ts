@@ -82,7 +82,11 @@ it("shows a retained trailing blank line instead of the empty-output marker", as
 	fullOutputPath = result.details?.fullOutputPath;
 	const output = result.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
 
-	expect(output).toBe(`\n\n[Showing lines 2-2 of 2 (10.0KB limit). Full output: ${fullOutputPath}]`);
+	// The retained blank line follows the end of the over-long line, which is shown too (upstream #12350).
+	expect(output).not.toContain("(no output)");
+	expect(output).toBe(
+		`${"x".repeat(DEFAULT_MAX_BYTES - 1)}\n\n\n[Showing last 10.0KB of line 1. Full output: ${fullOutputPath}]`,
+	);
 });
 
 it("does not report truncation when only the final newline exceeds the byte limit", async () => {

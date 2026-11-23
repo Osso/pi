@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed bash output showing only a trailing blank line, instead of the end of the preceding over-long line, when output exceeded the byte limit
 - Fixed Ctrl+P model cycling selecting a scoped model that a model registry refresh had removed
 - Fixed `--models` and `enabledModels` entries naming a model ID that contains glob characters (such as `vendor/sonnet[fast]`) expanding as a glob instead of selecting that exact model
 - Fixed the host relay answering a remote session inspection request that expired in transit
