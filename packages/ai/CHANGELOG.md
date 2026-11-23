@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Mistral requests sending a null header override as the literal value "null" and combining a mixed-case caller `X-Affinity` header with the session default
 - Fixed Amazon Bedrock ignoring a stored or explicit API key as the bearer token, and kept compat dispatch from sending the ambient AWS auth marker as a token (port of upstream 3ea064ea2 and 850c210b7)
 - Fixed GPT-6.2 dropping earlier reasoning as `prefix_mismatch` after the OpenAI Codex WebSocket connection expired, because replayed tool calls lacked the `status: "completed"` the API had returned on them (port of upstream [#12367](https://github.com/earendil-works/pi/issues/12367))
 - Fixed OpenRouter rejecting requests with a 400 for models whose output limit is close to the context window: the default output limit now leaves 15% of the estimated input unused, and near a full window at most 32,768 output tokens are requested (port of upstream [#10497](https://github.com/earendil-works/pi/issues/10497))

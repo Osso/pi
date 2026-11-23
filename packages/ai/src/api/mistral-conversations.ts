@@ -23,6 +23,7 @@ import type {
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
+import { providerHeadersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildBaseOptions } from "./simple-options.ts";
@@ -248,19 +249,11 @@ function buildRequestOptions(model: Model<"mistral-conversations">, options?: Mi
 	};
 	if (options?.signal) requestOptions.signal = options.signal;
 
-	const headers: Record<string, string> = {};
-	if (model.headers) Object.assign(headers, model.headers);
-	if (options?.headers) Object.assign(headers, options.headers);
-
 	// Mistral infrastructure uses `x-affinity` for KV-cache reuse (prefix caching).
-	// Respect explicit caller-provided header values.
-	if (shouldUsePromptCaching(options) && !headers["x-affinity"]) {
-		headers["x-affinity"] = options.sessionId;
-	}
-
-	if (Object.keys(headers).length > 0) {
-		requestOptions.headers = headers;
-	}
+	// It is a default: model and caller headers replace it by any case, and null removes it.
+	const affinity = shouldUsePromptCaching(options) ? { "x-affinity": options.sessionId } : undefined;
+	const headers = providerHeadersToRecord(affinity, model.headers, options?.headers);
+	if (headers) requestOptions.headers = headers;
 
 	return requestOptions;
 }
