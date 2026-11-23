@@ -2612,7 +2612,7 @@ export class AgentSession {
 		behavior: "steer" | "followUp",
 		source: InputSource,
 	): Promise<{ text: string; images: ImageContent[] | undefined } | undefined> {
-		if (text.startsWith("/")) this._throwIfExtensionCommand(text);
+		if (text.startsWith("/")) this._throwIfUnqueueableSlashCommand(text);
 		const input = await this._runInputHandlers(text, images, source, this.isStreaming ? behavior : undefined);
 		if (!input) return undefined;
 		const expanded = expandPromptTemplate(this._expandSkillCommand(input.text), [...this.promptTemplates]);
@@ -3109,15 +3109,15 @@ export class AgentSession {
 	}
 
 	/** Throw an error if the text is an extension command. */
-	private _throwIfExtensionCommand(text: string): void {
+	private _throwIfUnqueueableSlashCommand(text: string): void {
 		const commandName = this._slashCommandName(text).slice(1);
 		const command = this._extensionRunner.getCommand(commandName);
-
 		if (command) {
 			throw new Error(
 				`Extension command "/${commandName}" cannot be queued. Use prompt() or execute the command when not streaming.`,
 			);
 		}
+		if (!this._isKnownSlashCommand(text)) throw new Error(`Unknown slash command: /${commandName}`);
 	}
 
 	/**

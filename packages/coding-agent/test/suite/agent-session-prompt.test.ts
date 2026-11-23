@@ -541,6 +541,30 @@ describe("AgentSession prompt characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
+	it("rejects unknown slash commands queued as steering or follow-up before input handlers", async () => {
+		const inputs: string[] = [];
+		const harness = await createTrackedHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("input", (event) => {
+						inputs.push(event.text);
+					});
+				},
+			],
+		});
+		harness.setResponses([fauxAssistantMessage("should not run")]);
+
+		await expect(harness.session.steer("/does-not-exist steer")).rejects.toThrow(
+			"Unknown slash command: /does-not-exist",
+		);
+		await expect(harness.session.followUp("/does-not-exist follow-up")).rejects.toThrow(
+			"Unknown slash command: /does-not-exist",
+		);
+		expect(inputs).toEqual([]);
+		expect(harness.session.messages).toEqual([]);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
 	it("does not duplicate a handled extension command already recorded by the editor", async () => {
 		const harness = await createTrackedHarness({
 			extensionFactories: [

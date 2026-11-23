@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed RPC `steer` and `follow_up` queuing unknown slash commands as user messages and passing them to `input` handlers; they are now rejected like `prompt`
 - Fixed `--session <id>` starting a new session with a new ID at the old path when the indexed transcript had been removed; the lookup now fails with the missing path
 - Fixed relative `--session-dir` values such as `.` hiding sessions from `--session <id>` and `--resume`; session directories now resolve against the working directory
 - Fixed model pools ending the turn on a later member's quota error when an earlier member's rate limit expired during failover; the pool error now stays retryable so the retry reaches the freed member
