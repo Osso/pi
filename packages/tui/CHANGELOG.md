@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Kitty images are placed with less distortion and no longer reserve an extra empty row when the scaled height is a whole number of rows ([#8938](https://github.com/earendil-works/pi/issues/8938))
 - Page Up and Page Down now refresh or close an open editor autocomplete menu, so a following Tab no longer applies the old line's suggestion to the line the cursor moved to
 - `@` completion inside a filename replaces the rest of the path when CJK punctuation follows it
 - `Input` undo restores the empty value after the first word typed following `setValue()`

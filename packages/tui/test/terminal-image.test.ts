@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { Image } from "../src/components/image.ts";
 import {
 	deleteAllKittyImages,
@@ -534,5 +534,81 @@ describe("hyperlink", () => {
 		const result = hyperlink("README.md", "file:///home/user/README.md");
 		assert.ok(result.includes("file:///home/user/README.md"));
 		assert.ok(result.includes("README.md"));
+	});
+});
+
+// Ported from upstream 7cf037c21 (#8938): reduce Kitty placement distortion without shrinking iTerm2 reservations.
+describe("image cell sizing", () => {
+	afterEach(() => {
+		resetCapabilitiesCache();
+		setCellDimensions({ widthPx: 9, heightPx: 18 });
+	});
+
+	describe("Kitty", () => {
+		beforeEach(() => {
+			setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		});
+
+		it("does not reserve an extra row when the scaled height is a whole number of rows", () => {
+			setCellDimensions({ widthPx: 13, heightPx: 19 });
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 30 },
+				{ widthPx: 1105, heightPx: 323 },
+			);
+			const lines = image.render(32);
+			assert.strictEqual(lines.length, 6);
+			assert.ok(lines.some((line) => line.includes(",c=30,r=6")));
+		});
+
+		it("reserves at least one Kitty row for thin images", () => {
+			const result = renderImage("AAAA", { widthPx: 1200, heightPx: 12 }, { maxWidthCells: 60 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 1);
+			assert.ok(result.sequence.includes(",c=60,r=1"));
+		});
+
+		it("rounds Kitty rows down when that distorts the image less", () => {
+			const result = renderImage("AAAA", { widthPx: 615, heightPx: 86 }, { maxWidthCells: 60 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 4);
+			assert.ok(result.sequence.includes(",c=60,r=4"));
+		});
+
+		it("keeps the ceiling placement when rounding down would increase distortion", () => {
+			setCellDimensions({ widthPx: 15, heightPx: 28 });
+			const result = renderImage("AAAA", { widthPx: 615, heightPx: 86 }, { maxWidthCells: 60 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 5);
+			assert.ok(result.sequence.includes(",c=60,r=5"));
+		});
+
+		it("chooses thin height-limited Kitty widths by proportions while keeping at least one column", () => {
+			setCellDimensions({ widthPx: 1, heightPx: 1 });
+			for (const [widthPx, columns] of [
+				[1, 1],
+				[140, 1],
+				[149, 2],
+			]) {
+				const result = renderImage("AAAA", { widthPx, heightPx: 1000 }, { maxWidthCells: 30, maxHeightCells: 10 });
+				assert.ok(result);
+				assert.strictEqual(result.rows, 10);
+				assert.ok(result.sequence.includes(`,c=${columns},r=10`));
+			}
+		});
+	});
+
+	describe("iTerm2", () => {
+		beforeEach(() => {
+			setCapabilities({ images: "iterm2", trueColor: true, hyperlinks: true });
+		});
+
+		it("keeps iTerm2's ceiling-based reserved rows", () => {
+			const result = renderImage("AAAA", { widthPx: 615, heightPx: 86 }, { maxWidthCells: 60 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 5);
+		});
 	});
 });
