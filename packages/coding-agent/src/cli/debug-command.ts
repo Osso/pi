@@ -57,6 +57,7 @@ export function attachDebugRepl(
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(socketPath);
+		let rejection: string | undefined;
 		const cleanup = () => {
 			input.unpipe(socket);
 			socket.unpipe(output);
@@ -66,9 +67,15 @@ export function attachDebugRepl(
 			input.pipe(socket);
 			socket.pipe(output);
 		});
+		// The server answers a rejected handshake with one "Debug attachment rejected: ..." line, then closes.
+		socket.once("data", (chunk: Buffer) => {
+			const text = chunk.toString("utf8");
+			if (text.startsWith("Debug attachment rejected: ")) rejection = text.trim();
+		});
 		socket.once("close", () => {
 			cleanup();
-			resolve();
+			if (rejection) reject(new Error(rejection));
+			else resolve();
 		});
 		socket.once("error", (error) => {
 			cleanup();

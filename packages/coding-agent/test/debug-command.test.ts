@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
-import { handleDebugCommand } from "../src/cli/debug-command.ts";
-import { getDebugSocketPath } from "../src/core/debug-repl.ts";
+import { attachDebugRepl, handleDebugCommand } from "../src/cli/debug-command.ts";
+import { DebugReplServer, getDebugSocketPath } from "../src/core/debug-repl.ts";
 import { getControlDbPath, writeSessionHealth } from "../src/core/session-control-db.ts";
 
 const temporaryDirectories: string[] = [];
@@ -53,4 +54,19 @@ it("attaches to the debug socket owned by the exact live session", async () => {
 
 	expect(handled).toBe(true);
 	expect(attach).toHaveBeenCalledWith(getDebugSocketPath(agentDir, 1131255), sessionId);
+});
+
+it("fails the attachment when the live REPL rejects the session", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-debug-command-"));
+	temporaryDirectories.push(agentDir);
+	const server = new DebugReplServer({ agentDir, getRuntime: () => ({ session: { sessionId: "new-session" } }) });
+	await server.enable("new-session");
+	const output = new PassThrough();
+	try {
+		await expect(
+			attachDebugRepl(getDebugSocketPath(agentDir, process.pid), "old-session", new PassThrough(), output),
+		).rejects.toThrow("Debug attachment rejected: session mismatch");
+	} finally {
+		await server.disable();
+	}
 });
