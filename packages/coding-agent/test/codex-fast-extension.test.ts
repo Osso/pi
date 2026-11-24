@@ -59,6 +59,7 @@ function createHarness(options: FastHarnessOptions = {}) {
 	let beforeProviderRequest: BeforeProviderRequestHandler | undefined;
 	let modelSelect: ModelSelectHandler | undefined;
 	let sessionStart: SessionStartHandler | undefined;
+	let sessionTree: SessionStartHandler | undefined;
 	const appendEntry = vi.fn();
 	const pi = {
 		appendEntry,
@@ -66,6 +67,7 @@ function createHarness(options: FastHarnessOptions = {}) {
 			if (event === "before_provider_request") beforeProviderRequest = handler as BeforeProviderRequestHandler;
 			if (event === "model_select") modelSelect = handler as ModelSelectHandler;
 			if (event === "session_start") sessionStart = handler as SessionStartHandler;
+			if (event === "session_tree") sessionTree = handler as SessionStartHandler;
 		},
 		registerCommand: (name: string, value: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
 			commandName = name;
@@ -112,6 +114,7 @@ function createHarness(options: FastHarnessOptions = {}) {
 		modelSelect,
 		notify,
 		sessionStart,
+		sessionTree,
 		setEditorText,
 	};
 }
@@ -416,6 +419,26 @@ describe("Codex fast mode session startup", () => {
 		await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 		expect(authority.serviceTier).toBe("ultrafast");
 		expect(main.footerData.getExtensionStatuses().get("codex-fast")).toBe("fast ultra");
+	});
+
+	it("restores the fast mode saved on the branch selected with /tree", async () => {
+		const ultra: FastStateEntry = {
+			type: "custom",
+			customType: "codex-fast-mode",
+			data: { serviceTier: "ultrafast" },
+		};
+		const off: FastStateEntry = { type: "custom", customType: "codex-fast-mode", data: { serviceTier: null } };
+		const options: FastHarnessOptions = { branch: [ultra, off], defaultCodexFastMode: "priority" };
+		const main = createHarness(options);
+		if (!main.sessionStart) throw new Error("session_start handler was not registered");
+		const event = { payload: { model: "faux-1" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+		await main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+		expect(main.beforeProviderRequest(event, main.ctx)).toBeUndefined();
+
+		options.branch = [ultra];
+		await main.sessionTree?.({ reason: "startup", type: "session_start" }, main.ctx);
+
+		expect(main.beforeProviderRequest(event, main.ctx)).toEqual({ model: "faux-1", service_tier: "ultrafast" });
 	});
 
 	it.each(["priority", "ultrafast"] as const)(

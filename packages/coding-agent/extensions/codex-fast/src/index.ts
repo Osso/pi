@@ -133,14 +133,17 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 		description: "Toggle Codex priority or ultrafast processing from the main thread",
 		handler: (args, ctx) => handleFastCommand(args, ctx, pi, authority),
 	});
-	pi.on("session_start", async (_event, ctx) => {
+	// /tree selects another branch, whose saved /fast choice must apply like it does at startup.
+	const restoreFastMode = async (ctx: ExtensionContext) => {
 		if (!isChildRuntime(ctx)) {
 			const persistedMode = await readPersistedFastMode(ctx);
 			authority.serviceTier =
 				persistedMode === undefined ? readConfiguredFastMode(ctx) : (persistedMode ?? undefined);
 		}
 		updateFastStatus(ctx, authority);
-	});
+	};
+	pi.on("session_start", (_event, ctx) => restoreFastMode(ctx));
+	pi.on("session_tree", (_event, ctx) => restoreFastMode(ctx));
 	pi.on("model_select", (event, ctx) => {
 		updateFastStatus(ctx, authority, event.model);
 	});
