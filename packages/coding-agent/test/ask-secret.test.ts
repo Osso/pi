@@ -62,6 +62,25 @@ describe("ask_secret extension", () => {
 		expect(JSON.stringify(result)).not.toContain("super-secret");
 	});
 
+	it("reports a provisioning failure when the privilege helper is missing", async () => {
+		// The spawn error arrived while stdin was written, before any listener, and crashed the process.
+		vi.stubEnv("PATH", await createTemporaryDirectory());
+		const input = vi.fn<InputFunction>().mockResolvedValue("user@example.com");
+		const tool = createAskSecretToolDefinition();
+		const request = {
+			record: "browser/example.json",
+			fields: [{ type: "text", name: "Account user", selector: "#user" }],
+		} as never;
+
+		try {
+			await expect(
+				tool.execute("call-missing-helper", request, undefined, undefined, createTuiContext(input)),
+			).rejects.toThrow("Secrets Broker provisioning failed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("prompts once with masked input and returns only non-secret file metadata", async () => {
 		const directory = await createTemporaryDirectory();
 		const destination = join(directory, "openrouter.key");

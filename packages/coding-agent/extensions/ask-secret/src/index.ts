@@ -354,8 +354,8 @@ async function provisionBrowserCredential(
 	};
 	signal?.addEventListener("abort", onAbort, { once: true });
 	try {
-		await writeCredentialInput(child, values);
-		const exitCode = await waitForChildProcess(child);
+		// Wait before writing: a spawn failure (missing authsudo) is emitted while stdin is written.
+		const [, exitCode] = await Promise.all([writeCredentialInput(child, values), waitForChildProcess(child)]);
 		if (signal?.aborted) throw new Error("ask_secret cancelled");
 		if (exitCode !== 0) throw new Error("Secrets Broker provisioning failed");
 	} catch (error) {
