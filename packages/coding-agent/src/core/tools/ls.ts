@@ -256,6 +256,11 @@ async function executeRtkLs(
 function runRtkLs(cwd: string, path: string, signal: AbortSignal | undefined): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile("rtk", ["ls", path], { cwd, maxBuffer: DEFAULT_MAX_BYTES * 2, signal }, (error, stdout, stderr) => {
+			// The entry and byte limits cut a listing this long anyway; keep its complete lines.
+			if (isCommandError(error) && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+				resolve(String(stdout).replace(/[^\n]*$/, ""));
+				return;
+			}
 			if (error) {
 				reject(attachCommandOutput(error, stdout, stderr));
 				return;

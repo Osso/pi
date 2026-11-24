@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `ls` delegated to `rtk` no longer fails with the raw listing as its error when the listing exceeds the capture buffer; it applies the entry and byte limits to the captured lines
 - Replies hidden by the duplicate-turn guard no longer reappear when the chat is rebuilt, for example after toggling Hide thinking in `/settings`
 - `/run-plan` on a plan with no unchecked items now persists the cleared state, so `/reload` or a restart no longer restores the finished plan and submits items added later
 - Pyrun results keep the full streamed console when the runner returns a capped per-write history or an error result without history, so early output and output before a serialization error are no longer lost
