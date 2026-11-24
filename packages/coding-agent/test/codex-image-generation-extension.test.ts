@@ -143,6 +143,21 @@ describe("Codex image generation extension", () => {
 		expect(getApiKeyAndHeaders).toHaveBeenCalledWith(gcEnabled);
 	});
 
+	it("reports the timeout instead of the provider's generic abort error", async () => {
+		const runGeneration = vi.fn(
+			({ signal }: { signal?: AbortSignal }) =>
+				new Promise<never>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(new Error("Request was aborted")), { once: true });
+				}),
+		);
+		const tool = createImageGenerationToolDefinition({ runGeneration, timeoutMs: 20 });
+		const ctx = { ...context("openai-codex-responses"), cwd: tmpdir() } as ExtensionContext;
+
+		await expect(tool.execute("call-1", { prompt: "x" }, undefined, undefined, ctx)).rejects.toThrow(
+			"OpenAI hosted image generation timed out after 20ms",
+		);
+	});
+
 	it("fails with a hint when no configured Codex model is logged in", async () => {
 		const ctx = {
 			cwd: tmpdir(),

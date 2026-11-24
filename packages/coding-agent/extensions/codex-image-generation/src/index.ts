@@ -145,6 +145,10 @@ async function runImageGenerationWithTimeout(
 
 	try {
 		return await runGeneration({ ...request, signal: combinedSignal }, ctx);
+	} catch (error) {
+		// Providers report any abort generically; name the deadline when it was ours.
+		if (timeoutController.signal.aborted && !signal?.aborted) throw timeoutController.signal.reason;
+		throw error;
 	} finally {
 		clearTimeout(timeout);
 	}
