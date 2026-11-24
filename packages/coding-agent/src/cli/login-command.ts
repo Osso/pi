@@ -118,20 +118,22 @@ async function runLoginWithPrompt(
 	browserCliOpener?: (url: string) => Promise<void>,
 ): Promise<void> {
 	const browserCliOpenTasks: Promise<void>[] = [];
+	const openWithBrowserCli = (url: string) => {
+		if (!browserCliOpener) return;
+		const openTask = browserCliOpener(url).then(
+			() => stdout("Opened auth URL with browser-cli."),
+			(error: unknown) =>
+				stdout(`browser-cli open failed: ${error instanceof Error ? error.message : String(error)}`),
+		);
+		browserCliOpenTasks.push(openTask);
+	};
 	await authStorage.login(providerId, {
 		onAuth: (info) => {
 			stdout("");
 			stdout("Open this URL in your browser:");
 			stdout(info.url);
 			if (info.instructions) stdout(info.instructions);
-			if (browserCliOpener) {
-				const openTask = browserCliOpener(info.url).then(
-					() => stdout("Opened auth URL with browser-cli."),
-					(error: unknown) =>
-						stdout(`browser-cli open failed: ${error instanceof Error ? error.message : String(error)}`),
-				);
-				browserCliOpenTasks.push(openTask);
-			}
+			openWithBrowserCli(info.url);
 			stdout("");
 		},
 		onDeviceCode: (info) => {
@@ -140,6 +142,7 @@ async function runLoginWithPrompt(
 			stdout(info.verificationUri);
 			stdout(`Enter code: ${info.userCode}`);
 			if (info.expiresInSeconds !== undefined) stdout(`Code expires in ${info.expiresInSeconds} seconds.`);
+			openWithBrowserCli(info.verificationUri);
 			stdout("");
 		},
 		onPrompt: (oauthPrompt) =>

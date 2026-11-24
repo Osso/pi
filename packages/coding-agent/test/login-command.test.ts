@@ -85,7 +85,7 @@ describe("runLoginCommand", () => {
 		});
 	});
 
-	test("opens browser OAuth URLs with browser-cli when requested", async () => {
+	test("opens browser OAuth and device verification URLs with browser-cli when requested", async () => {
 		const providerId = `test-cli-login-browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 		registeredProviders.push(providerId);
 		const openedUrls: string[] = [];
@@ -95,6 +95,7 @@ describe("runLoginCommand", () => {
 			name: "Test Browser CLI Login",
 			async login(callbacks) {
 				callbacks.onAuth({ url: "https://example.invalid/browser-login" });
+				callbacks.onDeviceCode({ verificationUri: "https://example.invalid/device", userCode: "ABCD-EFGH" });
 				return { access: "browser-access", refresh: "browser-refresh", expires: Date.now() + 60_000 };
 			},
 			async refreshToken(credentials) {
@@ -119,7 +120,7 @@ describe("runLoginCommand", () => {
 		});
 
 		expect(exitCode).toBe(0);
-		expect(openedUrls).toEqual(["https://example.invalid/browser-login"]);
+		expect(openedUrls).toEqual(["https://example.invalid/browser-login", "https://example.invalid/device"]);
 		expect(output.text()).toContain("Opened auth URL with browser-cli.");
 	});
 
