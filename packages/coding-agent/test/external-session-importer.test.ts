@@ -148,6 +148,37 @@ describe("importExternalSessionAlias", () => {
 		]);
 	});
 
+	it("leaves Claude Code sidechain records out of the imported conversation", async () => {
+		const homeDir = createTempDir();
+		const sessionId = "22222222-2222-4333-8444-555555555555";
+		const claudeDir = join(homeDir, ".claude", "projects", "-tmp-project");
+		mkdirSync(claudeDir, { recursive: true });
+		const record = (uuid: string, role: string, text: string, isSidechain: boolean) => ({
+			type: role,
+			uuid,
+			isSidechain,
+			sessionId,
+			message: { role, content: [{ type: "text", text }] },
+		});
+		writeJsonl(join(claudeDir, `${sessionId}.jsonl`), [
+			record("u1", "user", "main prompt", false),
+			record("s1", "user", "subagent task", true),
+			record("s2", "assistant", "sidechain draft", true),
+			record("a1", "assistant", "main answer", false),
+		]);
+
+		const imported = await importExternalSessionAlias(`claude/${sessionId}`, {
+			homeDir,
+			sessionDir: join(homeDir, "sessions"),
+		});
+
+		const texts = readJsonl(assertDefined(imported).path).flatMap((entry) => {
+			const message = (entry as { message?: { content: { text: string }[] } }).message;
+			return message ? message.content.map((block) => block.text) : [];
+		});
+		expect(texts).toEqual(["main prompt", "main answer"]);
+	});
+
 	it("reuses an existing imported session", async () => {
 		const homeDir = createTempDir();
 		const projectDir = join(homeDir, "project");

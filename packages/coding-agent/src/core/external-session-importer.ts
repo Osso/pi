@@ -54,6 +54,7 @@ interface ClaudeJsonLine {
 	type?: unknown;
 	cwd?: unknown;
 	sessionId?: unknown;
+	isSidechain?: unknown;
 	message?: unknown;
 }
 
@@ -197,7 +198,8 @@ function codexLineToMessage(line: CodexJsonLine): AgentMessage[] {
 }
 
 function claudeLineToMessage(line: ClaudeJsonLine): AgentMessage[] {
-	if (!isRecord(line.message)) return [];
+	// Sidechain records are a subagent's own conversation, not part of the main one.
+	if (line.isSidechain === true || !isRecord(line.message)) return [];
 	return messageLikeToAgentMessages(line.message as MessageLike, stringOrUndefined(line.timestamp), "claude");
 }
 
