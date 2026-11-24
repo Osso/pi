@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai";
 import { Container } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import type { SettingsSelectorComponent } from "../src/modes/interactive/components/settings-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -55,5 +55,29 @@ describe("Hide thinking setting", () => {
 
 		list?.handleInput("\r");
 		expect(tail()).toContain("Private reasoning fixture");
+	});
+
+	test("turning terminal progress off clears the indicator a running turn started", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.settingsManager.setShowTerminalProgress(true);
+		const setProgress = vi.fn();
+		let selector: SettingsSelectorComponent | undefined;
+		const view = Object.assign(Object.create(InteractiveMode.prototype), {
+			runtimeHost: { session: harness.session },
+			ui: { requestRender: () => {}, terminal: { setProgress } },
+			themeController: { getTerminalTheme: () => "dark" },
+			showSelector: (create: (done: () => void) => { component: SettingsSelectorComponent }) => {
+				selector = create(() => {}).component;
+			},
+		}) as { showSettingsSelector(): void };
+
+		view.showSettingsSelector();
+		const list = selector?.getSettingsList();
+		list?.handleInput("Terminal progress");
+		list?.handleInput("\r");
+
+		expect(harness.settingsManager.getShowTerminalProgress()).toBe(false);
+		expect(setProgress).toHaveBeenLastCalledWith(false);
 	});
 });

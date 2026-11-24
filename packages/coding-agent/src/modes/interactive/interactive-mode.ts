@@ -423,6 +423,15 @@ function findReadableAgentFilePath(agent: AgentSnapshot, label: string): string 
 	return agent.result?.fileRefs?.find((fileRef) => fileRef.label === label && fs.existsSync(fileRef.path))?.path;
 }
 
+/** Drives the terminal progress indicator when the user enables it. */
+function setTerminalProgress(
+	settings: { getShowTerminalProgress(): boolean },
+	terminal: Pick<TUI["terminal"], "setProgress">,
+	active: boolean,
+): void {
+	if (settings.getShowTerminalProgress()) terminal.setProgress(active);
+}
+
 function formatAbortedMessage(retryAttempt: number): string {
 	return retryAttempt > 0
 		? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -3671,9 +3680,7 @@ export class InteractiveMode {
 				this.stopToolWaitingTimerIfIdle();
 				this.stopThinkingTimer();
 				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
-				if (this.settingsManager.getShowTerminalProgress()) {
-					this.ui.terminal.setProgress(true);
-				}
+				setTerminalProgress(this.settingsManager, this.ui.terminal, true);
 				// Restore main escape handler if retry handler is still active
 				// (retry success event fires later, but we need main handler now)
 				if (this.retryEscapeHandler) {
@@ -3866,9 +3873,7 @@ export class InteractiveMode {
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();
-				if (this.settingsManager.getShowTerminalProgress()) {
-					this.ui.terminal.setProgress(false);
-				}
+				setTerminalProgress(this.settingsManager, this.ui.terminal, false);
 				this.stopWorkingLoader();
 				clearWorkingEditor(this.editor);
 				this.discardStreamingComponent();
@@ -3880,9 +3885,7 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
-				if (this.settingsManager.getShowTerminalProgress()) {
-					this.ui.terminal.setProgress(true);
-				}
+				setTerminalProgress(this.settingsManager, this.ui.terminal, true);
 				// Keep editor active; submissions are queued during compaction.
 				this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
@@ -3907,9 +3910,7 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
-				if (this.settingsManager.getShowTerminalProgress()) {
-					this.ui.terminal.setProgress(false);
-				}
+				setTerminalProgress(this.settingsManager, this.ui.terminal, false);
 				if (this.autoCompactionEscapeHandler) {
 					this.defaultEditor.onEscape = this.autoCompactionEscapeHandler;
 					this.autoCompactionEscapeHandler = undefined;
@@ -5231,6 +5232,7 @@ export class InteractiveMode {
 					},
 					onShowTerminalProgressChange: (enabled) => {
 						this.settingsManager.setShowTerminalProgress(enabled);
+						if (!enabled) this.ui.terminal.setProgress(false); // clear an indicator left by a running turn
 					},
 					onWarningsChange: (warnings) => {
 						this.settingsManager.setWarnings(warnings);
@@ -6500,9 +6502,7 @@ export class InteractiveMode {
 	}
 
 	stop(): void {
-		if (this.settingsManager.getShowTerminalProgress()) {
-			this.ui.terminal.setProgress(false);
-		}
+		setTerminalProgress(this.settingsManager, this.ui.terminal, false);
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
