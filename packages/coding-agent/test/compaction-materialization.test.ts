@@ -85,6 +85,38 @@ function getText(message: AgentMessage): string {
 }
 
 describe("materializeCompactionSummary", () => {
+	it("reports cancellation when Escape aborts the wait before a retry", async () => {
+		const model = getModel("openai-codex", "gpt-5.5");
+		if (!model) throw new Error("Expected OpenAI Codex test model");
+		const controller = new AbortController();
+		let requests = 0;
+		const streamFn: StreamFn = () => {
+			requests++;
+			const stream = new MockAssistantStream();
+			const failed: AssistantMessage = {
+				...createAssistantMessage(model, ""),
+				content: [],
+				stopReason: "error",
+				errorMessage: "ECONNRESET: The socket connection was closed unexpectedly.",
+			};
+			queueMicrotask(() => {
+				stream.push({ type: "error", reason: "error", error: failed });
+				setTimeout(() => controller.abort(), 0);
+			});
+			return stream;
+		};
+
+		const result = await materializeCompactionSummary(createCompactionEntry(), model, {
+			reserveTokens: 16_384,
+			apiKey: "test-key",
+			streamFn,
+			signal: controller.signal,
+		});
+
+		expect(result).toEqual({ aborted: true });
+		expect(requests).toBe(1);
+	});
+
 	it("returns the provider response after sending intact native context and a plaintext-summary request", async () => {
 		const model = getModel("openai-codex", "gpt-5.5");
 		if (!model) throw new Error("Expected OpenAI Codex test model");

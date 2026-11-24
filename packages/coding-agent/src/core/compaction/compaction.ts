@@ -706,7 +706,7 @@ export async function materializeCompactionSummary(
 		),
 		options.streamFn,
 	);
-	return readCompactionMaterializationResponse(response);
+	return options.signal?.aborted ? { aborted: true } : readCompactionMaterializationResponse(response);
 }
 
 /**

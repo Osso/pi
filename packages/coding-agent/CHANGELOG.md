@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Pressing Escape while a `/tree` native compaction summary load waits to retry a dropped connection now reports the load as cancelled instead of showing the earlier provider error
 - A multiline `ask_questions` question no longer duplicates the tab bar after leaving the Submit tab; tab labels and the Submit summary render question text on one line
 - `attach_session_agent` fails with an error naming the recorded model when the attached session recorded a model that is no longer available, instead of running on the supervisor model
 - `attach_session_agent` with a session ID no longer attaches an indexed session whose transcript file was deleted; it reports the session as not found
