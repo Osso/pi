@@ -82,6 +82,25 @@ describe("CustomEditor prompt history persistence", () => {
 		expect(appEscapes).toBe(0);
 	});
 
+	it("cancels Ctrl+R history search with Ctrl+C and restores the draft instead of clearing it", () => {
+		recordPromptHistoryEntry(controlDbPath, "check tests");
+		const editor = createEditor(controlDbPath);
+		let appClears = 0;
+		editor.onAction("app.clear", () => {
+			appClears++;
+			editor.setText("");
+		});
+		editor.setText("check");
+
+		editor.handleInput("\x12"); // Ctrl+R
+		editor.handleInput(" t");
+		editor.handleInput("\x03"); // Ctrl+C
+
+		expect(editor.isHistorySearchActive()).toBe(false);
+		expect(editor.getText()).toBe("check");
+		expect(appClears).toBe(0);
+	});
+
 	it("does not persist history populated from rendered transcripts", () => {
 		const editor = createEditor(controlDbPath);
 

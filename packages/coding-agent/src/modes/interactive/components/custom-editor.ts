@@ -102,6 +102,12 @@ export class CustomEditor extends Editor {
 			// Fall through to editor handling for delete-char-forward when not empty
 		}
 
+		// Cancel (Ctrl+C by default) closes an active history search before app actions such as clear run.
+		if (this.isHistorySearchActive() && this.keybindings.matches(data, "tui.select.cancel")) {
+			super.handleInput(data);
+			return;
+		}
+
 		// Check all other app actions
 		for (const [action, handler] of this.actionHandlers) {
 			if (action !== "app.interrupt" && action !== "app.exit" && this.keybindings.matches(data, action)) {
