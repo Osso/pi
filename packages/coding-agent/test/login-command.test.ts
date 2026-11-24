@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { registerOAuthProvider, unregisterOAuthProvider } from "@earendil-works/pi-ai/oauth";
 import { afterEach, describe, expect, test } from "vitest";
-import { runLoginCommand } from "../src/cli/login-command.ts";
+import { handleLoginCommand, runLoginCommand } from "../src/cli/login-command.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 
 function createTerminalInput(lines: string[]): PassThrough {
@@ -138,5 +138,23 @@ describe("runLoginCommand", () => {
 		expect(output.text()).toContain("Unknown OAuth provider: missing-provider");
 		expect(output.text()).toContain("Available OAuth providers:");
 		expect(authStorage.has("missing-provider")).toBe(false);
+	});
+});
+
+describe("handleLoginCommand", () => {
+	test("prints requested help to stdout and leaves stderr empty", async () => {
+		const output = createTerminalOutput();
+		const error = createTerminalOutput();
+		const previousExitCode = process.exitCode;
+		try {
+			expect(await handleLoginCommand(["login", "--help"], { output: output.stream, error: error.stream })).toBe(
+				true,
+			);
+			expect(process.exitCode).toBe(0);
+		} finally {
+			process.exitCode = previousExitCode;
+		}
+		expect(output.text()).toContain("Usage: pi login <provider> [--browser-cli]");
+		expect(error.text()).toBe("");
 	});
 });

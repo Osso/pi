@@ -47,9 +47,9 @@ function formatProviderList(): string {
 		.join("\n");
 }
 
-function printLoginUsage(error: Writable): void {
-	writeLine(error, "Usage: pi login <provider> [--browser-cli]");
-	writeLine(error, `Available OAuth providers:\n${formatProviderList()}`);
+function printLoginUsage(stream: Writable): void {
+	writeLine(stream, "Usage: pi login <provider> [--browser-cli]");
+	writeLine(stream, `Available OAuth providers:\n${formatProviderList()}`);
 }
 
 function collectInputLines(input: Readable): Promise<string[]> {
@@ -199,7 +199,8 @@ export async function handleLoginCommand(
 	const useBrowserCli = flagArgs.includes("--browser-cli");
 	const hasUnknownFlags = flagArgs.some((arg) => arg !== "--browser-cli" && arg !== "--help" && arg !== "-h");
 	if (!providerId || hasHelpFlag || hasUnknownFlags) {
-		printLoginUsage(error);
+		// Requested help is normal output; usage after a missing provider or unknown flag is an error.
+		printLoginUsage(hasHelpFlag ? (dependencies.output ?? process.stdout) : error);
 		process.exitCode = hasHelpFlag ? 0 : 1;
 		return true;
 	}

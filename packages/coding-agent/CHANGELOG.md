@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `pi login --help` writing its usage to stderr; requested help now goes to stdout
 - Fixed syntax highlighting of `Dockerfile` and `Makefile` when the path includes a directory (for example `read app/Dockerfile`)
 - Fixed `/usage` reporting an OpenAI Codex account as not logged in when its OAuth token refresh failed; the row now shows the refresh error
 - Fixed the removed `compaction.thresholdPercent` warning being skipped when the key appears after `/reload` or when a project becomes trusted
