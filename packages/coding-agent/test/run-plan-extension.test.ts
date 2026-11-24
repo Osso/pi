@@ -227,6 +227,24 @@ describe("run-plan extension", () => {
 		expect(entries.at(-1)).toMatchObject({ type: "custom", customType: "run-plan:active", data: null });
 	});
 
+	it("does not restore a plan that /run-plan found complete", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		writeFileSync(planPath, "- [ ] Original task\n");
+		const entries: Array<Record<string, unknown>> = [];
+		const harness = createRunPlanHarness(cwd, { entries });
+		await harness.runCommand("");
+		writeFileSync(planPath, "- [x] Original task\n");
+		await harness.runCommand("");
+		expect(harness.notify).toHaveBeenCalledWith("No unchecked items in PLAN.md", "info");
+
+		const reloaded = createRunPlanHarness(cwd, { entries });
+		await reloaded.runEvent("session_start");
+		writeFileSync(planPath, "- [x] Original task\n- [ ] Newly added task\n");
+		await reloaded.runEvent("agent_settled");
+
+		expect(reloaded.sendUserMessage).not.toHaveBeenCalled();
+	});
+
 	it("stops the active plan when its file is deleted before the run ends", async () => {
 		const planPath = join(cwd, "PLAN.md");
 		writeFileSync(planPath, "- [ ] Old task\n");

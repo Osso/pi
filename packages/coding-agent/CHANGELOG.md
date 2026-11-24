@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/run-plan` on a plan with no unchecked items now persists the cleared state, so `/reload` or a restart no longer restores the finished plan and submits items added later
 - Pyrun results keep the full streamed console when the runner returns a capped per-write history or an error result without history, so early output and output before a serialization error are no longer lost
 - `resume_session` and the `/resume` picker in interactive mode no longer exit Pi when the target session is open in another Pi process; the switch is rejected and the current session stays active
 - `/reload` now activates the `outline`, `symbol` and `references` tools when `code-index` became available since startup, unless the user or profile disabled them

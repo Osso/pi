@@ -152,7 +152,10 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 		getArgumentCompletions: (argumentPrefix: string) =>
 			sessionCwd ? completeMarkdownFiles(sessionCwd, argumentPrefix) : null,
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const previousPlan = activePlan;
 			activePlan = await runPlan(args, ctx, pi);
+			// A completed plan must not come back from the persisted entry on the next runtime replacement.
+			if (previousPlan && !activePlan) persistActivePlan(pi, undefined);
 		},
 	});
 }
