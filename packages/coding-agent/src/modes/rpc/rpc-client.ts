@@ -148,7 +148,7 @@ export class RpcClient {
 		if (this.stopPromise || this.process !== childProcess) {
 			throw new Error(`RPC client stopped during startup. Stderr: ${this.stderr}`);
 		}
-		if (childProcess.exitCode !== null) {
+		if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
 			const error = this.exitError ?? this.createProcessExitError(childProcess.exitCode, childProcess.signalCode);
 			this.exitError = error;
 			throw error;
@@ -667,7 +667,7 @@ export class RpcClient {
 		const stdin = childProcess?.stdin;
 		if (!childProcess || !stdin) throw new Error("Client not started");
 		if (this.exitError) throw this.exitError;
-		if (childProcess.exitCode !== null) {
+		if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
 			const error = this.createProcessExitError(childProcess.exitCode, childProcess.signalCode);
 			this.exitError = error;
 			throw error;

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { RpcClient } from "../src/modes/rpc/rpc-client.ts";
 
 const tempDirs: string[] = [];
@@ -38,6 +38,7 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 afterEach(() => {
+	vi.useRealTimers();
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -56,6 +57,19 @@ setInterval(() => {}, 1000);
 		const starting = client.start();
 		const startupRejection = expect(starting).rejects.toThrow("RPC client stopped during startup");
 		await client.stop();
+		await startupRejection;
+	});
+
+	test("rejects startup when the child is killed by a signal before startup completes", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout"] });
+		const client = new RpcClient({ cliPath: writeChildScript(`process.kill(process.pid, "SIGKILL");`) });
+
+		const starting = client.start();
+		const startupRejection = expect(starting).rejects.toThrow(/Agent process exited \(code=null signal=SIGKILL\)/);
+		const childProcess = (client as unknown as RpcClientInternals).process;
+		if (!childProcess) throw new Error("expected RPC child process");
+		await new Promise<void>((resolve) => childProcess.once("exit", resolve));
+		await vi.advanceTimersByTimeAsync(100);
 		await startupRejection;
 	});
 
