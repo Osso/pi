@@ -76,6 +76,24 @@ describe("Markdown component", () => {
 			assert.deepStrictEqual(lines, ["helloworld red", "", "<b>bold</b>"]);
 		});
 
+		it("drops cursor movement controls without eating the text or styling after them", () => {
+			const markdown = new Markdown(
+				"left\x1b[1Aright \x1b[31mred\x1b[39m\x1b[?25l done",
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const output = markdown.render(80).join("\n");
+
+			assert.ok(output.includes("\x1b[31mred\x1b[39m"), JSON.stringify(output));
+			assert.ok(!/\x1b\[1A|\x1b\[\?25l/.test(output), JSON.stringify(output));
+			assert.deepStrictEqual(
+				markdown.render(80).map((line) => stripAnsi(line).trimEnd()),
+				["leftright red done"],
+			);
+		});
+
 		it("should render non-comment HTML as plain text", () => {
 			const markdown = new Markdown("<span>visible</span>", 0, 0, defaultMarkdownTheme);
 
