@@ -60,6 +60,7 @@ export async function executeBashWithOperations(
 
 	let tempFilePath: string | undefined;
 	let tempFileStream: WriteStream | undefined;
+	let tempFileFailed = false;
 	let totalBytes = 0;
 
 	const ensureTempFile = () => {
@@ -69,6 +70,10 @@ export async function executeBashWithOperations(
 		const id = randomBytes(8).toString("hex");
 		tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
 		tempFileStream = createWriteStream(tempFilePath);
+		// A full or unwritable temp directory must not crash pi; the result then keeps only the tail.
+		tempFileStream.on("error", () => {
+			tempFileFailed = true;
+		});
 		for (const chunk of outputChunks) {
 			tempFileStream.write(chunk);
 		}
@@ -138,7 +143,7 @@ export async function executeBashWithOperations(
 	if (truncationResult.truncated) {
 		ensureTempFile();
 	}
-	if (tempFileStream) await finished(tempFileStream.end());
+	if (tempFileStream) await finished(tempFileStream.end()).catch(() => undefined);
 	const cancelled = options?.signal?.aborted ?? false;
 
 	return {
@@ -146,6 +151,6 @@ export async function executeBashWithOperations(
 		exitCode: cancelled ? undefined : (exitCode ?? undefined),
 		cancelled,
 		truncated: truncationResult.truncated,
-		fullOutputPath: tempFilePath,
+		fullOutputPath: tempFileFailed ? undefined : tempFilePath,
 	};
 }

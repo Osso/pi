@@ -14,6 +14,8 @@ export interface OutputSnapshot {
 	content: string;
 	truncation: TruncationResult;
 	fullOutputPath?: string;
+	/** Why the full output could not be saved (an unwritable or full temp directory). */
+	fullOutputError?: string;
 }
 
 function defaultTempFilePath(prefix: string): string {
@@ -53,6 +55,7 @@ export class OutputAccumulator {
 
 	private tempFilePath: string | undefined;
 	private tempFileStream: WriteStream | undefined;
+	private tempFileError: Error | undefined;
 
 	constructor(options: OutputAccumulatorOptions = {}) {
 		this.maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
@@ -114,7 +117,9 @@ export class OutputAccumulator {
 		return {
 			content: truncation.content,
 			truncation,
-			fullOutputPath: this.tempFilePath,
+			...(this.tempFileError
+				? { fullOutputError: this.tempFileError.message }
+				: { fullOutputPath: this.tempFilePath }),
 		};
 	}
 
@@ -125,18 +130,17 @@ export class OutputAccumulator {
 
 		const stream = this.tempFileStream;
 		this.tempFileStream = undefined;
+		// A failed stream never emits "finish"; the failure is already recorded for the snapshot.
+		if (this.tempFileError) return;
 
-		await new Promise<void>((resolve, reject) => {
-			const onError = (error: Error) => {
-				stream.off("finish", onFinish);
-				reject(error);
-			};
-			const onFinish = () => {
-				stream.off("error", onError);
+		await new Promise<void>((resolve) => {
+			const settle = () => {
+				stream.off("finish", settle);
+				stream.off("error", settle);
 				resolve();
 			};
-			stream.once("error", onError);
-			stream.once("finish", onFinish);
+			stream.once("error", settle);
+			stream.once("finish", settle);
 			stream.end();
 		});
 	}
@@ -230,11 +234,16 @@ export class OutputAccumulator {
 			return;
 		}
 		this.tempFilePath = defaultTempFilePath(this.tempFilePrefix);
-		this.tempFileStream = createWriteStream(this.tempFilePath);
+		const stream = createWriteStream(this.tempFilePath);
+		// A full or unwritable temp directory must not crash pi; the snapshot then keeps only the tail.
+		stream.on("error", (error) => {
+			this.tempFileError ??= error;
+		});
+		this.tempFileStream = stream;
 		const chunks = this.rawChunks;
 		this.rawChunks = [];
 		for (const chunk of chunks) {
-			this.tempFileStream.write(chunk);
+			stream.write(chunk);
 		}
 	}
 }

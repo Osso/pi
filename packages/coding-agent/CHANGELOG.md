@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a full or unwritable temp directory crashing pi when bash or `!` output spilled to a temp file; the result now keeps the truncated tail and reports why the full output was not saved (port of upstream 943a99e3c)
 - Fixed Wayland copies being dropped by clipboard managers that reject an inferred MIME type, by passing `-t text/plain` to `wl-copy` (port of upstream 2d8133085)
 - Fixed restored sessions resuming a settled run whose last reply was cut off by the output limit inside a tool call
 - Fixed Codex restriction recovery reporting a failed retry (`auto_retry_end` with no `auto_retry_start`) when its policy validation ended in an error
