@@ -71,7 +71,10 @@ class UserMessageList implements Component {
 
 		// Add scroll indicator if needed
 		if (startIndex > 0 || endIndex < this.messages.length) {
-			const scrollInfo = theme.fg("muted", `  (${this.selectedIndex + 1}/${this.messages.length})`);
+			const scrollInfo = theme.fg(
+				"muted",
+				truncateToWidth(`  (${this.selectedIndex + 1}/${this.messages.length})`, width),
+			);
 			lines.push(scrollInfo);
 		}
 

@@ -18,8 +18,10 @@ describe("user message selector width", () => {
 			() => {},
 		);
 
-		const lines = selector.render(18);
-
-		expect(lines.filter((line) => visibleWidth(line) > 18)).toEqual([]);
+		for (const width of [18, 8]) {
+			const lines = selector.render(width);
+			expect(lines.some((line) => line.includes("(100/100)") || line.includes("(10"))).toBe(true);
+			expect(lines.filter((line) => visibleWidth(line) > width)).toEqual([]);
+		}
 	});
 });
