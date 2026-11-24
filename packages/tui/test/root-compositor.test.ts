@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { RootCompositor, type RootLayoutRect } from "../src/root-compositor.ts";
-import { type Component, Container, CURSOR_MARKER, TUI } from "../src/tui.ts";
+import { type Component, Container, CURSOR_MARKER, type Focusable, TUI } from "../src/tui.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
+
+class FocusRecorder implements Component, Focusable {
+	focused = false;
+	render(_width: number): string[] {
+		return [];
+	}
+	handleInput(_data: string): void {}
+	invalidate(): void {}
+}
 
 class TestComponent implements Component {
 	lines: string[];
@@ -19,6 +28,23 @@ class TestComponent implements Component {
 }
 
 describe("RootCompositor", () => {
+	it("keeps focus moves between mounted children away from a covered overlay", () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const first = new FocusRecorder();
+		const second = new FocusRecorder();
+		const overlay = new FocusRecorder();
+		tui.addChild(
+			new RootCompositor({ getHeight: () => 10, flow: [], bottom: [{ component: first }, { component: second }] }),
+		);
+		tui.showOverlay(overlay);
+		tui.setFocus(first);
+		tui.setFocus(second);
+
+		assert.equal(second.focused, true);
+		assert.equal(overlay.focused, false);
+	});
+
 	it("anchors the bottom zone while preserving flow component rendering", () => {
 		const body = new TestComponent(["body"]);
 		const status = new TestComponent(["status"]);

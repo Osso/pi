@@ -83,8 +83,13 @@ export class RootCompositor implements Component {
 		];
 	}
 
+	/** Laid-out components, so the TUI can tell whether a focused component is still mounted. */
+	get children(): Component[] {
+		return [...this.flow, ...this.bottom].map((entry) => entry.component);
+	}
+
 	invalidate(): void {
-		for (const { component } of [...this.flow, ...this.bottom]) {
+		for (const component of this.children) {
 			component.invalidate();
 		}
 	}

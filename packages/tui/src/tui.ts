@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "./keys.ts";
+import { RootCompositor } from "./root-compositor.ts";
 import { viewportTopAfterOffscreenChange } from "./scrollback.ts";
 import type { Terminal } from "./terminal.ts";
 import {
@@ -710,14 +711,12 @@ export class TUI extends Container {
 		}
 	}
 
-	private isComponentMounted(component: Component): boolean {
-		return this.children.some((child) => this.containsComponent(child, component));
-	}
-
-	private containsComponent(root: Component, target: Component): boolean {
-		if (root === target) return true;
-		if (!(root instanceof Container)) return false;
-		return root.children.some((child) => this.containsComponent(child, target));
+	private isComponentMounted(component: Component, children: readonly Component[] = this.children): boolean {
+		return children.some((child) => {
+			if (child === component) return true;
+			const isParent = child instanceof Container || child instanceof RootCompositor;
+			return isParent && this.isComponentMounted(component, child.children);
+		});
 	}
 
 	/**
