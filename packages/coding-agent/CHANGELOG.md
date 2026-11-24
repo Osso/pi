@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the default footer numbering an unpinned selected agent by its position among all agents, so after an earlier agent completed it showed `#2` for the agent that Alt+1 selects
 - Fixed concurrent `/share` runs from different sessions uploading the same export, because every run wrote the fixed temp path `session.html`
 - Fixed `/sandbox` marking Default/Workspace Write as current when no sandbox profile is set, although Pi then runs tools unsandboxed with full access
 - Fixed Ctrl+C during Ctrl+R history search clearing the editor instead of cancelling the search and restoring the draft

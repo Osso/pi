@@ -337,6 +337,56 @@ describe("default footer extension", () => {
 		expect(line).toContain("selected #2 Second waiting for input");
 	});
 
+	it("numbers an unpinned selected agent by its active slot after an earlier agent completes", () => {
+		initTheme(undefined, false);
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const first = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		const second = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		const waiting = legacyMultiAgentStore(store).transitionAgent(second.id, second.revision, "waiting_for_input");
+		expect(waiting.ok).toBe(true);
+		expect(legacyMultiAgentStore(store).transitionAgent(first.id, first.revision, "completed").ok).toBe(true);
+		store.selectAgentSlot(1);
+		expect(store.getSelectedAgentId()).toBe(second.id);
+
+		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;
+		const pi = {
+			on: (eventName: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				if (eventName !== "session_start") return;
+				void handler(undefined, {
+					...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+					ui: {
+						requestRender: vi.fn(),
+						setDefaultFooter: (factory: NonNullable<typeof footerFactory>) => {
+							footerFactory = factory;
+						},
+						setStatus: vi.fn(),
+					},
+				} as unknown as ExtensionContext);
+			},
+		} as ExtensionAPI;
+
+		defaultFooterExtension(pi, { multiAgentStore: store });
+		expect(footerFactory).toBeDefined();
+		const component = footerFactory?.(
+			{ requestRender() {} } as Parameters<NonNullable<typeof footerFactory>>[0],
+			theme,
+			createFooterData(),
+		);
+		const line = stripAnsi(component?.render(160)[1] ?? "");
+
+		expect(line).toContain("selected #1 Second waiting for input");
+	});
+
 	it("redraws the footer when an agent lifecycle change alters the counts", () => {
 		initTheme(undefined, false);
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });

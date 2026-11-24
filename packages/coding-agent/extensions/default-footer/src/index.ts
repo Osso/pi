@@ -259,7 +259,11 @@ function selectedAgentSlotIndex(store: MultiAgentStore, selectedAgent: AgentSnap
 		return selectedAgent.slot.index;
 	}
 
-	const agentIndex = store.listAgents().findIndex((agent) => agent.id === selectedAgent.id);
+	// Unpinned slots number active agents only, as Alt+<n> slot selection does.
+	const agentIndex = store
+		.listAgents()
+		.filter((agent) => isActiveLifecycle(agent.lifecycle))
+		.findIndex((agent) => agent.id === selectedAgent.id);
 	return agentIndex === -1 ? undefined : agentIndex + 1;
 }
 
