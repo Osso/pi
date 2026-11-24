@@ -4969,59 +4969,59 @@ export class InteractiveMode {
 		this.compactionQueuedMessages = [];
 		this.updatePendingMessagesDisplay();
 
+		// One rejected entry (such as an unknown slash command) must not drop the entries queued beside it.
+		const showQueueError = (error: unknown, count = 1) => {
+			const reason = error instanceof Error ? error.message : String(error);
+			this.showError(`Failed to send queued message${count > 1 ? "s" : ""}: ${reason}`);
+		};
 		const restoreQueue = (error: unknown) => {
 			this.session.clearQueue();
 			this.compactionQueuedMessages = queuedMessages;
 			this.updatePendingMessagesDisplay();
-			this.showError(
-				`Failed to send queued message${queuedMessages.length > 1 ? "s" : ""}: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
+			showQueueError(error, queuedMessages.length);
 		};
 
 		try {
 			if (options?.willRetry) {
 				// When retry is pending, queue messages for the retry turn
 				for (const message of queuedMessages) {
-					await this.deliverCompactionMessage(message);
+					await this.deliverCompactionMessage(message).catch(showQueueError);
 				}
 				this.updatePendingMessagesDisplay();
 				return;
 			}
 
-			// Find first non-extension-command message to use as prompt
 			const firstPromptIndex = queuedMessages.findIndex((message) => !this.isExtensionCommand(message.text));
 			const firstPrompt = queuedMessages[firstPromptIndex];
 			if (firstPrompt === undefined) {
-				// All extension commands - execute them all
 				for (const message of queuedMessages) {
-					await this.session.prompt(message.text);
+					await this.session.prompt(message.text).catch(showQueueError);
 				}
 				return;
 			}
 
-			// Execute any extension commands before the first prompt
 			const preCommands = queuedMessages.slice(0, firstPromptIndex);
 			const rest = queuedMessages.slice(firstPromptIndex + 1);
 
 			for (const message of preCommands) {
-				await this.session.prompt(message.text);
+				await this.session.prompt(message.text).catch(showQueueError);
 			}
 
-			// Send first prompt. streamingBehavior keeps this race-safe: the post-run
-			// loop (mailbox drain, length-retry resume) can start a new turn between
-			// compaction_end and this deferred flush, so the agent may already be
-			// streaming again — queue via steer/followUp instead of failing.
+			// streamingBehavior keeps this race-safe: the post-run loop (mailbox drain, length-retry resume) can start a
+			// new turn before this deferred flush, so queue via steer/followUp instead of failing. Only a failure after
+			// preflight acceptance rolls back the whole batch.
+			let promptAccepted = false;
 			const promptPromise = this.session
-				.prompt(firstPrompt.text, { streamingBehavior: firstPrompt.mode })
-				.catch((error) => {
-					restoreQueue(error);
-				});
+				.prompt(firstPrompt.text, {
+					streamingBehavior: firstPrompt.mode,
+					preflightResult: (accepted) => {
+						promptAccepted = accepted;
+					},
+				})
+				.catch((error) => (promptAccepted ? restoreQueue(error) : showQueueError(error)));
 
-			// Queue remaining messages
 			for (const message of rest) {
-				await this.deliverCompactionMessage(message);
+				await this.deliverCompactionMessage(message).catch(showQueueError);
 			}
 			this.updatePendingMessagesDisplay();
 			void promptPromise;
