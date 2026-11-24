@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/agents` labeling the main thread `current` while a child agent is the selected view
 - Fixed `/agents` moving the highlight to a different agent when closed agents are shown or hidden
 - Fixed the startup resource list shortening a path that only shares the home directory prefix, such as `/home/alex-work/AGENTS.md` shown as `~-work/AGENTS.md`
 - Fixed `pi.callTool` (and Pyrun `pi.tools.call`) running the tool and its `tool_result` hook after a `tool_call` handler aborted the turn

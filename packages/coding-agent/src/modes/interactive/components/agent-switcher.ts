@@ -122,7 +122,11 @@ class AgentSwitcherList implements Component {
 		const isSelected = index === this.selectedIndex;
 		const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
 		const leftText = `${cursor}${theme.bold("Main thread")}`;
-		const rightText = theme.fg("muted", "current");
+		// The main thread is the viewed thread only while no active child agent is selected.
+		const childSelected = this.allAgents.some(
+			(agent) => agent.id === this.selectedAgentId && isActiveLifecycle(agent.lifecycle),
+		);
+		const rightText = childSelected ? "" : theme.fg("muted", "current");
 		const spacing = Math.max(1, width - visibleWidth(leftText) - visibleWidth(rightText));
 		let line = leftText + " ".repeat(spacing) + rightText;
 		if (isSelected) {

@@ -210,6 +210,21 @@ describe("AgentSwitcherComponent", () => {
 		expect(onSelect).toHaveBeenCalledWith("main");
 	});
 
+	it("does not mark the main thread current while a child agent is selected", () => {
+		const component = new AgentSwitcherComponent(
+			[agent({ id: "agent-1", displayName: "Scout", lifecycle: "running" })],
+			"agent-1",
+			() => {},
+			() => {},
+		);
+		const mainLine = renderedText(component)
+			.split("\n")
+			.find((line) => line.includes("Main thread"));
+
+		expect(mainLine).toBeDefined();
+		expect(mainLine).not.toContain("current");
+	});
+
 	it("selects main when confirming the main thread row", () => {
 		const onCancel = vi.fn();
 		const onSelect = vi.fn();
