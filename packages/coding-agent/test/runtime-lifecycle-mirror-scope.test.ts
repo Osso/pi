@@ -20,6 +20,9 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
 const now = "2026-10-08T12:00:00.000Z";
+// Like a production runtime that registers as a mailbox listener, keep a permanent SIGUSR2 wake handler: a
+// late self-wake that reaches only signal-exit's listener (loaded by proper-lockfile) terminates the worker.
+process.on("SIGUSR2", () => {});
 
 function insertTransport(
 	controlDbPath: string,

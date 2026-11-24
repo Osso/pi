@@ -22,6 +22,9 @@ import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 
 const COMPLETED_HISTORY_ARTIFACT_COUNT = 2_048;
+// Like a production runtime that registers as a mailbox listener, keep a permanent SIGUSR2 wake handler: a
+// late self-wake that reaches only signal-exit's listener (loaded by proper-lockfile) terminates the worker.
+process.on("SIGUSR2", () => {});
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
