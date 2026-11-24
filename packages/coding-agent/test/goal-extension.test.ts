@@ -648,6 +648,20 @@ describe("goal extension", () => {
 		expect(result?.content).toEqual([{ type: "text", text: `Goal set: ${objective}` }]);
 	});
 
+	it("keeps the current objective when an approved clause only starts with its text", async () => {
+		const reviewGoal = vi.fn(async () => ({
+			kind: "set" as const,
+			objective: "Fix login; Fix login timeout in Firefox",
+			reason: "Keep the login fix and add the Firefox timeout.",
+		}));
+		const harness = createGoalHarness(cwd, { reviewGoal });
+
+		await harness.runCommand("set Fix login");
+		await harness.runSetGoal("Fix login timeout in Firefox");
+
+		expect(readStoredGoal<{ objective: string }>(cwd).objective).toBe("Fix login; Fix login timeout in Firefox");
+	});
+
 	it("does not queue a generic continuation when manage_goal set runs during a turn", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 

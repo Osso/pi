@@ -1,14 +1,26 @@
-export function deduplicateCurrentGoalScope(reviewedObjective: string, currentObjective: string): string {
-	const firstScopeIndex = reviewedObjective.indexOf(currentObjective);
-	if (firstScopeIndex === -1) return reviewedObjective;
+const CLAUSE_SEPARATOR = "; ";
 
+function isWholeClauseAt(text: string, index: number, length: number): boolean {
+	const startsClause = index === 0 || text.startsWith(CLAUSE_SEPARATOR, index - CLAUSE_SEPARATOR.length);
+	const end = index + length;
+	return startsClause && (end === text.length || text.startsWith(";", end));
+}
+
+export function deduplicateCurrentGoalScope(reviewedObjective: string, currentObjective: string): string {
 	let deduplicated = reviewedObjective;
-	let nextScopeIndex = deduplicated.indexOf(currentObjective, firstScopeIndex + currentObjective.length);
-	while (nextScopeIndex !== -1) {
-		const separatorStart = deduplicated.lastIndexOf("; ", nextScopeIndex);
-		const removalStart = separatorStart + 2 === nextScopeIndex ? separatorStart : nextScopeIndex;
-		deduplicated = `${deduplicated.slice(0, removalStart)}${deduplicated.slice(nextScopeIndex + currentObjective.length)}`;
-		nextScopeIndex = deduplicated.indexOf(currentObjective, firstScopeIndex + currentObjective.length);
+	let keptFirstCopy = false;
+	let index = deduplicated.indexOf(currentObjective);
+	while (index !== -1) {
+		if (!isWholeClauseAt(deduplicated, index, currentObjective.length)) {
+			index = deduplicated.indexOf(currentObjective, index + 1);
+		} else if (!keptFirstCopy) {
+			keptFirstCopy = true;
+			index = deduplicated.indexOf(currentObjective, index + currentObjective.length);
+		} else {
+			const removalStart = index - CLAUSE_SEPARATOR.length;
+			deduplicated = `${deduplicated.slice(0, removalStart)}${deduplicated.slice(index + currentObjective.length)}`;
+			index = deduplicated.indexOf(currentObjective, removalStart);
+		}
 	}
 	return deduplicated.trim();
 }

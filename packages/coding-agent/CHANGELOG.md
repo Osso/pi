@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `manage_goal set` no longer drops the current objective when an approved clause only starts with its text, such as `Fix login` and `Fix login timeout in Firefox`
 - Fixed a `/tree` summarized navigation rejected during compaction clearing the compaction progress and cancel hint
 - Fixed `/tree` reporting "Already at this point" for a prompt left selected while its response finished, instead of navigating to it
 - Fixed turning off terminal progress in `/settings` during a running turn leaving the terminal progress indicator active and repeating after the turn ended
