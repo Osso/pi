@@ -73,6 +73,39 @@ describe("ToolExecutionComponent parity", () => {
 		expect(stripAnsi(write.render(120).join("\n"))).toContain("safeafter");
 	});
 
+	test("does not pass the error fallback as lastComponent after a result renderer throws", () => {
+		class Summary extends Text {
+			setSummary(text: string): void {
+				this.setText(`Summary: ${text}`);
+			}
+		}
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderResult: (result, _options, _theme, context) => {
+				const details = result.details as { summary?: string };
+				if (!details.summary) throw new Error("partial without summary");
+				const summary = (context.lastComponent as Summary | undefined) ?? new Summary("", 0, 0);
+				summary.setSummary(details.summary);
+				return summary;
+			},
+		};
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-renderer-recovers",
+			{},
+			{},
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const content = [{ type: "text" as const, text: "progress" }];
+		component.updateResult({ content, details: { summary: "first" }, isError: false }, true);
+		component.updateResult({ content, details: {}, isError: false }, true);
+		component.updateResult({ content, details: { summary: "finished" }, isError: false }, false);
+
+		expect(stripAnsi(component.render(80).join("\n"))).toContain("Summary: finished");
+	});
+
 	test("caps expanded general tool output at 100 lines", () => {
 		const toolDefinition: ToolDefinition = {
 			...createBaseToolDefinition(),

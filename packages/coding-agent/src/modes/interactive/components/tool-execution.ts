@@ -78,6 +78,8 @@ export class ToolExecutionComponent extends Container {
 	private selfRenderContainer: Container;
 	private callRendererComponent?: Component;
 	private resultRendererComponent?: Component;
+	/** Last component the result renderer itself returned; a fallback shown after it throws is never passed back. */
+	private resultRendererLastComponent?: Component;
 	private rendererState: Record<string, unknown> = {};
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
@@ -547,11 +549,13 @@ export class ToolExecutionComponent extends Container {
 				},
 				{ expanded: this.expanded, isPartial: this.isPartial },
 				theme,
-				this.getRenderContext(this.resultRendererComponent),
+				this.getRenderContext(this.resultRendererLastComponent),
 			);
 			this.resultRendererComponent = component;
+			this.resultRendererLastComponent = component;
 			return component;
 		} catch {
+			this.resultRendererLastComponent = undefined;
 			this.resultRendererComponent = this.createResultFallback();
 			return this.resultRendererComponent;
 		}
