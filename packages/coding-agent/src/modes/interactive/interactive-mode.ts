@@ -5677,7 +5677,6 @@ export class InteractiveMode {
 
 	private async handleTreeSelectionWithoutNavigation(
 		entryId: string,
-		leafId: string | null,
 		done: () => void,
 		initialFilterMode: FilterMode,
 	): Promise<boolean> {
@@ -5691,7 +5690,8 @@ export class InteractiveMode {
 			}
 			return true;
 		}
-		if (entryId !== leafId) return false;
+		// The leaf may have moved since the tree opened (a response finished), so compare with the current one.
+		if (entryId !== this.sessionManager.getLeafId()) return false;
 		done();
 		this.showStatus("Already at this point");
 		return true;
@@ -5718,7 +5718,6 @@ export class InteractiveMode {
 						await InteractiveMode.prototype.handleTreeSelectionWithoutNavigation.call(
 							this,
 							entryId,
-							realLeafId,
 							done,
 							currentFilterMode,
 						)

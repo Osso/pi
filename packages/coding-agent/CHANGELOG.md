@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/tree` reporting "Already at this point" for a prompt left selected while its response finished, instead of navigating to it
 - Fixed turning off terminal progress in `/settings` during a running turn leaving the terminal progress indicator active and repeating after the turn ended
 - Fixed a timed-out `wait_agent` call disappearing from the collapsed transcript; the timeout notice now stays visible because no agent report follows it
 - Fixed rebuilding the transcript (for example toggling thinking) during a running tool hiding its partial output and leaving the old Bash card requesting renders every second after the command finished

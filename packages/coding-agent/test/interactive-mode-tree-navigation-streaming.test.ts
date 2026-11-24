@@ -67,4 +67,57 @@ describe("interactive /tree during a response", () => {
 		expect(harness.session.isStreaming).toBe(false);
 		expect(harness.sessionManager.getLeafId()).toBe(targetId);
 	});
+
+	it("navigates to the prompt left selected when its response finished while the tree was open", async () => {
+		harness = await createHarness();
+		harness.sessionManager.appendMessage(userMsg("first user"));
+		harness.sessionManager.appendMessage(assistantMsg("first assistant"));
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+		let markStreaming!: () => void;
+		const streaming = new Promise<void>((resolve) => {
+			markStreaming = resolve;
+		});
+		let finishResponse!: () => void;
+		const finished = new Promise<void>((resolve) => {
+			finishResponse = resolve;
+		});
+		harness.setResponses([
+			async () => {
+				markStreaming();
+				await finished;
+				return fauxAssistantMessage("second assistant");
+			},
+		]);
+		const prompt = harness.session.prompt("second user");
+		await streaming;
+
+		let selector: Component | undefined;
+		const showStatus = vi.fn();
+		const showTreeNavigationResult = vi.fn();
+		const mode = {
+			session: harness.session,
+			sessionManager: harness.sessionManager,
+			settingsManager: { getTreeFilterMode: () => "all", getBranchSummarySkipPrompt: () => true },
+			ui: { terminal: { rows: 40 }, requestRender: () => {} },
+			defaultEditor: {},
+			showSelector: (create: (done: () => void) => { component: Component }) => {
+				selector = create(() => {}).component;
+			},
+			restoreQueuedMessagesToEditor: () => 0,
+			showStatus,
+			showError: vi.fn(),
+			showTreeNavigationResult,
+		};
+		const secondUserId = harness.sessionManager.getLeafId();
+
+		showTreeSelector.call(mode, undefined, "all");
+		finishResponse();
+		await prompt;
+		expect(harness.sessionManager.getLeafId()).not.toBe(secondUserId);
+		selector?.handleInput?.("\r");
+		await vi.waitFor(() => expect(showTreeNavigationResult).toHaveBeenCalled());
+
+		expect(showStatus).not.toHaveBeenCalledWith("Already at this point");
+		expect(showTreeNavigationResult).toHaveBeenCalledWith("second user");
+	});
 });
