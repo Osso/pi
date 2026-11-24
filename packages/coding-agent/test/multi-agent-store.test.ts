@@ -1069,6 +1069,20 @@ describe("MultiAgentStore", () => {
 		expect(store.listDescendants(scout.agent.id).map((agent) => agent.id)).toEqual([scoutChild.agent.id]);
 	});
 
+	it("lists an agent without a stored parent as a descendant of main", () => {
+		// attach_session_agent without parentId stores no parent; the main thread owns it.
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const attached = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "attached",
+			cwd: "/repo",
+			displayName: "Parked saved session",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		expect(store.getAgent(attached.agent.id)?.parentId).toBeUndefined();
+
+		expect(store.listDescendants("main").map((agent) => agent.id)).toEqual([attached.agent.id]);
+	});
+
 	it("lets a child contact only its parent through the mailbox", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const supervisor = spawnScout(store);

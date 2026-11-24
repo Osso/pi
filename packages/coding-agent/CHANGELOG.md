@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `list_agents` with `parentId: "main"` omitting sessions attached without a parent
 - Fixed Wayland image paste inserting a stale X11 clipboard image when the Wayland clipboard holds no image (port of upstream caf6dfe73)
 - Fixed clipboard text being pasted as an image when the X11 clipboard owner answers unadvertised image targets (port of upstream 8676a0dcd)
 - Fixed the cross-host relay failing an import and dropping a not-running notice when two sender sessions sent messages with the same per-session ID to a stopped session

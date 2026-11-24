@@ -11,6 +11,7 @@ import type {
 	AgentViewSelectionResult,
 	MultiAgentProjectionSnapshot,
 } from "./multi-agent-types.ts";
+import { MAIN_THREAD_AGENT_ID } from "./multi-agent-types.ts";
 
 export function selectAgentView(store: MultiAgentStore, agentId: string): AgentSnapshot | undefined {
 	const result = selectAgentViewWithStatus(store, agentId);
@@ -107,7 +108,8 @@ export function listDescendants(store: MultiAgentStore, parentId: string): Agent
 
 	const visitChildren = (currentParentId: string) => {
 		for (const agent of store.agents.values()) {
-			if (agent.parentId !== currentParentId) {
+			// An agent without a stored parent (an attachment without parentId) belongs to the main thread.
+			if ((agent.parentId ?? MAIN_THREAD_AGENT_ID) !== currentParentId) {
 				continue;
 			}
 
