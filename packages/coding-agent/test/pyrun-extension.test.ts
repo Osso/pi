@@ -540,6 +540,21 @@ async function resultFor(request) {
       value: 2
     };
   }
+  if (request.code === "print.flush_fragments()") {
+    const console = ["START", ...Array.from({ length: 300 }, () => "x")];
+    if (request.stream_console === true) {
+      for (const text of console) {
+        process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text }) + "\\n");
+      }
+    }
+    return { type: "completed", executed: request.code, console: console.slice(-300), value: "done" };
+  }
+  if (request.code === 'a = []; a.append(a)\\nprint("CHECKPOINT")\\na') {
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "CHECKPOINT\\n" }) + "\\n");
+    }
+    return { type: "error", executed: request.code, error: "maximum recursion depth exceeded" };
+  }
   if (request.code === "print.streaming()") {
     if (request.stream_console === true) {
       process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "tick 1\\n" }) + "\\n");
@@ -1438,6 +1453,22 @@ for await (const line of createInterface({ input: process.stdin })) {
 			},
 			type: "needs_approval",
 		});
+	});
+
+	it("retains flushed fragments and streamed console before serialization errors", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+		const flushed = await harness.evaluate({ code: "print.flush_fragments()" }, (update) => updates.push(update));
+		const flushedText = `START${"x".repeat(300)}`;
+
+		expect.soft(readToolText(updates.at(-1) ?? { content: [], details: undefined })).toBe(flushedText);
+		expect.soft(readToolText(flushed)).toBe(`print.flush_fragments()\n\n${flushedText}\ndone`);
+
+		const code = 'a = []; a.append(a)\nprint("CHECKPOINT")\na';
+		const failed = await harness.evaluate({ code });
+
+		expect.soft(readToolText(failed)).toBe(`${code}\n\nCHECKPOINT\nError: maximum recursion depth exceeded`);
+		expect.soft(failed.isError).toBe(true);
 	});
 
 	it("requests and forwards streaming console output before the completed result", async () => {

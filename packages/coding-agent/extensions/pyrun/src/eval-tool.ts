@@ -283,6 +283,8 @@ export function createPyrunEvalExecutor(
 			.catch((error: unknown) => {
 				throw withStreamedConsole(error, reporter);
 			});
-		return formatCanonicalPyrunEvalResult(params, result);
+		// The runner caps its returned history by entry and drops it on error results; the streamed text is complete.
+		const streamed = reporter.consoleText().replace(/\n$/, "");
+		return formatCanonicalPyrunEvalResult(params, streamed ? { ...result, console: streamed.split("\n") } : result);
 	};
 }
