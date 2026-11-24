@@ -149,6 +149,63 @@ describe("ResidentConsoleClient", () => {
 		]);
 	});
 
+	it("decodes multibyte characters split across socket reads in both directions", async () => {
+		const prompts: string[] = [];
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "architect",
+			getSnapshot: () => ({ ...snapshot(), branch: [{ value: "café" }] }),
+			enqueuePrompt: (text) => {
+				prompts.push(text);
+			},
+			subscribe: () => () => {},
+		});
+		resources.push(server);
+		await server.start();
+		const socket = createConnection(server.socketPath);
+		resources.push({ close: async () => void socket.destroy() });
+		await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+		const received: Buffer[] = [];
+		socket.on("data", (chunk: Buffer) => received.push(chunk));
+		const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+		socket.write(`${JSON.stringify({ type: "attach", version: 1, service: "architect" })}\n`);
+		await pause();
+		const prompt = Buffer.from(`${JSON.stringify({ type: "prompt", id: "p1", text: "café" })}\n`);
+		const split = prompt.indexOf(0xa9);
+		socket.write(prompt.subarray(0, split));
+		await pause();
+		socket.write(prompt.subarray(split));
+		await pause();
+
+		expect(prompts).toEqual(["café"]);
+		expect(Buffer.concat(received).toString("utf8")).toContain('"value":"café"');
+	});
+
+	it("decodes a snapshot whose multibyte character is split across reads", async () => {
+		const path = socketPath();
+		const fake = createServer((socket) => {
+			socket.once("data", async () => {
+				const attached = { type: "attached", version: 1, ...snapshot(), branch: [{ value: "café" }] };
+				const frame = Buffer.from(`${JSON.stringify(attached)}\n`);
+				const split = frame.indexOf(0xa9);
+				socket.write(frame.subarray(0, split));
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				socket.write(frame.subarray(split));
+			});
+		});
+		resources.push({ close: () => new Promise<void>((resolve) => fake.close(() => resolve())) });
+		await new Promise<void>((resolve) => fake.listen(path, () => resolve()));
+
+		const client = await ResidentConsoleClient.connect<{ value: string }, unknown>({
+			socketPath: path,
+			service: "architect",
+		});
+		resources.push(client);
+
+		expect(client.snapshot.branch).toEqual([{ value: "café" }]);
+	});
+
 	it("transfers writable ownership to the newest console client", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),

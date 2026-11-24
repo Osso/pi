@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the resident console replacing a multibyte character split across socket reads with U+FFFD in snapshots, live events and prompts
 - Fixed `after_tool_result` steering staying pending forever when the child turn ended without another tool result, which let the child complete without receiving it
 - Fixed the Claude bridge resuming its Claude Code transcript after the session working directory changed, which lost the earlier conversation because the transcript lives under the old project directory
 - Fixed `--worktree` with `--session` naming a new file starting the session in the original checkout instead of the worktree

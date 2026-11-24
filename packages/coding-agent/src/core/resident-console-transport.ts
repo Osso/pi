@@ -76,9 +76,11 @@ export class ResidentConsoleServer<Entry, Event> {
 
 	private acceptSocket(socket: Socket): void {
 		this.sockets.add(socket);
+		// A stream decoder keeps a multibyte character split across reads intact.
+		socket.setEncoding("utf8");
 		let buffer = "";
-		const onData = (chunk: Buffer) => {
-			buffer += chunk.toString("utf8");
+		const onData = (chunk: string) => {
+			buffer += chunk;
 			while (true) {
 				const newline = buffer.indexOf("\n");
 				if (newline < 0) return;
@@ -258,8 +260,8 @@ export class ResidentConsoleClient<Entry, Event> {
 		await new Promise<void>((resolve) => this.socket.once("close", resolve));
 	}
 
-	private readonly onData = (chunk: Buffer): void => {
-		this.buffer += chunk.toString("utf8");
+	private readonly onData = (chunk: string): void => {
+		this.buffer += chunk;
 		this.consumeBuffer();
 	};
 
@@ -441,8 +443,8 @@ function readResidentConsoleLine(
 			cleanup();
 			reject(error);
 		};
-		const onData = (chunk: Buffer) => {
-			buffer += chunk.toString("utf8");
+		const onData = (chunk: string) => {
+			buffer += chunk;
 			const newline = buffer.indexOf("\n");
 			if (newline < 0) return;
 			cleanup();
@@ -464,6 +466,8 @@ function readResidentConsoleLine(
 function connectResidentConsole(socketPath: string): Promise<Socket> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(socketPath);
+		// Decode on the socket so a character split across the attach read and later reads stays intact.
+		socket.setEncoding("utf8");
 		socket.once("connect", () => resolve(socket));
 		socket.once("error", (error) => {
 			socket.destroy();
