@@ -234,6 +234,30 @@ describe("ResidentConsoleClient", () => {
 		expect(sequences).toEqual([1, 2]);
 	});
 
+	it("notifies a disconnect listener registered after the connection already closed", async () => {
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "architect",
+			getSnapshot: snapshot,
+			enqueuePrompt: () => {},
+			subscribe: () => () => {},
+		});
+		resources.push(server);
+		await server.start();
+		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "architect" });
+		resources.push(client);
+		const replacement = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "architect" });
+		resources.push(replacement);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		const disconnected = new Promise<boolean>((resolve) => {
+			client.onDisconnect(() => resolve(true));
+			setTimeout(() => resolve(false), 200);
+		});
+
+		await expect(disconnected).resolves.toBe(true);
+	});
+
 	it("transfers writable ownership to the newest console client", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a resident console replaced while its UI was still starting staying open until Ctrl+D, because its disconnect listener was registered after the connection closed
 - Fixed the resident console hiding a reply that finished after the console attached mid-message
 - Fixed the resident console client dropping a live event that arrived in the same socket read as the attach response, before the caller could register its event listener
 - Fixed the resident console replacing a multibyte character split across socket reads with U+FFFD in snapshots, live events and prompts

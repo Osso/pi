@@ -208,6 +208,7 @@ export class ResidentConsoleClient<Entry, Event> {
 	private readonly closeListeners = new Set<(error?: Error) => void>();
 	private buffer = "";
 	private closed = false;
+	private closeError?: Error;
 
 	private constructor(socket: Socket, snapshot: ResidentConsoleSnapshot<Entry>, remainingBuffer: string) {
 		this.socket = socket;
@@ -252,6 +253,8 @@ export class ResidentConsoleClient<Entry, Event> {
 	}
 
 	onDisconnect(listener: (error?: Error) => void): () => void {
+		// A console replaced while its UI was still starting must still learn that it disconnected.
+		if (this.closed) queueMicrotask(() => listener(this.closeError));
 		this.closeListeners.add(listener);
 		return () => this.closeListeners.delete(listener);
 	}
@@ -317,6 +320,7 @@ export class ResidentConsoleClient<Entry, Event> {
 	private finish(error?: Error): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.closeError = error;
 		this.socket.off("data", this.onData);
 		const failure = error ?? new Error("Resident console disconnected");
 		for (const pending of this.pendingPrompts.values()) pending.reject(failure);
