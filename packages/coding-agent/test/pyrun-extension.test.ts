@@ -2306,7 +2306,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(jobId).toEqual(expect.any(String));
 		if (!jobId) throw new Error("Detached Pyrun result has no background job ID");
 
-		await waitFor(() => hasProjectedLifecycle(store, jobId, "completed"), "detached bridge completion");
+		await waitFor(
+			() => hasProjectedLifecycle(store, jobId, "completed"),
+			"detached bridge completion",
+			SLOW_DETACHED_COMPLETION_ATTEMPTS,
+		);
 		expect(toolCalls).toBe(1);
 	});
 
