@@ -949,6 +949,40 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("rejects indexed session IDs when their transcript is missing", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-missing-indexed-"));
+		vi.stubEnv(ENV_AGENT_DIR, tempDir);
+		try {
+			const sessionDir = join(tempDir, "sessions", "other");
+			const supervisorDir = join(tempDir, "sessions", "supervisor");
+			mkdirSync(sessionDir, { recursive: true });
+			mkdirSync(supervisorDir, { recursive: true });
+			const saved = SessionManager.create("/repo", sessionDir, { id: "missing-indexed-session" });
+			saved.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			const supervisor = SessionManager.create("/repo", supervisorDir, { id: "supervisor" });
+			const controlDbPath = join(tempDir, "control.sqlite");
+			saved.setMetadataControlDbPath(controlDbPath);
+			supervisor.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(supervisor);
+			const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: supervisor }, store });
+
+			const savedFile = saved.getSessionFile();
+			if (!savedFile) throw new Error("Missing saved session file");
+			rmSync(savedFile);
+			const result = await harness.call("attach_session_agent", {
+				displayName: "Missing saved work",
+				sessionId: "missing-indexed-session",
+			});
+
+			expect(result.content).toEqual([{ type: "text", text: "Could not attach session: session not found." }]);
+			expect(harness.store.listAgents()).toEqual([]);
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("attaches a relocated session by path with its current cwd", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-cwd-"));
 		try {

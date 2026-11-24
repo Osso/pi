@@ -1,4 +1,4 @@
-import { createReadStream, type Dirent } from "node:fs";
+import { createReadStream, type Dirent, existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -46,14 +46,17 @@ async function readSessionHeader(path: string): Promise<AttachSessionInfo | unde
 
 function readMatchingSessionMetadata(sessionId: string, controlDbPath: string | undefined): AttachSessionInfo[] {
 	if (!controlDbPath) return [];
-	return listActiveSessionMetadata(controlDbPath)
-		.filter((metadata) => metadata.id.startsWith(sessionId))
-		.map((metadata) => ({
-			id: metadata.id,
-			cwd: metadata.cwd,
-			name: metadata.name || metadata.subagentName,
-			path: metadata.sessionPath,
-		}));
+	return (
+		listActiveSessionMetadata(controlDbPath)
+			// A stale index row whose transcript was deleted is not a saved session.
+			.filter((metadata) => metadata.id.startsWith(sessionId) && existsSync(metadata.sessionPath))
+			.map((metadata) => ({
+				id: metadata.id,
+				cwd: metadata.cwd,
+				name: metadata.name || metadata.subagentName,
+				path: metadata.sessionPath,
+			}))
+	);
 }
 
 async function appendMatchingDirectorySessions(

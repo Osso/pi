@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `attach_session_agent` with a session ID no longer attaches an indexed session whose transcript file was deleted; it reports the session as not found
 - A rate-limited background compaction no longer starts the foreground compaction cooldown, so a later context overflow is still compacted and retried
 - `ls` delegated to `rtk` no longer fails with the raw listing as its error when the listing exceeds the capture buffer; it applies the entry and byte limits to the captured lines
 - Replies hidden by the duplicate-turn guard no longer reappear when the chat is rebuilt, for example after toggling Hide thinking in `/settings`
