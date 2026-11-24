@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the cross-host relay failing an import and dropping a not-running notice when two sender sessions sent messages with the same per-session ID to a stopped session
 - Fixed one failing Supervisor reminder acknowledgement blocking other acknowledgements, due-task polling and release of dropped reminders
 - Fixed `image_gen` reporting a timeout as the generic `Request was aborted` error
 - Fixed `/sandbox` labelling Workspace Write as "Default/Workspace Write", although an unset profile runs tools unsandboxed

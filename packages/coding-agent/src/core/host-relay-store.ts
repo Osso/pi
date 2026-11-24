@@ -174,7 +174,8 @@ function queueNotRunningNotice(
 		recipientHost: peer,
 		recipient: sender,
 		sender: recipient,
-		storeRef: { sessionPath: `relay:${peer}`, messageId: id },
+		// Message IDs are per sender session, so the sender's session path keeps two senders' notices apart.
+		storeRef: { sessionPath: `relay:${peer}:${message.sessionPath}`, messageId: id },
 		message: {
 			id,
 			kind: "system",

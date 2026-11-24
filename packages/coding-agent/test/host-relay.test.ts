@@ -217,6 +217,57 @@ describe("cross-host relay", () => {
 		connection.stop();
 		await connection.done;
 	});
+	it("tells each sender session when their same-numbered messages wait for a stopped session", async () => {
+		// Message IDs are allocated per sender session, so two fresh sessions both send `message_1`.
+		const stopped = { sessionId: "stopped-session", agentId: null };
+		const senders = [
+			{
+				address: { sessionId: "sender-one", agentId: null },
+				path: "/laptop/one.jsonl",
+				body: "Check the first report",
+			},
+			{
+				address: { sessionId: "sender-two", agentId: null },
+				path: "/laptop/two.jsonl",
+				body: "Check the second report",
+			},
+		];
+		for (const sender of senders) {
+			enqueueStoredRuntimeMailboxMessage(dbA, {
+				kind: "message",
+				recipient: stopped,
+				sender: sender.address,
+				recipientHost: "agent-server",
+				storeRef: { sessionPath: sender.path, messageId: "message_1" },
+				message: {
+					id: "message_1",
+					kind: "message",
+					status: "pending",
+					fromAgentId: "main",
+					toAgentId: "main",
+					body: sender.body,
+					createdAt: new Date().toISOString(),
+				},
+			});
+		}
+		const connection = connect();
+		const notices = () =>
+			withControlDb(dbA, (sql) =>
+				sql
+					.prepare(
+						"SELECT json_extract(data, '$.recipientSessionId') AS recipient, json_extract(data, '$.body') AS body FROM multi_agent_mailbox_messages WHERE json_extract(data, '$.kind') = 'system' ORDER BY recipient",
+					)
+					.all(),
+			);
+		await expect.poll(notices).toEqual(
+			senders.map((sender) => ({
+				recipient: sender.address.sessionId,
+				body: `Not delivered yet: session stopped-session on host agent-server is not running. "${sender.body}" stays queued for up to 24 hours until that session runs.`,
+			})),
+		);
+		connection.stop();
+		await connection.done;
+	});
 	it("sends no not-running notice back for a reply to a stopped session", async () => {
 		// The Supervisor parses every reply-prefixed message as JSON, so a text notice crashed its mailbox delivery.
 		sendSupervisorReply(
