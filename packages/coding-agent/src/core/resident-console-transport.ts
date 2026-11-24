@@ -203,6 +203,8 @@ export class ResidentConsoleClient<Entry, Event> {
 	private readonly socket: Socket;
 	private readonly pendingPrompts = new Map<string, PendingPrompt>();
 	private readonly listeners = new Set<(event: ResidentConsoleEvent<Event>) => void>();
+	/** Events received before the first listener registered, such as one coalesced with the attach response. */
+	private readonly unheardEvents: ResidentConsoleEvent<Event>[] = [];
 	private readonly closeListeners = new Set<(error?: Error) => void>();
 	private buffer = "";
 	private closed = false;
@@ -245,6 +247,7 @@ export class ResidentConsoleClient<Entry, Event> {
 
 	onEvent(listener: (event: ResidentConsoleEvent<Event>) => void): () => void {
 		this.listeners.add(listener);
+		for (const event of this.unheardEvents.splice(0)) this.emitEvent(event);
 		return () => this.listeners.delete(listener);
 	}
 
@@ -284,6 +287,7 @@ export class ResidentConsoleClient<Entry, Event> {
 	}
 
 	private emitEvent(event: ResidentConsoleEvent<Event>): void {
+		if (this.listeners.size === 0) this.unheardEvents.push(event);
 		for (const listener of this.listeners) {
 			try {
 				listener(event);

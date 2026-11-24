@@ -206,6 +206,34 @@ describe("ResidentConsoleClient", () => {
 		expect(client.snapshot.branch).toEqual([{ value: "café" }]);
 	});
 
+	it("delivers a live event that arrives in the same read as the attach response", async () => {
+		const path = socketPath();
+		let sendSecondEvent = () => {};
+		const fake = createServer((socket) => {
+			socket.once("data", () => {
+				const attached = JSON.stringify({ type: "attached", version: 1, ...snapshot() });
+				const first = JSON.stringify({ type: "event", sequence: 1, event: { type: "agent_start" } });
+				socket.write(`${attached}\n${first}\n`);
+				sendSecondEvent = () =>
+					socket.write(`${JSON.stringify({ type: "event", sequence: 2, event: { type: "agent_end" } })}\n`);
+			});
+		});
+		resources.push({ close: () => new Promise<void>((resolve) => fake.close(() => resolve())) });
+		await new Promise<void>((resolve) => fake.listen(path, () => resolve()));
+
+		const client = await ResidentConsoleClient.connect<{ value: string }, { type: string }>({
+			socketPath: path,
+			service: "architect",
+		});
+		resources.push(client);
+		const sequences: number[] = [];
+		client.onEvent((event) => sequences.push(event.sequence));
+		sendSecondEvent();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(sequences).toEqual([1, 2]);
+	});
+
 	it("transfers writable ownership to the newest console client", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
