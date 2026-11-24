@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed child agents loading project resources such as `.pi/rules/` from a project the parent did not trust (for example under `--no-approve`); children in the parent's cwd now share its trust decision
 - Fixed class-based extension tools losing a prototype `prepareArguments` hook, so legacy arguments failed validation instead of being normalized
 - Fixed `attach_session_agent({ path })` running the attached agent in the session's initial cwd instead of its current cwd after that session changed directory
 - Fixed `change_working_directory({ id })` adopting the referenced session's initial cwd instead of its current cwd after that session changed directory

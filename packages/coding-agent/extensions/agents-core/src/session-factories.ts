@@ -6,6 +6,8 @@ import type { AgentSnapshot, MultiAgentStore } from "../../../src/core/multi-age
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
 import { type SessionEntry, SessionManager } from "../../../src/core/session-manager.ts";
+import { SettingsManager } from "../../../src/core/settings-manager.ts";
+import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../../src/core/trust-manager.ts";
 import { bindProductionChildSession } from "./child-session.ts";
 import { createChildTools } from "./child-tools.ts";
 import {
@@ -243,6 +245,7 @@ function childSessionOptions(
 	ctx: ExtensionContext,
 ): CreateAgentSessionOptions {
 	const profile = resolveChildAgentProfile(agent, ctx);
+	const agentDir = options.agentDir ?? getAgentDir();
 	return {
 		agentDir: options.agentDir,
 		customTools: createChildTools(
@@ -261,8 +264,17 @@ function childSessionOptions(
 		multiAgentRequiresAgentId: true,
 		multiAgentRuntimeRole: "child",
 		multiAgentStore: options.multiAgentStore,
+		settingsManager: SettingsManager.create(agent.cwd, agentDir, {
+			projectTrusted: resolveChildProjectTrusted(agent.cwd, ctx, agentDir),
+		}),
 		thinkingLevel: profile.thinkingLevel,
 	};
+}
+
+/** A child in the parent's cwd shares its trust decision; another cwd uses its stored decision without prompting. */
+function resolveChildProjectTrusted(cwd: string, ctx: ExtensionContext, agentDir: string): boolean {
+	if (cwd === ctx.cwd && ctx.settingsManager) return ctx.settingsManager.isProjectTrusted();
+	return new ProjectTrustStore(agentDir).get(cwd) ?? !hasTrustRequiringProjectResources(cwd);
 }
 
 function resolveChildAgentTools(agent: AgentSnapshot, tools: string[] | undefined): string[] | undefined {
