@@ -296,10 +296,14 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		scheduledWait: { reviewAt: string; epoch: number },
 		callbacks: GoalWaitCallbacks,
 	): Promise<void> {
-		const waitResult = await this.options.pi.callTool("wait_agent", {}, controller.signal);
-		if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
-		const waitError = toolError(waitResult, "wait_agent");
-		if (waitError) throw waitError;
+		let waitResult: AgentToolResult<unknown>;
+		// A timed-out wait slice is not a wake: wait again until a real wake or the review deadline aborts the wait.
+		do {
+			waitResult = await this.options.pi.callTool("wait_agent", {}, controller.signal);
+			if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
+			const waitError = toolError(waitResult, "wait_agent");
+			if (waitError) throw waitError;
+		} while ((waitResult.details as { timedOut?: boolean } | undefined)?.timedOut === true);
 		if (!this.claimWaitReview(ctx, scheduledWait.epoch)) return;
 		callbacks.onAgentWake();
 		// Like the timed path: a running turn reviews after it ends, and the retry keeps the wait owning that review.

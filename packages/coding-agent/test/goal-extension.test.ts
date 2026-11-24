@@ -1910,6 +1910,45 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("keeps waiting for the review deadline when a wait_agent slice times out", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "child running" })
+				.mockResolvedValueOnce({ kind: "pause", reason: "reassessed at deadline" });
+			const harness = createGoalHarness(cwd, {
+				callTool: async (name, _params, signal) => {
+					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
+					await new Promise<void>((resolve) => {
+						const timer = setTimeout(resolve, 25 * 60 * 1_000);
+						signal?.addEventListener("abort", () => {
+							clearTimeout(timer);
+							resolve();
+						});
+					});
+					return {
+						content: [{ type: "text", text: "Wait slice timed out: agents are still running." }],
+						details: { timedOut: true },
+					};
+				},
+				reviewGoal,
+			});
+			await harness.runCommand("set wait across slices");
+			await harness.runAgentEnd();
+			await Promise.resolve();
+
+			await vi.advanceTimersByTimeAsync(50 * 60 * 1_000);
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("falls back to timed review when wait_agent returns an error result", async () => {
 		vi.useFakeTimers();
 		try {
