@@ -41,6 +41,8 @@ export function shouldContinueInterruptedSession(messages: readonly AgentMessage
 		lastMessage.role === "assistant" ? lastMessage : findTrailingAssistantToolBatch(relevantMessages.slice(0, -1));
 	if (!assistant) return lastMessage.role === "toolResult";
 	if (assistant.stopReason === "aborted") return true;
+	// An output-limit stop is terminal: its tool calls never ran and the run settled (end-turn-tool spec).
+	if (assistant.stopReason === "length") return false;
 	const toolCalls = assistant.content.filter((content) => content.type === "toolCall");
 	if (isCompletedEndTurnBatch(relevantMessages, toolCalls)) return false;
 	return toolCalls.length > 0 && toolCalls.every((content) => content.name !== "resume_session");

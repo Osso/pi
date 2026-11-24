@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed restored sessions resuming a settled run whose last reply was cut off by the output limit inside a tool call
 - Fixed Codex restriction recovery reporting a failed retry (`auto_retry_end` with no `auto_retry_start`) when its policy validation ended in an error
 - Fixed the goal completion wait countdown replacing the rejected completion report in its Supervisor status block; the submitted report now stays visible
 - Fixed a child agent that finished during the parent's running turn letting that turn's end replace the pending goal completion re-review, which lost the completion report
