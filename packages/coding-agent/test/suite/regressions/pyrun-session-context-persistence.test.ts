@@ -162,7 +162,9 @@ describe("Pyrun session context", () => {
 				expect(after.line).toMatch(/^probe calls=2 /);
 				await pi.crash();
 			},
-			{ autoDetachTools: true, env: { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "1000" } },
+			// A call that waited on the busy session would never answer, so any detach delay proves it failed at once.
+			// The busy reply's round trip measured up to 936 ms on a loaded host; 1 s detached it early.
+			{ autoDetachTools: true, env: { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "3000" } },
 		);
 	}, 60_000);
 });
