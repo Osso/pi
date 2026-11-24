@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed "request rate increased too quickly" errors (OpenAI `slow_down`, Alibaba Qwen) not being retried as rate limits (port of upstream 0888fd79a)
 - Fixed Mistral requests sending a null header override as the literal value "null" and combining a mixed-case caller `X-Affinity` header with the session default
 - Fixed Amazon Bedrock ignoring a stored or explicit API key as the bearer token, and kept compat dispatch from sending the ambient AWS auth marker as a token (port of upstream 3ea064ea2 and 850c210b7)
 - Fixed GPT-6.2 dropping earlier reasoning as `prefix_mismatch` after the OpenAI Codex WebSocket connection expired, because replayed tool calls lacked the `status: "completed"` the API had returned on them (port of upstream [#12367](https://github.com/earendil-works/pi/issues/12367))

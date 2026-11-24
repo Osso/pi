@@ -15,6 +15,15 @@ const bedrockExplicitRetryMessage =
 	'{"message":"The system encountered an unexpected error during processing. Try your request again."}';
 
 describe("provider retry classification", () => {
+	it.each([
+		"Your request rate increased too quickly",
+		"Request rate increased too quickly. To ensure system stability, please adjust your client logic to scale requests more smoothly over time.",
+	])("retries request-rate throttle wording as a rate limit: %s", (errorMessage) => {
+		// Upstream #12240 and #2952: OpenAI 429 `slow_down` (Codex) and Alibaba Qwen.
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+		expect(classifyProviderErrorText(errorMessage).kind).toBe("rate_limited");
+	});
+
 	// Regression for #12124: the Codex WebSocket lifetime limit is recoverable on a fresh connection.
 	it.each([
 		// Regression for upstream #12227: gateway mid-stream `event: error` frames without a status code.

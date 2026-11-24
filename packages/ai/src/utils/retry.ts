@@ -77,6 +77,8 @@ const NON_RETRYABLE_REASON_PATTERN = buildProviderErrorPattern([
 const RATE_LIMIT_PATTERN = buildProviderErrorPattern([
 	"rate.?limit",
 	"too many requests",
+	// OpenAI 429 `slow_down` (Codex) and Alibaba Qwen throttle wording (upstream #12240, #2952).
+	"rate increased too quickly",
 	"\\b429\\b",
 	"^Throttling error:",
 ]);
