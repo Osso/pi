@@ -88,6 +88,17 @@ describe("resident console command", () => {
 		expect((ui as unknown as ResidentConsoleUiInternals).chat.children).toHaveLength(1);
 	});
 
+	it("shows a reply that finished after the console attached mid-message", () => {
+		const ui = createResidentConsoleUi();
+		const reply = createAssistantMessage("final visible reply");
+
+		residentConsoleUi.handleEvent.call(ui, { type: "message_end", message: reply });
+
+		const chat = (ui as unknown as ResidentConsoleUiInternals).chat;
+		expect(chat.children).toHaveLength(1);
+		expect(chat.render(80).join("\n")).toContain("final visible reply");
+	});
+
 	it("recognizes the Architect console flag with an optional initial prompt; --supervisor is gone", () => {
 		expect(parseResidentConsoleArgs(["--supervisor"])).toBeUndefined();
 		expect(parseResidentConsoleArgs(["--architect"])).toEqual({ service: "architect" });

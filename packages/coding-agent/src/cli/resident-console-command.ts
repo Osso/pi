@@ -140,6 +140,8 @@ export class ResidentConsoleUi extends Container implements Focusable {
 				if (this.streamingAssistant) this.chat.removeChild(this.streamingAssistant);
 				this.streamingAssistant = undefined;
 			} else {
+				// A console attached mid-message saw no message_start; the reply is not in its snapshot yet.
+				if (!this.streamingAssistant) this.startMessage(event.message, event.runtimeMessageMarker);
 				this.streamingAssistant?.updateContent(event.message);
 				this.streamingAssistant = undefined;
 			}

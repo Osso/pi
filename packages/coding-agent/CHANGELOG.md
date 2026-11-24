@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the resident console hiding a reply that finished after the console attached mid-message
 - Fixed the resident console client dropping a live event that arrived in the same socket read as the attach response, before the caller could register its event listener
 - Fixed the resident console replacing a multibyte character split across socket reads with U+FFFD in snapshots, live events and prompts
 - Fixed `after_tool_result` steering staying pending forever when the child turn ended without another tool result, which let the child complete without receiving it
