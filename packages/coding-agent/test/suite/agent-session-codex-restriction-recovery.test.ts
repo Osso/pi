@@ -409,6 +409,20 @@ describe("Codex restriction rescope", () => {
 		).toBe(true);
 	});
 
+	it("reports no retry when policy validation fails", async () => {
+		const harness = await createRecoveryHarness(async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }));
+		harness.setResponses([
+			restriction(),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "Validation failed" }),
+		]);
+
+		await harness.session.prompt(ORIGINAL);
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+		expect(harness.eventsOfType("auto_retry_end")).toHaveLength(0);
+	});
+
 	it.each(["model", "goal", "request"] as const)("discards advice after a real %s change", async (change) => {
 		let release: (() => void) | undefined;
 		const pending = new Promise<void>((resolve) => {

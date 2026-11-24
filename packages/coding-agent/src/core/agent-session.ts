@@ -187,7 +187,7 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 type PostAgentRunContinuation = "normal" | "queued";
 
 interface ThinkingTimeoutDispatch {
-	recoveryUsed: boolean;
+	recoveryUsed: false | "retry" | "validation"; // Restriction validation spends it without announcing a retry.
 	cancelled: boolean;
 }
 
@@ -832,7 +832,7 @@ export class AgentSession {
 				this.agent.state.tools = tools;
 			},
 			markThinkingRecoveryUsed: () => {
-				if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.recoveryUsed = true;
+				if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.recoveryUsed = "validation";
 			},
 		});
 
@@ -1611,7 +1611,7 @@ export class AgentSession {
 	private async _recoverThinkingTimeout(dispatch: ThinkingTimeoutDispatch, timeoutError: Error): Promise<void> {
 		if (!this._isThinkingTimeoutDispatchActive(dispatch)) return;
 		if (dispatch.recoveryUsed) throw timeoutError;
-		dispatch.recoveryUsed = true;
+		dispatch.recoveryUsed = "retry";
 		this._emit({
 			type: "auto_retry_start",
 			attempt: 1,
@@ -2148,7 +2148,7 @@ export class AgentSession {
 	}
 
 	private _finishThinkingTimeoutDispatch(dispatch: ThinkingTimeoutDispatch, finalError?: string): void {
-		if (dispatch.recoveryUsed) {
+		if (dispatch.recoveryUsed === "retry") {
 			const cancellationError = dispatch.cancelled ? "Retry cancelled" : undefined;
 			const reportedError = cancellationError ?? finalError ?? this._findLastAssistantMessage()?.errorMessage;
 			this._emit({
@@ -4731,7 +4731,7 @@ export class AgentSession {
 	/** Whether an automatic retry attempt has started and has not yet settled. */
 	get hasActiveRetry(): boolean {
 		const dispatch = this._thinkingTimeoutDispatch;
-		return this._retryAttempt > 0 || (dispatch?.recoveryUsed === true && !dispatch.cancelled);
+		return this._retryAttempt > 0 || (!!dispatch?.recoveryUsed && !dispatch.cancelled);
 	}
 
 	/** From a turn's start to its agent_settled event: the agent is idle while a retry or compaction is pending. */
