@@ -198,8 +198,7 @@ class AgentSwitcherList implements Component {
 			return;
 		}
 		if (kb.matches(keyData, "app.agent.toggleClosed")) {
-			this.showClosedAgents = !this.showClosedAgents;
-			this.selectedIndex = Math.min(this.selectedIndex, this.agentRows.length);
+			this.toggleClosedAgents();
 			return;
 		}
 		if (kb.matches(keyData, "tui.select.confirm")) {
@@ -209,6 +208,15 @@ class AgentSwitcherList implements Component {
 		if (kb.matches(keyData, "tui.select.cancel")) {
 			this.onCancel();
 		}
+	}
+
+	/** Keeps the highlighted agent: the toggle only adds or removes closed rows around it. */
+	private toggleClosedAgents(): void {
+		const highlightedId = this.agentRows[this.selectedIndex - 1]?.agent.id;
+		this.showClosedAgents = !this.showClosedAgents;
+		const highlightedRow = this.agentRows.findIndex((row) => row.agent.id === highlightedId);
+		this.selectedIndex =
+			highlightedRow === -1 ? Math.min(this.selectedIndex, this.agentRows.length) : highlightedRow + 1;
 	}
 
 	private confirmSelection(): void {

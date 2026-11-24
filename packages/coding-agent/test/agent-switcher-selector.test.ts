@@ -142,6 +142,28 @@ describe("AgentSwitcherComponent", () => {
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 
+	it("keeps the highlighted agent when closed agents are shown", () => {
+		setKeybindings(new KeybindingsManager({ "app.agent.toggleClosed": "ctrl+x" }));
+		const onSelect = vi.fn();
+		const component = new AgentSwitcherComponent(
+			[
+				agent({ id: "agent-1", displayName: "Done", lifecycle: "completed" }),
+				agent({ id: "agent-2", displayName: "Scout" }),
+				agent({ id: "agent-3", displayName: "Builder" }),
+			],
+			undefined,
+			onSelect,
+			() => {},
+		);
+
+		component.handleInput("\u001b[B");
+		component.handleInput("\u001b[B");
+		component.handleInput("\u0018");
+		component.handleInput("\r");
+
+		expect(onSelect).toHaveBeenCalledWith("agent-3");
+	});
+
 	it("does not hardcode enter when confirm is remapped", () => {
 		setKeybindings(new KeybindingsManager({ "tui.select.confirm": "ctrl+x" }));
 		const onSelect = vi.fn();
