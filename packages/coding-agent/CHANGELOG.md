@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A goal completion review that pauses now cancels an earlier completion wait from the same run, so the stale wait no longer re-reviews and restarts work 55 minutes later
 - `manage_goal set` no longer drops the current objective when an approved clause only starts with its text, such as `Fix login` and `Fix login timeout in Firefox`
 - Fixed a `/tree` summarized navigation rejected during compaction clearing the compaction progress and cancel hint
 - Fixed `/tree` reporting "Already at this point" for a prompt left selected while its response finished, instead of navigating to it

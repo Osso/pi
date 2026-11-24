@@ -2380,6 +2380,32 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("drops an earlier completion wait when a later completion review in the run pauses", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "canary still running" })
+				.mockResolvedValueOnce({ kind: "pause", reason: "The user must approve the rollout." })
+				.mockResolvedValue({ kind: "continue", reason: "stale wait", instructions: "Continue." });
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set roll out the canary");
+			await harness.runGoalComplete("Canary is healthy.");
+			await harness.runGoalComplete("Rollout still needs approval.");
+			harness.sendMessage.mockClear();
+			harness.sendUserMessage.mockClear();
+
+			await harness.runAgentEnd();
+			await vi.advanceTimersByTimeAsync(55 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+			expect(harness.sendMessage).not.toHaveBeenCalled();
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("displays the Supervisor reason when completion review pauses the goal", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),

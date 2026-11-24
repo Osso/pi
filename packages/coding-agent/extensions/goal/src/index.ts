@@ -625,7 +625,11 @@ function registerManageGoal(
 			beforeGoalSave: () => runtime.clearGoalSchedules(ctx.sessionManager.getSessionId()),
 		});
 		const details = result.details as { completionPaused?: boolean } | undefined;
-		if (details?.completionPaused) runtime.completionPausedSessions.add(ctx.sessionManager.getSessionId());
+		if (details?.completionPaused) {
+			// The pause supersedes any earlier completion wait from this run.
+			runtime.completionScheduler.clearSession(ctx.sessionManager.getSessionId());
+			runtime.completionPausedSessions.add(ctx.sessionManager.getSessionId());
+		}
 		return result;
 	});
 }
