@@ -3650,14 +3650,15 @@ export class InteractiveMode {
 			await this.init();
 		}
 
-		// The thinking timer runs for the main session even while a child view hides its events.
+		// The thinking timer and idle notification follow the main session even while a child view hides its events.
 		if (event.type === "model_request_start") this.startThinkingTimer();
 		if (event.type === "model_request_end") this.stopThinkingTimer();
+		if (event.type === "agent_start") this.closeResponseCompleteNotification();
+		if (event.type === "agent_end") this.notifyResponseComplete(event);
 		if (this.handleHiddenMainSessionDisplayEvent(event)) return;
 
 		switch (event.type) {
 			case "agent_start":
-				this.closeResponseCompleteNotification();
 				this.clearPendingToolComponents();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
@@ -3859,7 +3860,6 @@ export class InteractiveMode {
 
 			case "agent_end":
 				this.cancelPartialUpdateRender();
-				this.notifyResponseComplete(event);
 				this.stopThinkingTimer();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();

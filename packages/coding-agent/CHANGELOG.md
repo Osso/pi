@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the "Pi response complete" desktop notification being skipped, and a stale one left open, when the main session finished or restarted while a child agent transcript was selected
 - Fixed `pi login --help` writing its usage to stderr; requested help now goes to stdout
 - Fixed syntax highlighting of `Dockerfile` and `Makefile` when the path includes a directory (for example `read app/Dockerfile`)
 - Fixed `/usage` reporting an OpenAI Codex account as not logged in when its OAuth token refresh failed; the row now shows the refresh error

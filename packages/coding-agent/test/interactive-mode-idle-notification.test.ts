@@ -66,7 +66,7 @@ type HandleEventContext = {
 	isInitialized: boolean;
 	currentWorkingDefaultMessage: string;
 	loadingAnimation: Loader | undefined;
-	multiAgentStore: undefined;
+	multiAgentStore: { getSelectedAgentId(): string | undefined; getAgent(id: string): unknown } | undefined;
 	pendingTools: Map<string, { dispose(): void }>;
 	promptActivitySources: Set<string>;
 	retryCountdown: { dispose(): void } | undefined;
@@ -298,6 +298,17 @@ describe("InteractiveMode idle desktop notifications", () => {
 			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "x", partial: assistantMessage },
 		});
 		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
+	});
+
+	it("notifies when the main session finishes while a child transcript is selected", async () => {
+		const context = createContext();
+		context.multiAgentStore = { getSelectedAgentId: () => "agent_1", getAgent: () => ({ id: "agent_1" }) };
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
+		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: false });
+
+		expect(desktopNotifier).toHaveBeenCalledWith(expect.objectContaining({ title: "Pi response complete" }));
 	});
 
 	it("does not notify while the agent is about to retry", async () => {
