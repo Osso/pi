@@ -132,12 +132,18 @@ export function launchDetachedPyrunRunner(manifestPath: string, options?: { entr
 	return child.pid;
 }
 
+function sessionCwd(manifest: DetachedPyrunLaunchManifest): string {
+	const cwd = manifest.runnerOptions.cwd;
+	if (!cwd) throw new Error("Detached Pyrun launch manifest has no cwd for its named session");
+	return cwd;
+}
+
 export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision?: number }> {
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
 	const releaseControlDb = retainControlDbConnection(manifest.controlDbPath);
 	try {
 		const runner = manifest.sessionSocketPath
-			? new PyrunSessionClient(manifest.sessionSocketPath, manifest.supervisorProcessIdentity)
+			? new PyrunSessionClient(manifest.sessionSocketPath, manifest.supervisorProcessIdentity, sessionCwd(manifest))
 			: new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false, inheritedProcessGroupId: process.pid });
 		try {
 			const output = new PyrunArtifactWriter(manifest.artifacts.outputPath);

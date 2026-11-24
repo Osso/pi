@@ -75,6 +75,20 @@ describe("Pyrun session context", () => {
 		await vi.waitFor(() => expect(isAlive(proxyPid)).toBe(false), { interval: 100, timeout: 10_000 });
 	}, 60_000);
 
+	// Agents name almost every call; one proxy process per name held about 60 MB each and exhausted host RAM.
+	it("hosts every named session of a Pi process in one proxy with separate ctx", async () => {
+		await withHeadlessPi(async (pi) => {
+			await pi.send({ type: "prompt", message: "Probe two named Pyrun sessions" });
+			const first = await runProbe(pi, await pi.waitForLlmRequest((request) => request.agentId === null), "alpha");
+			const proxyPid = Number(first.line.split("parent=")[1]);
+			const other = await runProbe(pi, first.next, "beta");
+			expect(other.line).toMatch(new RegExp(`^probe calls=1 cwd=\\S+ parent=${proxyPid}$`));
+			const again = await runProbe(pi, other.next, "alpha");
+			expect(again.line).toMatch(new RegExp(`^probe calls=2 cwd=\\S+ parent=${proxyPid}$`));
+			await pi.crash();
+		});
+	}, 60_000);
+
 	it("stops an idle named session while its Pi process keeps running", async () => {
 		await withHeadlessPi(
 			async (pi) => {

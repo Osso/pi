@@ -85,16 +85,10 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 async function ensureSessionProxy(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 ): Promise<string | undefined> {
-	const pyrunSessionId = input.params.session_id;
-	if (!pyrunSessionId) return undefined;
+	if (!input.params.session_id) return undefined;
 	const sessionPath = input.store.getPersistenceTarget()?.sessionPath;
 	if (!sessionPath) throw new Error("Pyrun session proxy requires a persisted session");
-	return ensurePyrunSessionProxy({
-		cwd: input.ctx.cwd,
-		pyrunSessionId,
-		runnerOptions: input.runnerOptions,
-		sessionPath,
-	});
+	return ensurePyrunSessionProxy({ runnerOptions: input.runnerOptions, sessionPath });
 }
 
 function createPyrunLifecycleController(

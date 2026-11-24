@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed every distinct Pyrun `session_id` starting its own proxy process (about 50 MB each); one proxy per Pi session now hosts all named Pythons
 - Fixed `--session claude/<id>` imports mixing Claude Code subagent sidechain messages into the main conversation
 - Fixed `list_agents` with `parentId: "main"` omitting sessions attached without a parent
 - Fixed Wayland image paste inserting a stale X11 clipboard image when the Wayland clipboard holds no image (port of upstream caf6dfe73)

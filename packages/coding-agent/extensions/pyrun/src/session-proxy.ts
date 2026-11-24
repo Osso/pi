@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../../src/config.ts";
@@ -25,12 +25,14 @@ import {
 
 /**
  * A `pyrun_eval` with a `session_id` runs in that named session's long-lived Python, so `ctx` persists
- * across calls and Pi restarts. Names are scoped to the Pi session and shared by its agents. Each durable
- * evaluation runner sends its request to the session's proxy over a Unix socket in the pyrun-jsonl line
+ * across calls and Pi restarts. Names are scoped to the Pi session and shared by its agents. One proxy per
+ * Pi session (and sandbox) hosts every named Python, so a name costs one Python, not another proxy process.
+ * Each durable evaluation runner sends its request to the proxy over a Unix socket in the pyrun-jsonl line
  * protocol. A call to a session that is still running an evaluation fails at once instead of waiting.
- * The proxy exits when no evaluation is connected and either its owner Pi process is gone or it has been
- * idle for an hour. A restart keeps the Pi process ID, so without the idle limit every named session an
- * agent ever used would keep its Python for the life of the session.
+ * A named Python stops once it has been idle for an hour, or as soon as it is idle after its owner Pi process
+ * is gone; the proxy exits when it has no Python and no connection. A restart keeps the Pi process ID, so
+ * without the idle limit every named session an agent ever used would keep its Python for the life of the
+ * session.
  */
 export const PYRUN_SESSION_PROXY_MODE = "--internal-pyrun-session-proxy";
 const OWNER_POLL_MS = 2_000;
@@ -45,9 +47,7 @@ interface PyrunSessionProxyConfig {
 }
 
 export interface PyrunSessionProxyTarget {
-	cwd: string;
-	/** The `session_id` the evaluation names. */
-	pyrunSessionId: string;
+	/** Starts each named Python; the request supplies its cwd. */
 	runnerOptions: PyrunRunnerOptions;
 	sessionPath: string;
 }
@@ -62,7 +62,7 @@ function pyrunSessionSocketPath(target: PyrunSessionProxyTarget): string {
 	}
 	// The environment stays out of the key: it can change across a restart without changing the runner.
 	const { command, args } = target.runnerOptions;
-	const key = JSON.stringify([target.sessionPath, target.pyrunSessionId, target.cwd, command, args]);
+	const key = JSON.stringify([target.sessionPath, command, args]);
 	return join(directory, `${createHash("sha256").update(key).digest("hex").slice(0, 24)}.sock`);
 }
 
@@ -104,9 +104,8 @@ async function startPyrunSessionProxy(socketPath: string, target: PyrunSessionPr
 	const logPath = socketPath.replace(/\.sock$/, ".log");
 	const log = openSync(logPath, "w", 0o600);
 	const { args, executable } = pyrunSessionProxyInvocation();
-	// Python inherits this cwd, so relative paths in evaluations resolve against the session directory.
 	const child = spawn(executable, args, {
-		cwd: target.cwd,
+		cwd: dirname(target.sessionPath),
 		detached: true,
 		env: process.env,
 		stdio: ["pipe", log, log],
@@ -142,15 +141,13 @@ export async function runPyrunSessionProxy(): Promise<void> {
 	let owner = config.owner;
 	const idleExitMs = Number(process.env.PI_PYRUN_SESSION_IDLE_MS) || DEFAULT_IDLE_EXIT_MS;
 	let connections = 0;
-	let idleSince = Date.now();
-	const session = { busy: false, client: new PyrunRunnerClient(config.runnerOptions) };
+	const pythons = new Map<string, PyrunSessionPython>();
 	const server = createServer((socket) => {
 		connections += 1;
 		socket.once("close", () => {
 			connections -= 1;
-			idleSince = Date.now();
 		});
-		servePyrunConnection(session, socket, (next) => {
+		servePyrunConnection(pythons, config.runnerOptions, socket, (next) => {
 			owner = next;
 		}).catch(() => socket.destroy());
 	});
@@ -161,14 +158,13 @@ export async function runPyrunSessionProxy(): Promise<void> {
 	});
 	await new Promise<void>((resolve) => {
 		const timer = setInterval(() => {
-			if (connections > 0) return;
-			if (Date.now() - idleSince < idleExitMs && isProcessIdentityAlive(owner)) return;
+			stopIdlePythons(pythons, isProcessIdentityAlive(owner) ? idleExitMs : 0);
+			if (connections > 0 || pythons.size > 0) return;
 			clearInterval(timer);
 			resolve();
 		}, OWNER_POLL_MS);
 	});
 	server.close();
-	session.client.dispose();
 	rmSync(config.socketPath, { force: true });
 	rmSync(config.socketPath.replace(/\.sock$/, ".log"), { force: true });
 }
@@ -176,6 +172,16 @@ export async function runPyrunSessionProxy(): Promise<void> {
 interface PyrunSessionPython {
 	busy: boolean;
 	client: PyrunRunnerClient;
+	idleSince: number;
+}
+
+function stopIdlePythons(pythons: Map<string, PyrunSessionPython>, idleExitMs: number): void {
+	const now = Date.now();
+	for (const [key, python] of pythons) {
+		if (python.busy || now - python.idleSince < idleExitMs) continue;
+		python.client.dispose();
+		pythons.delete(key);
+	}
 }
 
 type JsonLines = AsyncIterator<string>;
@@ -205,7 +211,8 @@ function relayPiRequests(socket: Socket, lines: JsonLines): PyrunPiRequestHandle
 }
 
 async function servePyrunConnection(
-	session: PyrunSessionPython,
+	pythons: Map<string, PyrunSessionPython>,
+	runnerOptions: PyrunRunnerOptions,
 	socket: Socket,
 	setOwner: (owner: ProcessIdentity) => void,
 ): Promise<void> {
@@ -216,10 +223,25 @@ async function servePyrunConnection(
 	const lines = readJsonLines(socket);
 	const first = await lines.next();
 	if (first.done) return;
-	const request = JSON.parse(first.value) as { owner: ProcessIdentity; params: CanonicalPyrunEvalParams };
+	const request = JSON.parse(first.value) as {
+		cwd: string;
+		owner: ProcessIdentity;
+		params: CanonicalPyrunEvalParams;
+	};
 	// A Pi process that resumed the session after its previous process exited takes over ownership.
 	setOwner(request.owner);
-	const reply = await evaluateInSession(session, request.params, socket, lines, abort.signal);
+	// A named session has one Python per cwd: relative paths in evaluations resolve against that cwd.
+	const key = JSON.stringify([request.params.session_id, request.cwd]);
+	let python = pythons.get(key);
+	if (!python) {
+		python = {
+			busy: false,
+			client: new PyrunRunnerClient({ ...runnerOptions, cwd: request.cwd }),
+			idleSince: Date.now(),
+		};
+		pythons.set(key, python);
+	}
+	const reply = await evaluateInSession(python, request.params, socket, lines, abort.signal);
 	writeJsonLine(socket, reply);
 	socket.end();
 }
@@ -245,6 +267,7 @@ async function evaluateInSession(
 		return { error: errorMessage(error), type: "proxy_error" };
 	} finally {
 		session.busy = false;
+		session.idleSince = Date.now();
 	}
 }
 
@@ -279,11 +302,13 @@ function handleProxyReply(line: string, handlers: ProxyReplyHandlers): void {
 
 /** Evaluates through the session proxy with the same contract as `PyrunRunnerClient.evaluate`. */
 export class PyrunSessionClient {
+	private readonly cwd: string;
 	private readonly owner: ProcessIdentity;
 	private socket: Socket | undefined;
 	private readonly socketPath: string;
 
-	constructor(socketPath: string, owner: ProcessIdentity) {
+	constructor(socketPath: string, owner: ProcessIdentity, cwd: string) {
+		this.cwd = cwd;
 		this.owner = owner;
 		this.socketPath = socketPath;
 	}
@@ -313,7 +338,7 @@ export class PyrunSessionClient {
 					fail(new Error(errorMessage(error)));
 				}
 			});
-			writeJsonLine(socket, { owner: this.owner, params });
+			writeJsonLine(socket, { cwd: this.cwd, owner: this.owner, params });
 		});
 	}
 
