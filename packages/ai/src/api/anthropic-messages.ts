@@ -1128,7 +1128,7 @@ function shouldUseFineGrainedToolStreamingBeta(model: Model<"anthropic-messages"
 }
 
 /** additionalProperties tells the model whether extra arguments are allowed; definitions resolve $refs. */
-const KEPT_ROOT_SCHEMA_KEYS = ["additionalProperties", "$defs", "definitions"];
+const KEPT_ROOT_SCHEMA_KEYS = ["additionalProperties", "$schema", "$defs", "definitions"];
 
 function convertTools(
 	tools: Tool[],
@@ -1145,7 +1145,7 @@ function convertTools(
 			name: isOAuthToken ? toClaudeCodeName(tool.name) : tool.name,
 			description: tool.description,
 			...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
-			// Root anyOf/oneOf/allOf get a 400 from Anthropic, so only these root keywords are sent.
+			// Root anyOf/oneOf/allOf get a 400 from Anthropic, so only these root keywords are sent ($schema keeps the dialect).
 			input_schema: {
 				type: "object",
 				properties: schema.properties ?? {},

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic tool schemas dropping the declared `$schema` dialect, so Draft 7 tuple `items` were read under the wrong dialect (port of upstream 4245b07b4)
 - Fixed "request rate increased too quickly" errors (OpenAI `slow_down`, Alibaba Qwen) not being retried as rate limits (port of upstream 0888fd79a)
 - Fixed Mistral requests sending a null header override as the literal value "null" and combining a mixed-case caller `X-Affinity` header with the session default
 - Fixed Amazon Bedrock ignoring a stored or explicit API key as the bearer token, and kept compat dispatch from sending the ambient AWS auth marker as a token (port of upstream 3ea064ea2 and 850c210b7)

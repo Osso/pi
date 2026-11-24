@@ -144,3 +144,23 @@ describe("Anthropic eager tool input streaming compatibility", () => {
 		});
 	});
 });
+
+describe("Anthropic tool input schema", () => {
+	// Upstream #12212: a Draft 7 tuple (`items` array) is read under the wrong dialect without `$schema`.
+	it("keeps the declared JSON Schema dialect", async () => {
+		const parameters = {
+			$schema: "http://json-schema.org/draft-07/schema#",
+			type: "object",
+			properties: {
+				pair: { type: "array", items: [{ type: "string" }, { type: "string" }], minItems: 2, maxItems: 2 },
+			},
+			required: ["pair"],
+		} as unknown as Tool["parameters"];
+		const request = await captureAnthropicRequest(
+			undefined,
+			createContext([{ name: "pair_tool", description: "Takes a pair", parameters }]),
+		);
+
+		expect(getFirstTool(request.body).input_schema).toEqual(parameters);
+	});
+});
