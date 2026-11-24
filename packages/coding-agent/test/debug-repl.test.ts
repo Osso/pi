@@ -62,3 +62,26 @@ it("records promise outcomes and current session identity without expression or 
 	expect(audit).not.toContain("returned-secret");
 	expect(audit).not.toContain("rejected-secret");
 });
+
+it("runs a submission once when it throws an await-like SyntaxError at runtime", async () => {
+	const agentDir = createAgentDir();
+	const runtime = { session: { sessionId: "first", counter: 0 } };
+	const server = new DebugReplServer({ agentDir, getRuntime: () => runtime });
+	await server.enable("first");
+
+	await expect(
+		server.evaluateForTest('(() => { pi.session.counter++; throw new SyntaxError("Unexpected reserved word"); })()'),
+	).rejects.toThrow("Unexpected reserved word");
+
+	expect(runtime.session.counter).toBe(1);
+	await server.disable();
+});
+
+it("accepts a trailing semicolon after a top-level await", async () => {
+	const agentDir = createAgentDir();
+	const server = new DebugReplServer({ agentDir, getRuntime: () => ({ session: { sessionId: "first" } }) });
+	await server.enable("first");
+
+	await expect(server.evaluateForTest("await Promise.resolve(4);")).resolves.toBe(4);
+	await server.disable();
+});

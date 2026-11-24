@@ -212,14 +212,15 @@ export class DebugReplServer {
 	}
 
 	private runExpression(expression: string, context: Context): unknown {
+		// Decide by parsing, not by running: a runtime error must never run the input a second time.
 		try {
-			return runInContext(expression, context);
+			new Script(expression);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			const isTopLevelAwait = /await is only valid|unexpected reserved word/i.test(message);
-			if (!isTopLevelAwait) throw error;
-			return runInContext(`(async () => (${expression}))()`, context);
+			if (error instanceof SyntaxError && /await is only valid|unexpected reserved word/i.test(error.message)) {
+				return runInContext(`(async () => (${expression.trim().replace(/;+$/, "")}))()`, context);
+			}
 		}
+		return runInContext(expression, context);
 	}
 
 	private isIncomplete(source: string): boolean {

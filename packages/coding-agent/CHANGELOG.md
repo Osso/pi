@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- The debug REPL decides on top-level `await` by parsing, so a runtime error that mentions `Unexpected reserved word` no longer runs the input twice, and `await expr;` with a trailing semicolon now works
 - The 20-minute thinking deadline now restarts for each model request, so an `end_turn` continuation after a reply without tool calls no longer inherits the earlier request's deadline and gets aborted early
 - An unknown slash command queued during compaction no longer drops the steering messages queued beside it and leaves them stuck in the queue; only that command is rejected
 - Ctrl+P without another model in scope now says `No other model in scope; use /scoped-models to choose models to cycle` instead of `Only one model available` when several models are available
