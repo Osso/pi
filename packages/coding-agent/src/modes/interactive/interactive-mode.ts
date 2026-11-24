@@ -423,6 +423,12 @@ function findReadableAgentFilePath(agent: AgentSnapshot, label: string): string 
 	return agent.result?.fileRefs?.find((fileRef) => fileRef.label === label && fs.existsSync(fileRef.path))?.path;
 }
 
+function formatAbortedMessage(retryAttempt: number): string {
+	return retryAttempt > 0
+		? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
+		: "Operation aborted";
+}
+
 export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private ui: TUI;
@@ -3772,11 +3778,7 @@ export class InteractiveMode {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
-						const retryAttempt = this.session.retryAttempt;
-						errorMessage =
-							retryAttempt > 0
-								? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-								: "Operation aborted";
+						errorMessage = formatAbortedMessage(this.session.retryAttempt);
 						this.streamingMessage.errorMessage = errorMessage;
 					}
 					this.streamingComponent.updateContent(this.streamingMessage);
@@ -4253,6 +4255,7 @@ export class InteractiveMode {
 		items: RenderableSessionItem[],
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
+		const livePendingTools = new Map(this.pendingTools); // running cards keep their partial output and timers
 		InteractiveMode.prototype.clearPendingToolComponents.call(this);
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		const toolRenderCwd = options.sourceCwd ?? this.sessionManager.getCwd();
@@ -4269,33 +4272,29 @@ export class InteractiveMode {
 				// Render tool call components
 				for (const content of message.content) {
 					if (content.type === "toolCall") {
-						const component = new ToolExecutionComponent(
-							content.name,
-							content.id,
-							content.arguments,
-							{
-								showImages: this.settingsManager.getShowImages(),
-								imageWidthCells: this.settingsManager.getImageWidthCells(),
-								hideOutput: this.settingsManager.getHideToolOutput(),
-							},
-							this.getRegisteredToolDefinition(content.name),
-							this.ui,
-							toolRenderCwd,
-						);
+						const component =
+							livePendingTools.get(content.id) ??
+							new ToolExecutionComponent(
+								content.name,
+								content.id,
+								content.arguments,
+								{
+									showImages: this.settingsManager.getShowImages(),
+									imageWidthCells: this.settingsManager.getImageWidthCells(),
+									hideOutput: this.settingsManager.getHideToolOutput(),
+								},
+								this.getRegisteredToolDefinition(content.name),
+								this.ui,
+								toolRenderCwd,
+							);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
-							let errorMessage: string;
-							if (message.stopReason === "aborted") {
-								const retryAttempt = this.session.retryAttempt;
-								errorMessage =
-									retryAttempt > 0
-										? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-										: "Operation aborted";
-							} else {
-								errorMessage = message.errorMessage || "Error";
-							}
+							const errorMessage =
+								message.stopReason === "aborted"
+									? formatAbortedMessage(this.session.retryAttempt)
+									: message.errorMessage || "Error";
 							component.updateResult(
 								{ content: [{ type: "text", text: errorMessage }], isError: true },
 								false,

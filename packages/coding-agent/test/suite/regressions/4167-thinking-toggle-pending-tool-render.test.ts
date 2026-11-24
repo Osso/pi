@@ -306,6 +306,64 @@ describe("InteractiveMode.renderSessionEntries", () => {
 		vi.useRealTimers();
 	});
 
+	test("keeps a running Bash card's partial output and stops its timer after the rebuilt card completes", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
+		const fakeThis = Object.assign(createFakeInteractiveModeThis(), {
+			scheduleDeferredRender: (render: () => void) => render(),
+		});
+		const renderSessionEntries = (
+			InteractiveMode.prototype as unknown as { renderSessionEntries: RenderSessionEntries }
+		).renderSessionEntries;
+		const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
+		const bashCall: AssistantMessage = {
+			...createAssistantToolCallMessage(),
+			content: [
+				{ type: "toolCall", id: TOOL_CALL_ID, name: "bash", arguments: { command: "printf chunk; sleep 5" } },
+			],
+		};
+		const rebuildChat = () => {
+			fakeThis.chatContainer.clear();
+			renderSessionEntries.call(fakeThis, createSessionEntries([bashCall]));
+		};
+
+		rebuildChat();
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolCallId: TOOL_CALL_ID,
+			toolName: "bash",
+			args: { command: "printf chunk; sleep 5" },
+			startedAt: 1_000,
+		});
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_update",
+			toolCallId: TOOL_CALL_ID,
+			toolName: "bash",
+			args: { command: "printf chunk; sleep 5" },
+			partialResult: { content: [{ type: "text", text: "VISIBLE BASH CHUNK" }], details: undefined },
+		});
+		rebuildChat();
+
+		expect(renderChat(fakeThis.chatContainer)).toContain("VISIBLE BASH CHUNK");
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: TOOL_CALL_ID,
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "FINAL BASH RESULT" }], details: undefined },
+			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
+		});
+		expect(renderChat(fakeThis.chatContainer)).toContain("FINAL BASH RESULT");
+		const requestRender = vi.mocked(fakeThis.ui.requestRender);
+		requestRender.mockClear();
+		vi.advanceTimersByTime(3_000);
+
+		expect(requestRender).not.toHaveBeenCalled();
+		vi.useRealTimers();
+	});
+
 	test("does not keep completed historical tool calls registered as pending", () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const renderSessionEntries = (
