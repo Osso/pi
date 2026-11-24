@@ -920,6 +920,9 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
 			"To keep ctx across calls, pass the same session_id; only ctx persists, other globals start empty on each call.",
 		);
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
+			"Omit session_id for one-off calls; never use it to label or describe a call",
+		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("full logs");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
