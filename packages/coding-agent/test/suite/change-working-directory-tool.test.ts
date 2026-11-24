@@ -326,6 +326,25 @@ describe("change_working_directory first-party tool", () => {
 		expect(readFileSync(targetSessionFile, "utf8")).toBe(legacyTargetContent);
 	});
 
+	it("adopts a referenced session's current cwd after that session relocated", async () => {
+		const { controlDbPath, runtime, tempDir } = await createRuntimeForTest();
+		const initialCwd = join(tempDir, "initial-target");
+		const relocatedCwd = join(tempDir, "relocated-target");
+		mkdirSync(initialCwd);
+		mkdirSync(relocatedCwd);
+		const target = SessionManager.create(initialCwd, defaultSessionDir(initialCwd, tempDir));
+		target.appendMessage({ role: "user", content: "Target work", timestamp: Date.now() });
+		target.appendMessage(fauxAssistantMessage("Target reply"));
+		// Control metadata records the current cwd; the JSONL header keeps the initial cwd.
+		target.setMetadataControlDbPath(controlDbPath, { cwdOverride: relocatedCwd });
+
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-relocated-session-id", {
+			id: target.getSessionId(),
+		});
+
+		expect(runtime.cwd).toBe(relocatedCwd);
+	});
+
 	it("rejects a current session id prefix without modifying the session", async () => {
 		const { runtime } = await createRuntimeForTest();
 		runtime.session.sessionManager.appendMessage({ role: "user", content: "Current work", timestamp: Date.now() });

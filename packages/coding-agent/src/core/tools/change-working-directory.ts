@@ -4,6 +4,7 @@ import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { readSessionMetadata } from "../session-control-db.ts";
 import { readSessionHeader } from "../session-manager.ts";
 import { findSessionFileById } from "./resume-session.ts";
 
@@ -67,7 +68,9 @@ async function loadTargetCwd(
 	if (currentSessionFile && resolvePath(sessionPath) === resolvePath(currentSessionFile)) {
 		throw new Error("current session id cannot be used as a working directory target");
 	}
-	const cwd = readSessionHeader(sessionPath)?.cwd;
+	// Control metadata holds the session's current cwd; the JSONL header keeps only its initial cwd.
+	const metadataCwd = ctx.controlDbPath ? readSessionMetadata(ctx.controlDbPath, sessionPath)?.cwd : undefined;
+	const cwd = metadataCwd || readSessionHeader(sessionPath)?.cwd;
 	if (!cwd) {
 		throw new Error(`Session does not record a working directory: ${sessionPath}`);
 	}
