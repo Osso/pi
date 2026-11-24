@@ -386,6 +386,7 @@ interface InteractiveModeKeyHandlerInternals {
 	setupKeyHandlers(this: unknown): void;
 	handleModelCommand(this: unknown, searchTerm?: string): Promise<void>;
 	cycleModel(this: unknown, direction: "forward" | "backward"): Promise<void>;
+	cycleThinkingLevel(this: unknown): void;
 	showModelSelector(this: unknown, initialSearchInput?: string): void;
 }
 
@@ -2999,6 +3000,26 @@ describe("InteractiveMode selected-session model routing", () => {
 
 		expect(childCycleModel).toHaveBeenCalledWith("forward");
 		expect(mainCycleModel).not.toHaveBeenCalled();
+	});
+
+	test("routes thinking level cycling to the viewed live child without changing main", () => {
+		const mainCycleThinkingLevel = vi.fn();
+		const childCycleThinkingLevel = vi.fn().mockReturnValue("medium");
+		const fakeThis = {
+			childViewAgentId: "agent_1",
+			session: { cycleThinkingLevel: mainCycleThinkingLevel },
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({ cycleThinkingLevel: childCycleThinkingLevel }),
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.cycleThinkingLevel.call(fakeThis);
+
+		expect(childCycleThinkingLevel).toHaveBeenCalledOnce();
+		expect(mainCycleThinkingLevel).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Thinking level: medium");
 	});
 
 	test("routes model selector confirmation to the viewed live child without main fallback", async () => {

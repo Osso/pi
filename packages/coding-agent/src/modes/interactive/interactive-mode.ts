@@ -199,6 +199,10 @@ import { compactCoordinationText, isCoordinationMessage, isCoordinationPreview }
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { formatHotkeysMarkdown } from "./hotkeys-help.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
+import {
+	type InteractiveSessionMutationTarget,
+	isInteractiveSessionMutationTarget,
+} from "./interactive-session-mutation-target.ts";
 import { type Expandable, ExpandableText, renderLoadedResources } from "./loaded-resources.ts";
 import { LoginFlow, type LoginFlowHost } from "./login-flow.ts";
 import { listSelectableModels, searchModels } from "./model-search.ts";
@@ -353,22 +357,6 @@ function formatFollowUpPreview(message: string): string {
 /**
  * Options for InteractiveMode initialization.
  */
-type InteractiveSessionMutationTarget = CoreSessionMutationTarget &
-	Pick<AgentSession, "cycleModel" | "modelRegistry" | "scopedModels">;
-
-function isInteractiveSessionMutationTarget(
-	target: CoreSessionMutationTarget,
-): target is InteractiveSessionMutationTarget {
-	return (
-		"cycleModel" in target &&
-		typeof target.cycleModel === "function" &&
-		"modelRegistry" in target &&
-		target.modelRegistry !== undefined &&
-		"scopedModels" in target &&
-		Array.isArray(target.scopedModels)
-	);
-}
-
 type InteractiveSessionMutationTargetResolver = () => CoreSessionMutationTarget | undefined;
 const interactiveSessionMutationTargetResolvers = new WeakMap<
 	InteractiveMode,
@@ -4687,13 +4675,18 @@ export class InteractiveMode {
 	}
 
 	private cycleThinkingLevel(): void {
-		const newLevel = this.session.cycleThinkingLevel();
-		if (newLevel === undefined) {
-			this.showStatus("Current model does not support thinking");
-		} else {
+		try {
+			const newLevel = this.resolveViewedSessionTarget().cycleThinkingLevel();
+			if (newLevel === undefined) {
+				this.showStatus("Current model does not support thinking");
+				return;
+			}
+			InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 			this.footer.invalidate();
 			this.updateEditorBorderColor();
 			this.showStatus(`Thinking level: ${newLevel}`);
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
 		}
 	}
 
