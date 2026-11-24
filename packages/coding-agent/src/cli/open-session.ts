@@ -16,6 +16,7 @@ function exitWithError(error: unknown): never {
  */
 export function openSessionOrExit(
 	path: string,
+	cwd: string,
 	sessionDir: string | undefined,
 	controlDbPath: string | undefined,
 	requireTranscript = false,
@@ -25,7 +26,9 @@ export function openSessionOrExit(
 			throw new Error(`Session transcript is missing: ${path}`);
 		}
 		const restoredPath = controlDbPath ? restoreArchivedSession(controlDbPath, path) : path;
-		return SessionManager.open(restoredPath, sessionDir);
+		// A new session file has no header cwd; it starts in the resolved startup cwd, such as a --worktree.
+		const newSessionCwd = existsSync(readSessionTranscriptPath(restoredPath)) ? undefined : cwd;
+		return SessionManager.open(restoredPath, sessionDir, newSessionCwd);
 	} catch (error: unknown) {
 		exitWithError(error);
 	}

@@ -425,7 +425,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "found":
-				return openSessionOrExit(resolved.path, sessionDir, controlDbPath, resolved.type === "found");
+				return openSessionOrExit(resolved.path, cwd, sessionDir, controlDbPath, resolved.type === "found");
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));

@@ -156,6 +156,21 @@ describe("worktree startup", () => {
 		);
 	});
 
+	it("starts a new --session file in the selected worktree", async () => {
+		const worktreeCwd = join(tempDir, "project-feature");
+		mkdirSync(worktreeCwd);
+		startupMocks.resolveWorktree.mockResolvedValue(worktreeCwd);
+		startupMocks.runPrintMode.mockResolvedValue(0);
+		Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+		await main(["--worktree", "feature", "--session", join(tempDir, "new.jsonl"), "-p", "Review"]);
+
+		expect(startupMocks.events).toContain(`runtime:${worktreeCwd}`);
+		expect(startupMocks.createAgentSessionServices).toHaveBeenCalledWith(
+			expect.objectContaining({ cwd: worktreeCwd }),
+		);
+	});
+
 	it("prints worktree startup errors and stops before runtime creation", async () => {
 		startupMocks.resolveWorktree.mockRejectedValue(
 			new startupMocks.WorktreeStartupError("fatal: not a git repository"),

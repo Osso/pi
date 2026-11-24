@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `--worktree` with `--session` naming a new file starting the session in the original checkout instead of the worktree
 - Fixed `set_session_name` in a forked or cloned session using the parent's copied naming revision, which refused to name the unnamed fork or overwrote a manual `/name` set in the fork
 - Fixed a tool result renderer receiving the error fallback as `context.lastComponent` after it threw once, which kept the rest of that tool call on plain fallback output
 - Fixed the default footer numbering an unpinned selected agent by its position among all agents, so after an earlier agent completed it showed `#2` for the agent that Alt+1 selects
