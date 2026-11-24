@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/sandbox` marking Default/Workspace Write as current when no sandbox profile is set, although Pi then runs tools unsandboxed with full access
 - Fixed Ctrl+C during Ctrl+R history search clearing the editor instead of cancelling the search and restoring the draft
 - Fixed `/settings` → Hide thinking not updating the response that was still streaming; it now matches the thinking-toggle shortcut
 - Fixed tool cards, `/tree`, the session picker and `pi config` abbreviating a path that only starts with the home directory name, e.g. showing `/home/alex-other` as `~-other`

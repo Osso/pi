@@ -1,6 +1,7 @@
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ApprovalSelectorComponent } from "../src/modes/interactive/components/approval-selector.ts";
 import { SandboxSelectorComponent } from "../src/modes/interactive/components/sandbox-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -65,6 +66,21 @@ describe("approval and sandbox selectors", () => {
 		expect(output).toContain("Full Access");
 		expect(output).not.toContain("auto-approve");
 		expect(output).not.toContain("never");
+	});
+
+	it("marks Full Access as current when no sandbox profile is configured, matching the unsandboxed runtime", () => {
+		const settingsManager = SettingsManager.inMemory();
+		const selector = new SandboxSelectorComponent({
+			currentProfile: settingsManager.getConfiguredSandboxProfile(),
+			onCancel: () => {},
+			onSelect: () => {},
+		});
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+
+		expect(settingsManager.getExplicitSandboxProfile()).toBeUndefined();
+		expect(output).toContain("Full Access ✓");
+		expect(output).not.toContain("Workspace Write ✓");
 	});
 
 	it("marks sandbox-required profiles unsupported on Darwin without changing explicit selections", () => {

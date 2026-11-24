@@ -569,7 +569,7 @@ export class SettingsManager {
 	}
 
 	getConfiguredSandboxProfile(): SandboxProfileName {
-		return this.getExplicitConfiguredSandboxProfile() ?? "workspace-write";
+		return this.getExplicitConfiguredSandboxProfile() ?? "full-access";
 	}
 
 	private getExplicitConfiguredSandboxProfile(): SandboxProfileName | undefined {
