@@ -101,6 +101,16 @@ describe("Codex support request IDs", () => {
 		await assertError("sse", id ? `${message}\nOpenAI request ID: ${id}` : message);
 	});
 
+	it("sends a non-retryable SSE HTTP error once even when provider retries are enabled", async () => {
+		const overflow = "exceeded request buffer limit while retrying upstream";
+		const fetchMock = vi.fn(async () => new Response(overflow, { status: 507 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await assertError("sse", overflow, 1);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it.each([undefined, "req_http"])("preserves HTTP body ID with header %s", async (id) => {
 		vi.stubGlobal(
 			"fetch",

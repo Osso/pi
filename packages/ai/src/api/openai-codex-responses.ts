@@ -45,7 +45,7 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
-import { isQuotaExhaustionErrorText, isRetryableHttpError } from "../utils/retry.ts";
+import { isRetryableHttpError } from "../utils/retry.ts";
 import {
 	DEFAULT_MAX_RETRY_DELAY_MS,
 	getErrorRetryAfterMs,
@@ -396,7 +396,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						statusText: response.statusText,
 					});
 					const info = await parseErrorResponse(fakeResponse);
-					throw new Error(
+					throw new CodexApiError(
 						formatCodexRequestId(
 							info.friendlyMessage || info.message,
 							response.headers.get("x-request-id") || info.requestId,
@@ -410,8 +410,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						}
 					}
 					lastError = error instanceof Error ? error : new Error(String(error));
-					// Network errors are retryable
-					if (attempt < maxRetries && !isQuotaExhaustionErrorText(lastError.message)) {
+					// Network errors are retryable; HTTP errors were classified above and must not be resent.
+					if (attempt < maxRetries && !isCodexNonTransportError(lastError)) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
 						options?.onRetry?.(
 							{ attempt: attempt + 2, maxAttempts: maxRetries + 1, delayMs, reason: lastError.message },

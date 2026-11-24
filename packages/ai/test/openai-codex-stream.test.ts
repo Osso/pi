@@ -316,9 +316,10 @@ describe("Codex metadata diagnostics", () => {
 		expect(original.errorMessage).toBe("permanent rejection");
 		expect(observed.errorMessage).toBe(original.errorMessage);
 		expect(observed.stopReason).toBe(original.stopReason);
-		expect(requests).toHaveLength(4);
-		expect(requests).toEqual(Array(4).fill(requests[0]));
-		expect(warning.mock.calls).toEqual(Array(2).fill(["Provider diagnostic observer failed"]));
+		// A permanent HTTP error is never resent, with or without a throwing observer.
+		expect(requests).toHaveLength(2);
+		expect(requests).toEqual(Array(2).fill(requests[0]));
+		expect(warning.mock.calls).toEqual([["Provider diagnostic observer failed"]]);
 	});
 
 	it("preserves the SSE provider failure when a diagnostic observer rejects asynchronously", async () => {
