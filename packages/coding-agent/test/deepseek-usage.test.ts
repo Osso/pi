@@ -243,6 +243,14 @@ describe("DeepSeek usage payload mapping", () => {
 		expect(mapDeepseekBalance(null)).toEqual({ balance: null });
 	});
 
+	it("reads a CNY-only balance in its own currency", () => {
+		const payload = {
+			is_available: true,
+			balance_infos: [{ currency: "CNY", total_balance: "110.00", granted_balance: "10.00" }],
+		};
+		expect(mapDeepseekBalance(payload)).toEqual({ balance: "110.00 CNY" });
+	});
+
 	it("keeps unavailable values as '-' rather than zero and marks unreported providers", () => {
 		const table = formatDeepseekUsage([
 			{

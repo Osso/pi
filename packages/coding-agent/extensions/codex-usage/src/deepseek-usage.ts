@@ -118,9 +118,11 @@ export function mapOpenRouterUsage(keyPayload: unknown, creditsPayload: unknown)
 export function mapDeepseekBalance(payload: unknown): Pick<DeepseekRow, "balance"> {
 	const infos = asRecord(payload)?.balance_infos;
 	if (!Array.isArray(infos)) return { balance: null };
-	const usd = infos.map(asRecord).find((info) => info?.currency === "USD");
-	const total = typeof usd?.total_balance === "string" ? Number.parseFloat(usd.total_balance) : Number.NaN;
-	return { balance: Number.isFinite(total) ? formatUsd(total) : null };
+	const entries = infos.map(asRecord);
+	const info = entries.find((entry) => entry?.currency === "USD") ?? entries[0];
+	const total = typeof info?.total_balance === "string" ? Number.parseFloat(info.total_balance) : Number.NaN;
+	if (!Number.isFinite(total)) return { balance: null };
+	return { balance: info?.currency === "USD" ? formatUsd(total) : `${total.toFixed(2)} ${info?.currency}` };
 }
 
 export function mapCommandCodeUsage(

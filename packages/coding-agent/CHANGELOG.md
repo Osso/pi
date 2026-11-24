@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/usage deepseek` shows a DeepSeek balance reported only in CNY instead of `-`
 - Model pools now honor the configured `retry.provider.maxRetryDelayMs` for compaction requests, so a rate limit within the cap no longer parks a member for the long quota cooldown
 - A follow-up queued with Alt+Enter during compaction is now sent after an unknown slash command queued before it is rejected, instead of staying pending in the idle session
 - `/tree` now applies the `/daybreak` selection saved on the selected branch instead of keeping the previous branch's Daybreak Blue setting
