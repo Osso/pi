@@ -1146,7 +1146,7 @@ export function highlightCode(code: string, lang?: string): string[] {
  * Get language identifier from file path extension.
  */
 export function getLanguageFromPath(filePath: string): string | undefined {
-	const ext = filePath.split(".").pop()?.toLowerCase();
+	const ext = path.basename(filePath).split(".").pop()?.toLowerCase();
 	if (!ext) return undefined;
 
 	const extToLang: Record<string, string> = {
