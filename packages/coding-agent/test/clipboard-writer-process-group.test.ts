@@ -54,6 +54,18 @@ describe.skipIf(process.platform !== "linux")("clipboard writer process group", 
 		expect(await waitForFile(record)).not.toBe(processGroupOf(process.pid));
 	});
 
+	it("copies through wl-copy as text/plain", async () => {
+		// Upstream #12374: an inferred type such as application/x-ruby is dropped by Klipper.
+		vi.stubEnv("WAYLAND_DISPLAY", "wayland-test");
+		const argsRecord = join(binDir, "wl-copy.args");
+		writeFileSync(join(binDir, "wl-copy"), `#!/bin/sh\ncat >/dev/null\necho "$*" > '${argsRecord}'\n`);
+		chmodSync(join(binDir, "wl-copy"), 0o755);
+
+		await copyToClipboard("def foo");
+
+		expect(await waitForFile(argsRecord)).toBe("-t text/plain");
+	});
+
 	it("falls back to xclip when wl-copy fails", async () => {
 		vi.stubEnv("WAYLAND_DISPLAY", "wayland-test");
 		vi.stubEnv("DISPLAY", ":99");

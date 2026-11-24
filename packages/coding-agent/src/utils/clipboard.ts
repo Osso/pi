@@ -109,7 +109,7 @@ export async function copyToClipboard(text: string): Promise<void> {
 					const isWayland = isWaylandSession();
 					if (isWayland && hasWaylandDisplay) {
 						// wl-copy forks a daemon that keeps selection ownership; its exit status reports the copy.
-						copied = await runDetachedClipboardWriter("wl-copy", [], text);
+						copied = await runDetachedClipboardWriter("wl-copy", ["-t", "text/plain"], text);
 						if (!copied && hasX11Display) copied = await copyToX11Clipboard(text);
 					} else if (hasX11Display) {
 						copied = await copyToX11Clipboard(text);
