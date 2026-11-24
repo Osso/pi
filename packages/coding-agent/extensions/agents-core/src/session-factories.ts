@@ -232,6 +232,9 @@ export function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionCon
 	const configuredModel = agent.model
 		? ctx.modelRegistry.find(agent.model.providerId, agent.model.modelId)
 		: undefined;
+	if (agent.origin === "attached" && agent.model && !configuredModel) {
+		throw new Error(`Recorded session model is unavailable: ${agent.model.providerId}/${agent.model.modelId}`);
+	}
 	return {
 		model: configuredModel,
 		thinkingLevel: toThinkingLevel(agent.model?.thinkingLevel),

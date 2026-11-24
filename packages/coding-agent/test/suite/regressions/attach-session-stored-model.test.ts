@@ -58,6 +58,44 @@ describe("attach_session_agent model", () => {
 		});
 	}, 60_000);
 
+	it("fails instead of using the parent model when the recorded model is unavailable", async () => {
+		await withHeadlessPi(async (agent) => {
+			const saved = SessionManager.create(agent.paths.workspaceDir, agent.paths.sessionDir);
+			saved.setMetadataControlDbPath(getControlDbPath(agent.paths.agentDir));
+			saved.appendMessage({ role: "user", content: "Earlier assignment", timestamp: 1 });
+			saved.setSessionModel("headless-faux", "retired-model");
+
+			await agent.send({ type: "prompt", message: "Resume the saved session" });
+			const parent = await agent.waitForLlmRequest((request) => request.agentId === null);
+			expect(parent.modelId).toBe("headless-faux-1");
+			agent.respondToLlmRequest(
+				parent.id,
+				fauxAssistantMessage(
+					fauxToolCall("attach_session_agent", {
+						path: saved.getSessionFile(),
+						displayName: "unavailable model",
+						prompt: "Continue the interrupted assignment",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+
+			const attached = await agent.waitForAgent((candidate) => candidate.displayName === "unavailable model");
+			const childRequest = await agent
+				.waitForLlmRequest((request) => request.agentId === attached.id, 1_000)
+				.then(
+					(request) => request,
+					() => undefined,
+				);
+			expect(childRequest).toBeUndefined();
+
+			const failed = await agent.waitForAgent(
+				(candidate) => candidate.id === attached.id && candidate.lifecycle === "failed",
+			);
+			expect(failed.error?.message).toContain("headless-faux/retired-model");
+		});
+	}, 60_000);
+
 	it("rejects a path with no transcript without creating an agent", async () => {
 		await withHeadlessPi(async (agent) => {
 			const missingPath = join(agent.paths.sessionDir, "missing-target.jsonl");
