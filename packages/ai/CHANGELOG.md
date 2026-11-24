@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed `StringEnum` dropping an empty-string `default` that is a member of the enum
 - Fixed Anthropic tool schemas dropping the declared `$schema` dialect, so Draft 7 tuple `items` were read under the wrong dialect (port of upstream 4245b07b4)
 - Fixed "request rate increased too quickly" errors (OpenAI `slow_down`, Alibaba Qwen) not being retried as rate limits (port of upstream 0888fd79a)
 - Fixed Mistral requests sending a null header override as the literal value "null" and combining a mixed-case caller `X-Affinity` header with the session default
