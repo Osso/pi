@@ -157,19 +157,23 @@ export class OrchestratorSupervisor {
 	private async cleanupAcquiredResources(live: LiveInstance): Promise<void> {
 		const rpcProcess = live.resources.rpcProcess;
 		this.clearBindings(live);
-		if (live.resources.radiusPiId) {
-			await radiusPresence.disconnectPi(live.record);
-			live.resources.radiusPiId = undefined;
-			live.record = {
-				...live.record,
-				radiusPiId: undefined,
-				lastSeenAt: new Date().toISOString(),
-			};
-		}
-		live.resources.sessionId = undefined;
-		if (rpcProcess) {
-			live.resources.rpcProcess = undefined;
-			await rpcProcess.dispose();
+		try {
+			if (live.resources.radiusPiId) {
+				await radiusPresence.disconnectPi(live.record);
+				live.resources.radiusPiId = undefined;
+				live.record = {
+					...live.record,
+					radiusPiId: undefined,
+					lastSeenAt: new Date().toISOString(),
+				};
+			}
+		} finally {
+			// The caller drops the instance record even when Radius fails, so the child must not outlive it.
+			live.resources.sessionId = undefined;
+			if (rpcProcess) {
+				live.resources.rpcProcess = undefined;
+				await rpcProcess.dispose();
+			}
 		}
 	}
 
