@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a `/tree` summarized navigation rejected during compaction clearing the compaction progress and cancel hint
 - Fixed `/tree` reporting "Already at this point" for a prompt left selected while its response finished, instead of navigating to it
 - Fixed turning off terminal progress in `/settings` during a running turn leaving the terminal progress indicator active and repeating after the turn ended
 - Fixed a timed-out `wait_agent` call disappearing from the collapsed transcript; the timeout notice now stays visible because no agent report follows it

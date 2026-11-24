@@ -1,4 +1,5 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Component } from "../../tui/src/tui.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -119,5 +120,49 @@ describe("interactive /tree during a response", () => {
 
 		expect(showStatus).not.toHaveBeenCalledWith("Already at this point");
 		expect(showTreeNavigationResult).toHaveBeenCalledWith("second user");
+	});
+
+	it("keeps the active compaction status when a summarized navigation is rejected", async () => {
+		harness = await createHarness();
+		const targetId = harness.sessionManager.appendMessage(userMsg("first user"));
+		harness.sessionManager.appendMessage(assistantMsg("first assistant"));
+		const busy = "Wait for the current compaction or tree navigation to finish before navigating the session tree.";
+		const compactionStatus = new Text("Compacting context", 0, 0);
+		const statusContainer = new Container();
+		statusContainer.addChild(compactionStatus);
+		const onEscape = vi.fn();
+		const showError = vi.fn();
+		let selector: Component | undefined;
+		const mode = {
+			session: {
+				isStreaming: false,
+				isCompacting: true,
+				abortBranchSummary: vi.fn(),
+				navigateTree: vi.fn(async () => {
+					throw new Error(busy);
+				}),
+			},
+			sessionManager: harness.sessionManager,
+			settingsManager: { getTreeFilterMode: () => "all", getBranchSummarySkipPrompt: () => false },
+			ui: { terminal: { rows: 40 }, requestRender: () => {}, requestComponentRender: () => {} },
+			defaultEditor: { onEscape },
+			chatContainer: new Container(),
+			statusContainer,
+			showSelector: (create: (done: () => void) => { component: Component }) => {
+				selector = create(() => {}).component;
+			},
+			showExtensionSelector: vi.fn(async () => "Summarize"),
+			setPromptActivity: vi.fn(),
+			restoreQueuedMessagesToEditor: () => 0,
+			showStatus: vi.fn(),
+			showError,
+		};
+
+		showTreeSelector.call(mode, targetId, "all");
+		selector?.handleInput?.("\r");
+		await vi.waitFor(() => expect(showError).toHaveBeenCalledWith(busy));
+
+		expect(statusContainer.children).toEqual([compactionStatus]);
+		expect(mode.defaultEditor.onEscape).toBe(onEscape);
 	});
 });

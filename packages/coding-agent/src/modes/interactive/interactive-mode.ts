@@ -5805,7 +5805,7 @@ export class InteractiveMode {
 					} finally {
 						if (summaryLoader) {
 							summaryLoader.stop();
-							this.statusContainer.clear();
+							this.statusContainer.removeChild(summaryLoader); // keep a compaction status a rejected navigation found
 							this.setPromptActivity("branch-summary", false);
 						}
 						this.defaultEditor.onEscape = originalOnEscape;
