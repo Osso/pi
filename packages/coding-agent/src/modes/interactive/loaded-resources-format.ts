@@ -9,15 +9,12 @@ import { theme } from "./theme/theme.ts";
 // Path and label formatting for the loaded-resources listing shown at startup and on /reload.
 
 export function formatDisplayPath(p: string): string {
-	const home = os.homedir();
-	let result = p;
-
-	// Replace home directory with ~
-	if (result.startsWith(home)) {
-		result = `~${result.slice(home.length)}`;
-	}
-
-	return result;
+	// Replace the home directory with ~, but not a sibling that only shares its prefix (/home/alex-work).
+	if (!path.isAbsolute(p)) return p;
+	const relativePath = path.relative(os.homedir(), p);
+	if (relativePath === "") return "~";
+	if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return p;
+	return `~${path.sep}${relativePath}`;
 }
 
 export function formatExtensionDisplayPath(path: string): string {

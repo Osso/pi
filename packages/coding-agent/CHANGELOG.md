@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the startup resource list shortening a path that only shares the home directory prefix, such as `/home/alex-work/AGENTS.md` shown as `~-work/AGENTS.md`
 - Fixed `pi.callTool` (and Pyrun `pi.tools.call`) running the tool and its `tool_result` hook after a `tool_call` handler aborted the turn
 - Fixed the model picker, scoped-model selector, and `/model` completion ranking another provider first for an exact `provider/id` query such as `openai/gpt-5.4`
 - Fixed `ask_secret` browser provisioning crashing pi when `authsudo` is missing; it now reports a provisioning failure
