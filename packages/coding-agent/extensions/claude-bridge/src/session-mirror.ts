@@ -487,7 +487,14 @@ export function syncSharedSession(
 	// pi-side history rewrites such as /compact and session_tree: without it,
 	// missed = [].slice(cursor) can falsely hit REUSE and resume an unrelated
 	// longer CC session. See issue #25.
-	if (sharedSession && !sharedSession.needsRebuild && priorMessages.length >= sharedSession.cursor) {
+	// Claude Code keeps transcripts per project directory, so a mirror recorded under another cwd
+	// (after /cd or change_working_directory) is not resumable from this one and must be rebuilt here.
+	if (
+		sharedSession &&
+		!sharedSession.needsRebuild &&
+		sharedSession.cwd === cwd &&
+		priorMessages.length >= sharedSession.cursor
+	) {
 		const missed = priorMessages.slice(sharedSession.cursor);
 		const trailingAssistantOnly = missed.length === 1 && (missed[0] as { role?: string }).role === "assistant";
 		if (missed.length === 0 || trailingAssistantOnly) {
@@ -540,10 +547,11 @@ export function syncSharedSession(
 	// an earlier process's subprocess — so it only seeds a fresh session id.
 	const nativeSessionId = previousSessionId ?? recordedSessionFor(piSessionId, cwd);
 	// Before deleteSession — it wipes the file these live in.
-	const native = nativeSessionId !== undefined ? readPreviousSession(nativeSessionId, cwd) : [];
+	const previousCwd = sharedSession?.cwd ?? cwd;
+	const native = nativeSessionId !== undefined ? readPreviousSession(nativeSessionId, previousCwd) : [];
 	if (preserveId && previousSessionId !== undefined) {
 		// Wipe prior jsonl + companion dir (no-op if nothing to wipe).
-		deleteSession(previousSessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
+		deleteSession(previousSessionId, previousCwd, process.env.CLAUDE_CONFIG_DIR);
 	}
 	const session = createSession({
 		projectPath: cwd,

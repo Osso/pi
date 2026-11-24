@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the Claude bridge resuming its Claude Code transcript after the session working directory changed, which lost the earlier conversation because the transcript lives under the old project directory
 - Fixed `--worktree` with `--session` naming a new file starting the session in the original checkout instead of the worktree
 - Fixed `set_session_name` in a forked or cloned session using the parent's copied naming revision, which refused to name the unnamed fork or overwrote a manual `/name` set in the fork
 - Fixed a tool result renderer receiving the error fallback as `context.lastComponent` after it threw once, which kept the rest of that tool call on plain fallback output

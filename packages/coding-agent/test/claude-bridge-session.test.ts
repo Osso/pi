@@ -1,9 +1,15 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getSessionPath, normalizeProjectPath } from "cc-session-io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import bridge, { __test } from "../extensions/claude-bridge/src/index.ts";
 import { recordedNativeSession, recordNativeSession } from "../extensions/claude-bridge/src/native-prefix.ts";
+import {
+	sessionStateFor,
+	setSessionStateFor,
+	syncSharedSession,
+} from "../extensions/claude-bridge/src/session-mirror.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -99,5 +105,46 @@ describe("bundled Claude session", () => {
 
 		writeFileSync(hintFile, "null");
 		expect(recordedNativeSession("pi-sess-1", "/repo")).toBeUndefined();
+	});
+
+	it("rebuilds the Claude transcript in the new project after the session working directory changes", () => {
+		root = mkdtempSync(join(tmpdir(), "pi-claude-mirror-cwd-"));
+		const claudeDir = join(root, "claude");
+		const repoA = join(root, "repo-a");
+		const repoB = join(root, "repo-b");
+		mkdirSync(repoA);
+		mkdirSync(repoB);
+		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeDir);
+		vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+		const remember = { role: "user" as const, content: "Remember the blue notebook.", timestamp: 1 };
+		const reply = {
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: "I will remember the blue notebook." }],
+			api: "anthropic-messages" as const,
+			provider: "claude-bridge",
+			model: "claude-sonnet-4-5",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop" as const,
+			timestamp: 2,
+		};
+		const question = { role: "user" as const, content: "What did I ask you to remember?", timestamp: 3 };
+		syncSharedSession([remember, reply, question], repoA, new Map(), undefined, "pi-session-cwd");
+		const before = sessionStateFor("pi-session-cwd");
+		expect(before?.cwd).toBe(repoA);
+		// As after the query completes: the mirror now covers the whole first turn.
+		if (before) setSessionStateFor("pi-session-cwd", { ...before, cursor: 3 });
+
+		syncSharedSession([remember, reply, question, reply, question], repoB, new Map(), undefined, "pi-session-cwd");
+
+		const state = sessionStateFor("pi-session-cwd");
+		expect(state?.cwd).toBe(repoB);
+		expect(existsSync(getSessionPath(state?.sessionId ?? "", normalizeProjectPath(repoB), claudeDir))).toBe(true);
 	});
 });
