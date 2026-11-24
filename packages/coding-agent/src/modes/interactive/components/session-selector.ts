@@ -1,4 +1,3 @@
-import * as os from "node:os";
 import {
 	type Component,
 	Container,
@@ -14,7 +13,7 @@ import { KeybindingsManager } from "../../../core/keybindings.ts";
 import { archivePersistedSession } from "../../../core/session-archive-storage.ts";
 import { deleteSessionTree } from "../../../core/session-delete.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
-import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
+import { canonicalizePath as _canonicalizePath, shortenHomePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
@@ -27,15 +26,6 @@ import {
 } from "./session-selector-search.ts";
 
 type SessionScope = "current" | "all" | "archived";
-
-function shortenPath(path: string): string {
-	const home = os.homedir();
-	if (!path) return path;
-	if (path.startsWith(home)) {
-		return `~${path.slice(home.length)}`;
-	}
-	return path;
-}
 
 function formatSessionDate(date: Date): string {
 	const now = new Date();
@@ -494,10 +484,10 @@ class SessionList implements Component, Focusable {
 			const msgCount = String(session.messageCount);
 			let rightPart = `${msgCount} ${age}`;
 			if (this.showCwd && session.cwd) {
-				rightPart = `${shortenPath(session.cwd)} ${rightPart}`;
+				rightPart = `${shortenHomePath(session.cwd)} ${rightPart}`;
 			}
 			if (this.showPath) {
-				rightPart = `${shortenPath(session.path)} ${rightPart}`;
+				rightPart = `${shortenHomePath(session.path)} ${rightPart}`;
 			}
 
 			// Cursor

@@ -2,7 +2,6 @@
  * TUI component for managing package resources (enable/disable)
  */
 
-import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import {
 	type Component,
@@ -18,6 +17,7 @@ import {
 import { CONFIG_DIR_NAME } from "../../../config.ts";
 import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.ts";
 import type { PackageSource, SettingsManager } from "../../../core/settings-manager.ts";
+import { shortenHomePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { rawKeyHint } from "./keybinding-hints.ts";
@@ -57,19 +57,8 @@ interface ResourceGroup {
 }
 
 function formatBaseDir(baseDir: string): string {
-	const homeDir = homedir();
-	let displayPath: string;
-
-	if (baseDir === homeDir) {
-		displayPath = "~";
-	} else if (baseDir.startsWith(homeDir)) {
-		// Replace home prefix with ~, normalize separators for display
-		const rest = baseDir.slice(homeDir.length);
-		displayPath = `~${rest.replace(/\\/g, "/")}`;
-	} else {
-		displayPath = baseDir.replace(/\\/g, "/");
-	}
-
+	// Normalize separators for display
+	const displayPath = shortenHomePath(baseDir).replace(/\\/g, "/");
 	return displayPath.endsWith("/") ? displayPath : `${displayPath}/`;
 }
 

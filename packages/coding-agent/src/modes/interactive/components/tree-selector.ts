@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { buildContextEntries, type SessionTreeNode } from "../../../core/session-manager.ts";
 import { formatReadLineRange } from "../../../core/tools/render-utils.ts";
+import { shortenHomePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { formatKeyText, keyHint } from "./keybinding-hints.ts";
@@ -931,23 +932,17 @@ class TreeList implements Component {
 	}
 
 	private formatToolCall(name: string, args: Record<string, unknown>): string {
-		const shortenPath = (p: string): string => {
-			const home = process.env.HOME || process.env.USERPROFILE || "";
-			if (home && p.startsWith(home)) return `~${p.slice(home.length)}`;
-			return p;
-		};
-
 		switch (name) {
 			case "read": {
-				const path = shortenPath(String(args.path || args.file_path || ""));
+				const path = shortenHomePath(String(args.path || args.file_path || ""));
 				return `[read: ${path}${formatReadLineRange(args.offset, args.limit)}]`;
 			}
 			case "write": {
-				const path = shortenPath(String(args.path || args.file_path || ""));
+				const path = shortenHomePath(String(args.path || args.file_path || ""));
 				return `[write: ${path}]`;
 			}
 			case "edit": {
-				const path = shortenPath(String(args.path || args.file_path || ""));
+				const path = shortenHomePath(String(args.path || args.file_path || ""));
 				return `[edit: ${path}]`;
 			}
 			case "bash": {
@@ -960,16 +955,16 @@ class TreeList implements Component {
 			}
 			case "grep": {
 				const pattern = String(args.pattern || "");
-				const path = shortenPath(String(args.path || "."));
+				const path = shortenHomePath(String(args.path || "."));
 				return `[grep: /${pattern}/ in ${path}]`;
 			}
 			case "find": {
 				const pattern = String(args.pattern || "");
-				const path = shortenPath(String(args.path || "."));
+				const path = shortenHomePath(String(args.path || "."));
 				return `[find: ${pattern} in ${path}]`;
 			}
 			case "ls": {
-				const path = shortenPath(String(args.path || "."));
+				const path = shortenHomePath(String(args.path || "."));
 				return `[ls: ${path}]`;
 			}
 			default: {

@@ -74,6 +74,15 @@ export function resolvePath(input: string, baseDir: string = process.cwd(), opti
 	return isAbsolute(normalized) ? nodeResolvePath(normalized) : nodeResolvePath(normalizedBaseDir, normalized);
 }
 
+/** Replace a leading home directory with `~` for display. Relative paths and paths outside home are unchanged. */
+export function shortenHomePath(path: string, homeDir: string = homedir()): string {
+	if (!homeDir || !isAbsolute(path)) return path;
+	const relativePath = relative(homeDir, path);
+	if (relativePath === "") return "~";
+	if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return path;
+	return `~${sep}${relativePath}`;
+}
+
 export function getCwdRelativePath(filePath: string, cwd: string): string | undefined {
 	const resolvedCwd = resolvePath(cwd);
 	const resolvedPath = resolvePath(filePath, resolvedCwd);
