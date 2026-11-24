@@ -127,8 +127,7 @@ export function restoredPendingToolMessage(messages: readonly AgentMessage[]): A
 			completedToolCallIds.add(message.toolCallId);
 			continue;
 		}
-		if (message.role !== "assistant") return undefined;
-		if (message.stopReason === "aborted" || message.stopReason === "error") return undefined;
+		if (message.role !== "assistant" || message.stopReason === "aborted" || message.stopReason === "error") return;
 		const pendingToolCallIds = new Set(
 			message.content
 				.filter((content) => content.type === "toolCall")
@@ -143,7 +142,6 @@ export function restoredPendingToolMessage(messages: readonly AgentMessage[]): A
 			),
 		};
 	}
-	return undefined;
 }
 
 export async function runAgentLoopContinue(
@@ -166,6 +164,8 @@ export async function runAgentLoopContinue(
 
 	const pendingToolMessage = restoredPendingToolMessage(currentContext.messages);
 	if (pendingToolMessage) {
+		// Saved results keep no terminate flag, so a partly saved batch cannot prove every call terminated.
+		const batchPartlySaved = currentContext.messages.at(-1)?.role === "toolResult";
 		const executedToolBatch = await executeToolCalls(currentContext, pendingToolMessage, config, signal, emit);
 		for (const result of executedToolBatch.messages) {
 			currentContext.messages.push(result);
@@ -173,7 +173,7 @@ export async function runAgentLoopContinue(
 		}
 		await emit({ type: "turn_end", message: pendingToolMessage, toolResults: executedToolBatch.messages });
 		throwIfAborted(signal);
-		if (executedToolBatch.terminate) {
+		if (executedToolBatch.terminate && !batchPartlySaved) {
 			await emit({ type: "agent_end", messages: newMessages });
 			return newMessages;
 		}

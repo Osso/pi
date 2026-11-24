@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- A resumed tool batch whose earlier results were already saved no longer ends the run just because the remaining calls terminate, for example a saved `read` with a pending `end_turn`
 - Fixed a steer that waited for a thinking or text block to end failing to stop the request when the provider had already appended a later block, such as a tool call that then ran, to the streamed message
 - Aborting a restored tool continuation while `prepareNextTurn` or `shouldStopAfterTurn` is pending no longer drops steering queued meanwhile
 - Fixed `continue({ startMessages })` sending multiple start messages in separate requests after an unfinished restored tool call in the default one-at-a-time steering mode
