@@ -19,6 +19,8 @@ interface RecordedRequest {
 class TasksStub {
 	due: Array<Record<string, unknown>> = [];
 	ackStatus = 204;
+	/** Per-task acknowledgement status, overriding `ackStatus`. */
+	ackStatusByPath: Record<string, number> = {};
 	readonly requests: RecordedRequest[] = [];
 	private readonly server: Server;
 
@@ -42,8 +44,9 @@ class TasksStub {
 				}
 				// After an acknowledgement, accepted (204) or conflicting (409: rescheduled, closed or already
 				// acknowledged), the task is no longer due as it was read.
-				this.due = [];
-				response.writeHead(this.ackStatus).end(this.ackStatus === 204 ? undefined : '{"error":"stale"}');
+				this.due = this.due.filter((task) => path !== `/tasks/${task.id}/delivered`);
+				const status = this.ackStatusByPath[path] ?? this.ackStatus;
+				response.writeHead(status).end(status === 204 ? undefined : '{"error":"stale"}');
 			});
 		});
 	}
@@ -171,6 +174,26 @@ describe("Supervisor due-task reminders", () => {
 		expect(stub.acknowledgements()).toHaveLength(1);
 		expect(reminderTexts(harness)).toHaveLength(1);
 		expect(errors).toEqual([]);
+	});
+
+	it("keeps acknowledging other reminders and polling while one acknowledgement fails", async () => {
+		const { stub, url } = await startStub();
+		const failing = { ...DUE_TASK, id: "lt-a", title: "Failing acknowledgement" };
+		const healthy = { ...DUE_TASK, id: "lt-b", title: "Healthy acknowledgement" };
+		const later = { ...DUE_TASK, id: "lt-c", title: "Due later" };
+		stub.due = [failing, healthy];
+		stub.ackStatusByPath["/tasks/lt-a/delivered"] = 503;
+		const errors: string[] = [];
+		const harness = await openSession({ supervisor: true, tasksUrl: url, errors });
+		harness.setResponses([endTurn("First."), endTurn("Second."), endTurn("Third.")]);
+
+		const acked = (id: string) => stub.acknowledgements().some((ack) => ack.path === `/tasks/${id}/delivered`);
+		await waitFor(() => acked("lt-b"), "the healthy acknowledgement");
+		stub.due = [later];
+		await waitFor(() => acked("lt-c"), "the later reminder's acknowledgement");
+
+		expect(reminderTexts(harness).map((text) => text.split(" ")[2])).toEqual(["lt-a", "lt-b", "lt-c"]);
+		expect(errors[0]).toContain("Acknowledging reminder lt-a returned 503");
 	});
 
 	// A failed attempt ends a run before its automatic retry. Settling on that agent_end released the reminder

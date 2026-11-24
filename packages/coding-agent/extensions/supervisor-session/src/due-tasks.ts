@@ -97,10 +97,7 @@ export class DueTaskDelivery {
 		const generation = this.generation;
 		this.checks = this.checks.then(action).catch((error: unknown) => {
 			if (generation !== this.generation) return; // stopped: its reminders are released for resending
-			ctx.ui.notify(
-				`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
+			notifyCheckFailure(ctx, error);
 		});
 		return this.checks;
 	}
@@ -139,16 +136,25 @@ export class DueTaskDelivery {
 				unwritten.push(id);
 				continue;
 			}
-			const response = await this.request("POST", `/tasks/${encodeURIComponent(id)}/delivered`, {
-				due_at: delivery.dueAt,
-			});
-			// 409: rescheduled, closed or already acknowledged since it was read; nothing left to acknowledge.
-			if (!response.ok && response.status !== 409) {
-				throw new Error(`Acknowledging reminder ${id} returned ${response.status}: ${await response.text()}`);
+			// A failed acknowledgement keeps only its own reminder pending; the others and the poll go on.
+			try {
+				await this.acknowledge(id, delivery);
+			} catch (error) {
+				notifyCheckFailure(ctx, error);
 			}
-			this.pending.delete(id);
 		}
 		return unwritten;
+	}
+
+	private async acknowledge(id: string, delivery: PendingDelivery): Promise<void> {
+		const response = await this.request("POST", `/tasks/${encodeURIComponent(id)}/delivered`, {
+			due_at: delivery.dueAt,
+		});
+		// 409: rescheduled, closed or already acknowledged since it was read; nothing left to acknowledge.
+		if (!response.ok && response.status !== 409) {
+			throw new Error(`Acknowledging reminder ${id} returned ${response.status}: ${await response.text()}`);
+		}
+		this.pending.delete(id);
 	}
 
 	private request(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
@@ -163,6 +169,10 @@ export class DueTaskDelivery {
 			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 		});
 	}
+}
+
+function notifyCheckFailure(ctx: ExtensionContext, error: unknown): void {
+	ctx.ui.notify(`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 }
 
 function writtenDeliveryTokens(ctx: ExtensionContext): Set<string> {

@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed one failing Supervisor reminder acknowledgement blocking other acknowledgements, due-task polling and release of dropped reminders
 - Fixed `image_gen` reporting a timeout as the generic `Request was aborted` error
 - Fixed `/sandbox` labelling Workspace Write as "Default/Workspace Write", although an unset profile runs tools unsandboxed
 - Fixed `pi login --browser-cli` not opening the device verification URL for device-code logins such as GitHub Copilot
