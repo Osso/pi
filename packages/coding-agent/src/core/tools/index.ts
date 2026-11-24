@@ -220,6 +220,28 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"ask_supervisor",
 ];
 
+interface ReloadToolSession {
+	getActiveToolNames(): string[];
+	getAllTools(): Array<{ name: string }>;
+}
+
+export function getReloadActiveToolNames(
+	session: ReloadToolSession,
+	initialActiveToolNames?: readonly string[],
+): string[] {
+	const previousToolNames = new Set(session.getAllTools().map(({ name }) => name));
+	const activeToolNames = new Set(session.getActiveToolNames());
+	const configuredToolNames = initialActiveToolNames === undefined ? undefined : new Set(initialActiveToolNames);
+
+	for (const name of DEFAULT_ACTIVE_TOOL_NAMES) {
+		if (previousToolNames.has(name)) continue;
+		if (configuredToolNames && !configuredToolNames.has(name)) continue;
+		activeToolNames.add(name);
+	}
+
+	return [...activeToolNames];
+}
+
 export interface ToolsOptions {
 	read?: ReadToolOptions;
 	bash?: BashToolOptions;

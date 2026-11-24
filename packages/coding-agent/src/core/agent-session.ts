@@ -236,6 +236,7 @@ import {
 	createEndTurnToolDefinition,
 	createToolDefinitionsForAvailableExecutables,
 	DEFAULT_ACTIVE_TOOL_NAMES,
+	getReloadActiveToolNames,
 } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
@@ -4517,9 +4518,7 @@ export class AgentSession {
 
 		if (allowedToolNames) {
 			for (const toolName of this._toolRegistry.keys()) {
-				if (allowedToolNames.has(toolName)) {
-					nextActiveToolNames.push(toolName);
-				}
+				if (allowedToolNames.has(toolName)) nextActiveToolNames.push(toolName);
 			}
 		} else if (options?.includeAllExtensionTools) {
 			for (const tool of wrappedExtensionTools) {
@@ -4611,7 +4610,7 @@ export class AgentSession {
 		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({
-			activeToolNames: this.getActiveToolNames(),
+			activeToolNames: getReloadActiveToolNames(this, this._initialActiveToolNames),
 			flagValues: previousFlagValues,
 			includeAllExtensionTools: true,
 		});

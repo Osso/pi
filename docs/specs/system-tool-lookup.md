@@ -10,9 +10,11 @@ integrations. It must never install or download those dependencies at runtime.
       has execute permission. Honor Windows executable extensions during PATH lookup.
 - [x] Omit the affected surface instead of registering a tool or reviewer that
       will fail immediately when its executable is unavailable.
-- [x] Re-evaluate `code-index` availability on each runtime build and reload,
-      and guard explicitly loaded binary-backed extension factories each time
-      they load.
+- [x] Re-evaluate `code-index` availability on each runtime build and reload.
+      Activate newly available default-active tools unless explicit user or
+      profile tool selection disables them, remove tools that are no longer
+      available, and guard explicitly loaded binary-backed extension factories
+      each time they load.
 - [x] Select first-party `browser-cli`, Pyrun, and `claude-bash-hook` extension
       inventory at process startup; installing or removing those executables
       requires a Pi restart.
@@ -39,7 +41,7 @@ integrations. It must never install or download those dependencies at runtime.
 ## Implementation inventory
 
 - `packages/coding-agent/src/utils/executable.ts` — shared PATH and explicit-command executable resolution.
-- `packages/coding-agent/src/core/tools/index.ts` — filters code-index tool definitions by availability.
+- `packages/coding-agent/src/core/tools/index.ts` — filters code-index tool definitions and computes reload-time activation of new defaults.
 - `packages/coding-agent/src/core/agent-session.ts` — rebuilds the filtered built-in tool registry for each runtime.
 - `packages/coding-agent/src/main.ts` — excludes unavailable first-party binary-backed factories from startup inventory.
 - `packages/coding-agent/extensions/browser-cli/src/index.ts` — skips `browser-cli` registration when unavailable.

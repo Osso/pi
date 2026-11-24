@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/reload` now activates the `outline`, `symbol` and `references` tools when `code-index` became available since startup, unless the user or profile disabled them
 - `pi debug attach` now exits with status 1 when the live REPL rejects the attachment, such as on a session mismatch, instead of reporting success
 - `list_sessions` and the session directory no longer mark a live `pi-rpc` session (started through `rpc-entry`) as dead and retire its listener on Linux
 - The debug REPL decides on top-level `await` by parsing, so a runtime error that mentions `Unexpected reserved word` no longer runs the input twice, and `await expr;` with a trailing semicolon now works

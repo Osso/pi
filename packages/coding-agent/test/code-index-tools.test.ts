@@ -81,6 +81,42 @@ describe("code-index backed tools", () => {
 		expect(harness.session.getActiveToolNames()).toEqual(expect.arrayContaining(["outline", "symbol", "references"]));
 	});
 
+	it("activates newly available default code-index tools on reload without overriding disabled tools", async () => {
+		previousPath = process.env.PATH;
+		const codeIndexNames = ["outline", "symbol", "references"];
+		process.env.PATH = createPathDirectory(false);
+		const harness = await createHarness();
+		harnesses.push(harness);
+
+		process.env.PATH = createPathDirectory(true);
+		await harness.session.reload();
+		expect(harness.session.getAllTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(codeIndexNames));
+		expect(harness.session.getActiveToolNames()).toEqual(expect.arrayContaining(codeIndexNames));
+
+		const initiallyActiveToolNames = harness.session.getActiveToolNames();
+		harness.session.setActiveToolsByName(initiallyActiveToolNames.filter((name) => !codeIndexNames.includes(name)));
+		await harness.session.reload();
+		expect(harness.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(codeIndexNames));
+
+		harness.session.setActiveToolsByName(initiallyActiveToolNames);
+		process.env.PATH = createPathDirectory(false);
+		await harness.session.reload();
+		expect(harness.session.getAllTools().map((tool) => tool.name)).not.toEqual(
+			expect.arrayContaining(codeIndexNames),
+		);
+		expect(harness.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(codeIndexNames));
+
+		process.env.PATH = createPathDirectory(false);
+		const profileHarness = await createHarness({ initialActiveToolNames: ["read", "end_turn"] });
+		harnesses.push(profileHarness);
+		process.env.PATH = createPathDirectory(true);
+		await profileHarness.session.reload();
+		expect(profileHarness.session.getAllTools().map((tool) => tool.name)).toEqual(
+			expect.arrayContaining(codeIndexNames),
+		);
+		expect(profileHarness.session.getActiveToolNames()).not.toEqual(expect.arrayContaining(codeIndexNames));
+	});
+
 	it("runs outline through code-index with optional flags", async () => {
 		const operations: CodeIndexOperations = {
 			run: vi.fn(async () => ({ stdout: "outline output\n", stderr: "", exitCode: 0 })),
