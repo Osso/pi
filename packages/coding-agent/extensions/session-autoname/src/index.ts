@@ -16,6 +16,8 @@ interface SetSessionNameDetails {
 	name: string;
 	/** Persisted name revision of a successful write; the transcript keeps it across reload and restart. */
 	revision?: number;
+	/** Session whose name row the revision belongs to; a fork or clone copies the result but not the row. */
+	sessionId?: string;
 }
 
 export default function sessionAutonameExtension(pi: ExtensionAPI): void {
@@ -39,13 +41,13 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 			if (!result.written || result.revision === null) return errorResult(describeWriteRefusal(result));
 			return {
 				content: [{ type: "text", text: `Session name set to "${name}".` }],
-				details: { name, revision: result.revision },
+				details: { name, revision: result.revision, sessionId: ctx.sessionManager.getSessionId() },
 			};
 		},
 	});
 }
 
-/** Revision of this tool's latest successful write in the session, or null when it never named the session. */
+/** Revision of this tool's latest successful write to this session, or null when it never named this session. */
 function findLastWriteRevision(ctx: ExtensionContext): number | null {
 	const entries = ctx.sessionManager.getEntries();
 	for (let index = entries.length - 1; index >= 0; index--) {
@@ -53,8 +55,9 @@ function findLastWriteRevision(ctx: ExtensionContext): number | null {
 		if (entry?.type !== "message") continue;
 		const message = entry.message;
 		if (message.role !== "toolResult" || message.toolName !== "set_session_name" || message.isError) continue;
-		const revision = (message.details as SetSessionNameDetails | undefined)?.revision;
-		return typeof revision === "number" ? revision : null;
+		const details = message.details as SetSessionNameDetails | undefined;
+		if (details?.sessionId !== ctx.sessionManager.getSessionId()) return null;
+		return typeof details.revision === "number" ? details.revision : null;
 	}
 	return null;
 }

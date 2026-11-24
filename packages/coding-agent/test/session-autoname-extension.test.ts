@@ -129,6 +129,33 @@ describe("session naming tool extension", () => {
 		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile ?? "")?.name).toBe(expected);
 	});
 
+	it.each([
+		{ manualName: undefined, expectedName: "Fork Title", expectedError: false },
+		{ manualName: "Manual Fork", expectedName: "Manual Fork", expectedError: true },
+	])(
+		"ignores a naming revision copied from a parent session into a fork (manual name: $manualName)",
+		async (scenario) => {
+			const harness = await createSessionNameHarness();
+			// A fork copies the parent's successful tool result, whose revision belongs to the parent's row.
+			harness.sessionManager.appendMessage({
+				role: "toolResult",
+				toolCallId: "parent-call",
+				toolName: "set_session_name",
+				content: [{ type: "text", text: 'Session name set to "Parent Title".' }],
+				details: { name: "Parent Title", revision: 1 },
+				isError: false,
+				timestamp: Date.now(),
+			});
+			if (scenario.manualName) harness.sessionManager.setSessionName(scenario.manualName);
+			harness.setResponses([nameCall("Fork Title"), endTurn()]);
+
+			await harness.session.prompt("Continue in the fork");
+
+			expect(toolResultErrors(harness, "set_session_name").at(-1)).toBe(scenario.expectedError);
+			expect(harness.sessionManager.getSessionName()).toBe(scenario.expectedName);
+		},
+	);
+
 	it("refuses to overwrite a name set outside the tool", async () => {
 		const harness = await createSessionNameHarness();
 		harness.sessionManager.setSessionName("Manual Name");

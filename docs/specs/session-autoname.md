@@ -25,6 +25,7 @@ Session naming is a default first-party extension that lets the model name the c
 - [x] The tool may correct a name it set earlier in the same session, including after an extension reload (`packages/coding-agent/test/session-autoname-reload.test.ts`).
 - [x] A manual rename or clear that another process persists takes precedence over the tool, even if the rename repeats the tool's title. The tool refuses the write and the session can continue its work.
 - [x] A correction is allowed only while the tool's last successful write is still the current persisted name write.
+- [x] A tool write copied into a fork or clone belongs to the parent session; it neither blocks naming the unnamed fork nor lets the tool replace a manual name set in the fork.
 
 ### Normalization
 
