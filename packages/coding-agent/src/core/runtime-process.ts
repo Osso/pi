@@ -143,7 +143,8 @@ export function commandLineIsPiRuntime(commandLine: string[]): boolean {
 	const executable = commandLine[0];
 	if (!executable) return false;
 	const executableName = basename(executable).toLowerCase();
-	if (executableName === "pi" || executableName === "pi.exe") return true;
+	// rpc-entry sets the process title to pi-rpc, which replaces the whole command line on Linux.
+	if (executableName === "pi" || executableName === "pi-rpc" || executableName === "pi.exe") return true;
 	return commandLine.slice(1).some((argument) => {
 		const normalized = argument.replaceAll("\\", "/");
 		return PI_RUNTIME_ENTRYPOINT_SUFFIXES.some(
