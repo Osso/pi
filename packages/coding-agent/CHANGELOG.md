@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed class-based extension tools losing a prototype `prepareArguments` hook, so legacy arguments failed validation instead of being normalized
 - Fixed `attach_session_agent({ path })` running the attached agent in the session's initial cwd instead of its current cwd after that session changed directory
 - Fixed `change_working_directory({ id })` adopting the referenced session's initial cwd instead of its current cwd after that session changed directory
 - Fixed detached job cleanup deleting a recent output log below the 2 GiB cap when its directory had both a terminal job row and a foreground completion marker
