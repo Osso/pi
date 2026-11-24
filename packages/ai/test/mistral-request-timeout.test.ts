@@ -57,10 +57,11 @@ describe("Mistral request timeout", () => {
 		const model = await startServer((_request, response) => {
 			response.writeHead(200, { "content-type": "text/event-stream" });
 			response.write(chunk("early "));
-			setTimeout(() => response.end(`${chunk("late", "stop")}data: [DONE]\n\n`), 200);
+			setTimeout(() => response.end(`${chunk("late", "stop")}data: [DONE]\n\n`), 1_500);
 		});
 
-		const result = await ask(model, 50);
+		// Headers are written at once; a 1 s deadline only absorbs scheduling delay on a loaded host.
+		const result = await ask(model, 1_000);
 
 		expect(result.stopReason).toBe("stop");
 		expect(result.content).toEqual([{ type: "text", text: "early late" }]);
