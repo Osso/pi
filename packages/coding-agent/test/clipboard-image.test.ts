@@ -106,6 +106,28 @@ describe("readClipboardImage", () => {
 		expect(Array.from(result?.bytes ?? [])).toEqual([9, 8]);
 	});
 
+	test.each([
+		["TARGETS fails", undefined],
+		["TARGETS lists only image/png, which fails", "image/png\n"],
+	])("Wayland xclip fallback does not probe unadvertised image types when %s", async (_case, targets) => {
+		const enoent = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+		const probed: string[] = [];
+		mocks.spawnSync.mockImplementation((command, args) => {
+			if (command === "wl-paste") return spawnError(enoent);
+			if (args.includes("TARGETS")) {
+				return targets === undefined ? spawnError(new Error("no owner")) : spawnOk(Buffer.from(targets));
+			}
+			probed.push(args[3]);
+			// The owner answers every other target with its text.
+			return args[3] === "image/png" ? spawnError(new Error("conversion failed")) : spawnOk(Buffer.from("hello"));
+		});
+
+		const result = await readClipboardImage({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" } });
+
+		expect(result).toBeNull();
+		expect(probed).toEqual(targets === undefined ? [] : ["image/png"]);
+	});
+
 	test("WSL: passes PowerShell path directly instead of through a custom env var", async () => {
 		mocks.clipboard.hasImage.mockImplementation(() => {
 			throw new Error("clipboard.hasImage should not be called before PowerShell on WSL");
