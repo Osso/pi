@@ -290,6 +290,7 @@ export async function spawnAgent(
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	handles?: BackgroundSessionHandles,
 	activeToolCallId?: string,
+	signal?: AbortSignal,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	requireSpawnAgentParams(params);
 	const consultationParent = isChildAgentRuntime(ctx) ? requireConsultationParent(store, ctx, params) : undefined;
@@ -306,6 +307,7 @@ export async function spawnAgent(
 			handles,
 			activeToolCallId,
 			consultationParent,
+			signal,
 		});
 	return consultationParent ? runExploreConsultation(store, consultationParent, dispatches, spawn) : spawn();
 }
@@ -322,6 +324,31 @@ interface SpawnDispatchInput {
 	handles?: BackgroundSessionHandles;
 	activeToolCallId?: string;
 	consultationParent?: string;
+	/** The spawn_agent tool call's signal: an abort while the child is being built fails the spawn. */
+	signal?: AbortSignal;
+}
+
+/**
+ * Builds the child session while forwarding the tool call's abort. A spawn interrupted during construction
+ * must not start the child, so a session built after the abort is disposed and the spawn fails.
+ */
+async function constructChildSession(
+	create: () => Promise<ChildAgentSession>,
+	abortController: AbortController,
+	signal: AbortSignal | undefined,
+): Promise<ChildAgentSession> {
+	const forwardAbort = () => abortController.abort(signal?.reason);
+	signal?.addEventListener("abort", forwardAbort, { once: true });
+	try {
+		const childSession = await create();
+		if (signal?.aborted) {
+			await childSession.dispose?.();
+			throw new Error("spawn_agent was interrupted while the child session was being built");
+		}
+		return childSession;
+	} finally {
+		signal?.removeEventListener("abort", forwardAbort);
+	}
 }
 
 async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolResult<AgentToolDetails>> {
@@ -337,6 +364,7 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 		handles,
 		activeToolCallId,
 		consultationParent,
+		signal,
 	} = input;
 	if (isProductionChildSessionFactory(createChildSession)) {
 		const validation = validateGoalObjective(params.prompt);
@@ -380,14 +408,19 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 	const abortController = new AbortController();
 	let childSession: ChildAgentSession;
 	try {
-		childSession = await createChildSession({
-			activeToolCallId,
-			agent: prepared,
-			context,
-			ctx,
-			prompt: params.prompt,
-			signal: abortController.signal,
-		});
+		childSession = await constructChildSession(
+			() =>
+				createChildSession({
+					activeToolCallId,
+					agent: prepared,
+					context,
+					ctx,
+					prompt: params.prompt,
+					signal: abortController.signal,
+				}),
+			abortController,
+			signal,
+		);
 	} catch (error) {
 		const runtimeError = {
 			code: "runtime_spawn_failed",

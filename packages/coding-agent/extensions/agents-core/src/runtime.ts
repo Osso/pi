@@ -609,7 +609,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			],
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
 				if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 				return spawnAgent(
 					store,
@@ -622,6 +622,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					waitingDesktopNotifications,
 					runtimeHandles.sessions,
 					_toolCallId,
+					signal,
 				);
 			},
 		}),

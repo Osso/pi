@@ -1212,6 +1212,41 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("fails a spawn aborted while its child session is built and never sends the assignment", async () => {
+		let childHarness: Harness | undefined;
+		const supervisorSession = createControlDbSession();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(supervisorSession);
+		const parentTurn = new AbortController();
+		const harness = createMultiAgentHarness({
+			ctx: { sessionManager: supervisorSession },
+			store,
+			createChildSession: async ({ agent }) => {
+				childHarness = await createHarness({
+					multiAgentAgentId: agent.id,
+					multiAgentParentSessionId: supervisorSession.getSessionId(),
+					multiAgentStore: store,
+				});
+				childHarnesses.push(childHarness);
+				childHarness.setResponses([fauxAssistantMessage("child report")]);
+				// The parent turn is aborted while the child is still being built.
+				parentTurn.abort();
+				return childHarness.session;
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>(
+			"spawn_agent",
+			{ context: "fresh", displayName: "Blocked worker", prompt: "write the child report" },
+			parentTurn.signal,
+		);
+		await delay(50);
+
+		expect(spawned.details.dispatched).toBe(false);
+		expect(spawned.details.agent).toMatchObject({ lifecycle: "failed", revision: 1 });
+		expect(childHarness?.faux.state.callCount).toBe(0);
+	});
+
 	it("terminalizes a real spawned child AgentSession thinking timeout as failed", async () => {
 		let childHarness: Harness | undefined;
 		const supervisorSession = createControlDbSession();

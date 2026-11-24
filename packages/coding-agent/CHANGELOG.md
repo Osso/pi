@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a `spawn_agent` call aborted while the child session was being built still starting the child and sending its assignment
 - Fixed aborting a speculative background compaction from its start event still running the compaction hook and summary request
 - Fixed Pyrun session proxies becoming zombie processes after a Pi restart; the proxy is no longer a child of Pi
 - Fixed Pyrun guidance letting models pass a new descriptive `session_id` on one-off calls, each keeping a Python process for an hour
