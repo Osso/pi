@@ -236,7 +236,7 @@ async function runLoop(
 	let config = initialConfig;
 	let firstTurn = true;
 	let continuationInstructionPending = false;
-	// Check for steering messages at start (user may have typed while waiting)
+	throwIfAborted(signal); // An abort before the start-of-run steering poll leaves queued input queued.
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
