@@ -10,6 +10,7 @@ const radius = vi.hoisted(() => ({
 }));
 const child = vi.hoisted(() => ({
 	dispose: vi.fn(async () => {}),
+	uiRequestHandler: undefined as ((request: unknown) => void) | undefined,
 }));
 
 vi.mock("../src/radius.ts", () => ({ radiusPresence: radius }));
@@ -23,7 +24,9 @@ vi.mock("../src/rpc-process.ts", () => ({
 		}),
 		onEvent: () => () => {},
 		onExit: () => () => {},
-		setUiRequestHandler: () => {},
+		setUiRequestHandler: (handler: ((request: unknown) => void) | undefined) => {
+			child.uiRequestHandler = handler;
+		},
 		handleUiResponse: () => {},
 		dispose: child.dispose,
 	}),
@@ -31,7 +34,7 @@ vi.mock("../src/rpc-process.ts", () => ({
 
 import { OrchestratorSupervisor } from "../src/supervisor.ts";
 
-describe("OrchestratorSupervisor.stopInstance", () => {
+describe("OrchestratorSupervisor", () => {
 	let directory: string;
 
 	beforeEach(async () => {
@@ -55,5 +58,30 @@ describe("OrchestratorSupervisor.stopInstance", () => {
 
 		expect(supervisor.listInstances()).toEqual([]);
 		expect(child.dispose).toHaveBeenCalledOnce();
+	});
+
+	it("routes dialogs to a remaining stream after a later stream closes", async () => {
+		radius.disconnectPi.mockResolvedValue(undefined);
+		const supervisor = new OrchestratorSupervisor();
+		const instance = await supervisor.spawnInstance({ cwd: "/tmp" });
+		const firstDialogs: unknown[] = [];
+		const secondDialogs: unknown[] = [];
+		supervisor.openRpcStream(
+			instance.id,
+			() => {},
+			(request) => firstDialogs.push(request),
+		);
+		const second = supervisor.openRpcStream(
+			instance.id,
+			() => {},
+			(request) => secondDialogs.push(request),
+		);
+
+		second?.close();
+		const dialog = { type: "extension_ui_request", id: "dialog", method: "confirm", title: "Continue?", message: "" };
+		child.uiRequestHandler?.(dialog);
+
+		expect(firstDialogs).toEqual([dialog]);
+		expect(secondDialogs).toEqual([]);
 	});
 });

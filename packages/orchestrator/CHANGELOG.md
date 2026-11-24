@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Keep routing extension dialogs to a still-open RPC stream after a later stream for the same instance closes, instead of dropping them
 - Stop the instance child process when the Radius disconnect fails during `stop`, instead of dropping the instance record and leaving the child running
 - Drain coalesced IPC RPC stream commands without waiting for more socket data, including after initial blank lines.
 - Keep RPC stream commands that arrive while the stream is still opening instead of treating them as a new IPC request and closing the connection.

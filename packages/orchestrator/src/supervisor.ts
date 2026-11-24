@@ -22,7 +22,8 @@ interface LiveInstance {
 	record: InstanceRecord;
 	resources: LiveInstanceResources;
 	subscribers: Set<AgentSessionEventListener>;
-	onUiRequest?: (request: RpcExtensionUIRequest) => void;
+	/** Open streams' dialog handlers; the most recently opened stream answers dialogs. */
+	uiRequestHandlers: Array<(request: RpcExtensionUIRequest) => void>;
 	unsubscribeEvents?: () => void;
 	unsubscribeExit?: () => void;
 }
@@ -92,7 +93,7 @@ export class OrchestratorSupervisor {
 		live.unsubscribeExit?.();
 		live.unsubscribeEvents = undefined;
 		live.unsubscribeExit = undefined;
-		live.onUiRequest = undefined;
+		live.uiRequestHandlers = [];
 		live.resources.rpcProcess?.setUiRequestHandler(undefined);
 	}
 
@@ -108,7 +109,7 @@ export class OrchestratorSupervisor {
 			void this.handleUnexpectedRpcExit(live, error);
 		});
 		rpcProcess.setUiRequestHandler((request) => {
-			live.onUiRequest?.(request);
+			live.uiRequestHandlers.at(-1)?.(request);
 		});
 	}
 
@@ -215,7 +216,7 @@ export class OrchestratorSupervisor {
 			return undefined;
 		}
 		live.subscribers.add(onEvent);
-		live.onUiRequest = onUiRequest;
+		live.uiRequestHandlers.push(onUiRequest);
 		return {
 			handleRpc: async (command) => {
 				const response = await rpcProcess.send(command);
@@ -228,8 +229,9 @@ export class OrchestratorSupervisor {
 				rpcProcess.handleUiResponse(response);
 			},
 			close: () => {
-				if (live.onUiRequest === onUiRequest) {
-					live.onUiRequest = undefined;
+				const handlerIndex = live.uiRequestHandlers.lastIndexOf(onUiRequest);
+				if (handlerIndex !== -1) {
+					live.uiRequestHandlers.splice(handlerIndex, 1);
 				}
 				live.subscribers.delete(onEvent);
 			},
@@ -284,6 +286,7 @@ export class OrchestratorSupervisor {
 			},
 			resources: {},
 			subscribers: new Set(),
+			uiRequestHandlers: [],
 		};
 		this.liveInstances.set(live.record.id, live);
 		upsertInstance(live.record);
