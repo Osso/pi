@@ -65,6 +65,8 @@ export async function callActiveTool(input: ProgrammaticToolCallInput): Promise<
 	if (beforeResult?.block) {
 		return createErrorToolResult(beforeResult.reason ?? "Tool execution was blocked");
 	}
+	// A tool_call handler can abort the turn; like the model tool path, the tool must not run then.
+	if (signal?.aborted) return createErrorToolResult("Operation aborted");
 
 	let result: AgentToolResult<unknown>;
 	let isError = false;
