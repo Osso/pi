@@ -131,6 +131,7 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { takeUnreportedDiagnostics } from "../runtime-diagnostics.ts";
+import { deliverCompactionQueuePrompts } from "./compaction-queue-delivery.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
 
 const MAX_AGENT_LOG_VIEW_BYTES = 64 * 1024;
@@ -4993,39 +4994,25 @@ export class InteractiveMode {
 			}
 
 			const firstPromptIndex = queuedMessages.findIndex((message) => !this.isExtensionCommand(message.text));
-			const firstPrompt = queuedMessages[firstPromptIndex];
-			if (firstPrompt === undefined) {
-				for (const message of queuedMessages) {
-					await this.session.prompt(message.text).catch(showQueueError);
-				}
+			if (firstPromptIndex === -1) {
+				for (const message of queuedMessages) await this.session.prompt(message.text).catch(showQueueError);
 				return;
 			}
 
-			const preCommands = queuedMessages.slice(0, firstPromptIndex);
-			const rest = queuedMessages.slice(firstPromptIndex + 1);
-
-			for (const message of preCommands) {
+			for (const message of queuedMessages.slice(0, firstPromptIndex)) {
 				await this.session.prompt(message.text).catch(showQueueError);
 			}
 
-			// streamingBehavior keeps this race-safe: the post-run loop (mailbox drain, length-retry resume) can start a
-			// new turn before this deferred flush, so queue via steer/followUp instead of failing. Only a failure after
-			// preflight acceptance rolls back the whole batch.
-			let promptAccepted = false;
-			const promptPromise = this.session
-				.prompt(firstPrompt.text, {
-					streamingBehavior: firstPrompt.mode,
-					preflightResult: (accepted) => {
-						promptAccepted = accepted;
-					},
-				})
-				.catch((error) => (promptAccepted ? restoreQueue(error) : showQueueError(error)));
-
-			for (const message of rest) {
-				await this.deliverCompactionMessage(message).catch(showQueueError);
-			}
+			await deliverCompactionQueuePrompts({
+				messages: queuedMessages.slice(firstPromptIndex),
+				isExtensionCommand: (message) => this.isExtensionCommand(message.text),
+				deliver: (message) => this.deliverCompactionMessage(message),
+				prompt: (message, preflightResult) =>
+					this.session.prompt(message.text, { streamingBehavior: message.mode, preflightResult }),
+				onPromptError: (error, accepted) => (accepted ? restoreQueue(error) : showQueueError(error)),
+				onDeliveryError: showQueueError,
+			});
 			this.updatePendingMessagesDisplay();
-			void promptPromise;
 		} catch (error) {
 			restoreQueue(error);
 		}

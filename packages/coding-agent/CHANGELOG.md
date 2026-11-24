@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A follow-up queued with Alt+Enter during compaction is now sent after an unknown slash command queued before it is rejected, instead of staying pending in the idle session
 - `/tree` now applies the `/daybreak` selection saved on the selected branch instead of keeping the previous branch's Daybreak Blue setting
 - `/tree` now applies the `/fast` mode saved on the selected branch instead of keeping the previous branch's Codex service tier
 - `change_working_directory` no longer drops steering or follow-up messages queued during the relocated turn; they move to the relocated session and are delivered once
