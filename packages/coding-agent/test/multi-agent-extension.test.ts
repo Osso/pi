@@ -949,6 +949,35 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("attaches a relocated session by path with its current cwd", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-cwd-"));
+		try {
+			const saved = SessionManager.create("/repo/original", tempDir, { id: "relocated-saved" });
+			saved.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			saved.appendMessage(fauxAssistantMessage("saved response"));
+			const supervisor = SessionManager.create("/repo", tempDir, { id: "relocated-supervisor" });
+			const controlDbPath = join(tempDir, "control.sqlite");
+			// Control metadata records the current cwd; the JSONL header keeps the initial cwd.
+			saved.setMetadataControlDbPath(controlDbPath, { cwdOverride: "/repo/current" });
+			supervisor.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(supervisor);
+			const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: supervisor }, store });
+
+			const byPath = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: saved.getSessionFile(),
+			});
+			const byId = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				sessionId: "relocated-saved",
+			});
+
+			expect(byPath.details.agent.cwd).toBe("/repo/current");
+			expect(byId.details.agent.cwd).toBe("/repo/current");
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("attaches an existing saved session as an agent with preserved session identity", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-agent-"));
 		try {

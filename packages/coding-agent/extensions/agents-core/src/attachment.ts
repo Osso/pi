@@ -255,7 +255,8 @@ export async function resolveAttachSessionTarget(
 		return {
 			ok: true,
 			target: {
-				cwd: session.getCwd(),
+				// Control metadata holds the current cwd; the opened transcript reports only its initial header cwd.
+				cwd: metadata?.cwd || session.getCwd(),
 				name: metadata?.name || metadata?.subagentName,
 				path: sessionPath,
 				sessionId: session.getSessionId(),
