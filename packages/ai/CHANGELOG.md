@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Codex `response.failed` frames carrying the Daybreak Blue verification error are now retried like the same error from an `error` frame
 - Codex SSE no longer resends a request after a non-retryable HTTP error (such as a 507 request-buffer overflow or a 400) when provider retries are enabled, so the error reaches compaction and error handling at once
 - Fixed `StringEnum` dropping an empty-string `default` that is a member of the enum
 - Fixed Anthropic tool schemas dropping the declared `$schema` dialect, so Draft 7 tuple `items` were read under the wrong dialect (port of upstream 4245b07b4)

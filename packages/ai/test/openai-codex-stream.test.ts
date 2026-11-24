@@ -240,6 +240,24 @@ describe("Codex metadata diagnostics", () => {
 		},
 	);
 
+	it.each(["error", "response.failed"])("classifies a Daybreak Blue verification %s as retryable", async (type) => {
+		const error = { message: "Unable to verify Daybreak Blue access. Please try again." };
+		const payload = type === "error" ? { type, error } : { type, response: { error } };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(`data: ${JSON.stringify(payload)}\n\n`, { headers: { "x-request-id": requestId } }),
+			),
+		);
+		const result = await streamSimpleOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+		}).result();
+		expect(result.errorMessage).toContain(error.message);
+		expect(isRetryableAssistantError(result)).toBe(true);
+	});
+
 	it("observes HTTP retry and final 4xx exactly once per actual attempt", async () => {
 		const events: ProviderDiagnosticEvent[] = [];
 		const retries: unknown[] = [];

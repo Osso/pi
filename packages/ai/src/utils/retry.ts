@@ -204,8 +204,9 @@ const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// retry policy so callers can surface/abort the backoff (#1123).
 	"retry delay",
 
-	// Codex access-verification failure, optionally followed by its request ID.
-	"^Codex error: Unable to verify Daybreak Blue access\\. Please try again\\.(?:\\nOpenAI request ID: [^\\r\\n]+)?$",
+	// Codex access-verification failure from an `error` frame (prefixed) or a
+	// `response.failed` frame (unprefixed), optionally followed by its request ID.
+	"^(?:Codex error: )?Unable to verify Daybreak Blue access\\. Please try again\\.(?:\\nOpenAI request ID: [^\\r\\n]+)?$",
 
 	// Explicit retry guidance emitted mid-stream by OpenAI Responses and Bedrock
 	// stream exceptions (#6019).
