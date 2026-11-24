@@ -44,7 +44,7 @@ function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssi
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
-function buildInteractivePiArguments(sessionFile: string, initialMessage?: string): string[] {
+function buildInteractivePiArguments(sessionFile: string, initialMessage?: string, extraArgs: string[] = []): string[] {
 	const cliPath = join(import.meta.dirname, "../../../src/cli.ts");
 	const providerPreload = join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts");
 	const ttyPreload = join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs");
@@ -65,6 +65,7 @@ function buildInteractivePiArguments(sessionFile: string, initialMessage?: strin
 		"headless-faux-1",
 		"--session",
 		sessionFile,
+		...extraArgs,
 		...(initialMessage ? [initialMessage] : []),
 	];
 }
@@ -95,11 +96,12 @@ function startInteractivePi(
 	paths: HeadlessPiPaths,
 	sessionFile: string,
 	initialMessage?: string,
+	extraArgs: string[] = [],
 ): {
 	process: ChildProcessWithoutNullStreams;
 	readOutput: () => string;
 } {
-	const child = spawn(process.execPath, buildInteractivePiArguments(sessionFile, initialMessage), {
+	const child = spawn(process.execPath, buildInteractivePiArguments(sessionFile, initialMessage, extraArgs), {
 		cwd: paths.workspaceDir,
 		env: buildInteractivePiEnvironment(paths),
 	});
@@ -402,6 +404,55 @@ describe("resume_session first-party tool", () => {
 
 			caller.respondToLlmRequest(afterRejection.id, fauxCompletedAssistantMessage("Caller remains active"));
 			await caller.waitForEvent((event) => event.type === "agent_end");
+		});
+	});
+
+	it("keeps an interactive caller alive when the target session is already open", async () => {
+		await withHeadlessPi(async (target) => {
+			if (!existsSync(target.sessionFile)) {
+				writeFileSync(
+					target.sessionFile,
+					`${JSON.stringify({ type: "session", version: 3, id: target.sessionId, timestamp: new Date().toISOString(), cwd: target.paths.workspaceDir })}\n`,
+				);
+			}
+			const sourceSession = SessionManager.create(target.paths.workspaceDir, target.paths.sessionDir);
+			sourceSession.appendMessage({ role: "user", content: "Resume the live target", timestamp: Date.now() });
+			const sourceSessionFile = sourceSession.getSessionFile();
+			if (!sourceSessionFile) throw new Error("Missing source session file");
+			// The interactive child needs the preloaded faux provider registered for its own model registry.
+			const providerExtension = join(target.paths.tempDir, "register-headless-faux.ts");
+			writeFileSync(
+				providerExtension,
+				`import { getApiProvider } from "@earendil-works/pi-ai/compat";
+export default function (pi) {
+	const provider = getApiProvider("headless-faux");
+	if (!provider) throw new Error("Missing preloaded faux provider");
+	pi.registerProvider("headless-faux", { api: "headless-faux", streamSimple: provider.streamSimple });
+}
+`,
+			);
+			const interactive = startInteractivePi(target.paths, sourceSessionFile, undefined, ["-e", providerExtension]);
+			cleanups.push(() => stopProcess(interactive.process));
+
+			// Startup continues the source's trailing user message; answer that request with the switch.
+			const request = await target.waitForLlmRequest(
+				(candidate) => candidate.sessionId === sourceSession.getSessionId(),
+			);
+			target.respondToLlmRequest(
+				request.id,
+				fauxAssistantMessage(
+					fauxToolCall("resume_session", { path: target.sessionFile }, { id: "resume-open-target" }),
+				),
+			);
+			const afterRejection = await target
+				.waitForLlmRequest((candidate) => candidate.id !== request.id, 15_000)
+				.catch((error: Error) => {
+					throw new Error(`${error.message}; caller exit code ${interactive.process.exitCode}`);
+				});
+
+			expect(JSON.stringify(afterRejection.messages)).toContain("open in another Pi process");
+			expect(interactive.process.exitCode, interactive.readOutput()).toBeNull();
+			target.respondToLlmRequest(afterRejection.id, fauxCompletedAssistantMessage("Caller remains active"));
 		});
 	});
 

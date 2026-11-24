@@ -96,6 +96,7 @@ import {
 	completeIncomingMessage,
 	failIncomingMessage,
 	type IncomingControlMessage,
+	SessionOpenElsewhereError,
 	writeSessionName,
 } from "../../core/session-control-db.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
@@ -5882,7 +5883,7 @@ export class InteractiveMode {
 					),
 				async (sessionPath) => {
 					done();
-					await this.handleResumeSession(sessionPath);
+					await this.handleResumeSession(sessionPath).catch((error: Error) => this.showError(error.message));
 				},
 				() => {
 					done();
@@ -5978,13 +5979,12 @@ export class InteractiveMode {
 				withSession: options?.withSession,
 				projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
 			});
-			if (result.cancelled) {
-				return result;
-			}
+			if (result.cancelled) return result;
 			await this.continueInterruptedResumedSession();
 			this.showStatus("Resumed session");
 			return result;
 		} catch (error: unknown) {
+			if (error instanceof SessionOpenElsewhereError) throw error;
 			if (error instanceof MissingSessionCwdError) {
 				const selectedCwd = await this.promptForMissingSessionCwd(error);
 				if (!selectedCwd) {

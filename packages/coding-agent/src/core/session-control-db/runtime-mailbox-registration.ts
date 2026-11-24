@@ -186,6 +186,9 @@ export function registerRuntimeMailboxListenerInTransaction(
 	}
 }
 
+/** The session is live in another Pi process; nothing was torn down, so callers can stay on their current session. */
+export class SessionOpenElsewhereError extends Error {}
+
 export function assertRuntimeReplacementAllowed(
 	db: SqliteDatabase,
 	registration: RuntimeMailboxRegistration,
@@ -207,7 +210,7 @@ export function assertRuntimeReplacementAllowed(
 	const sessionId = registration.recipient.sessionId;
 	const cwd = existingListener ? readVerifiedSessionCwd(db, sessionId, existingListener) : undefined;
 	const processContext = cwd ? `PID ${existingOwnerPid}, cwd ${cwd}` : `PID ${existingOwnerPid}`;
-	throw new Error(
+	throw new SessionOpenElsewhereError(
 		`Cannot continue session ${sessionId} because it is open in another Pi process (${processContext}). Close that Pi session, run pi to start a new session, or use pi -r to choose another.`,
 	);
 }

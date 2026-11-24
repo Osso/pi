@@ -118,7 +118,10 @@ export {
 	readRuntimeMailboxListener,
 	retireRuntimeMailboxListener,
 } from "./session-control-db/runtime-mailbox-listeners.ts";
-export { registerRuntimeMailboxListener } from "./session-control-db/runtime-mailbox-registration.ts";
+export {
+	registerRuntimeMailboxListener,
+	SessionOpenElsewhereError,
+} from "./session-control-db/runtime-mailbox-registration.ts";
 export {
 	failRuntimeMailboxMessage,
 	listRuntimeMailboxMessages,
