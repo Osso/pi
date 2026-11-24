@@ -76,6 +76,27 @@ describe("compaction.thresholdTokens", () => {
 		expect(manager.getCompactionSettings().thresholdTokens).toBe(500_000);
 	});
 
+	it("reports a thresholdPercent key added before reload or loaded when the project becomes trusted", async () => {
+		const storage = new InMemorySettingsStorage();
+		storage.withLock("global", () => JSON.stringify({ compaction: { thresholdTokens: 500_000 } }));
+		storage.withLock("project", () => JSON.stringify({ compaction: { thresholdPercent: 40 } }));
+		const manager = SettingsManager.fromStorage(storage, { projectTrusted: false });
+		expect(manager.drainErrors()).toEqual([]);
+
+		manager.setProjectTrusted(true);
+		storage.withLock("global", () => JSON.stringify({ compaction: { thresholdPercent: 50 } }));
+		const afterTrust = manager.drainErrors();
+		await manager.reload();
+		const afterReload = manager.drainErrors();
+
+		const removed = "compaction.thresholdPercent was removed and is ignored; set compaction.thresholdTokens";
+		expect(afterTrust.map(({ scope, error }) => [scope, error.message])).toEqual([["project", removed]]);
+		expect(afterReload.map(({ scope, error }) => [scope, error.message])).toEqual([
+			["global", removed],
+			["project", removed],
+		]);
+	});
+
 	it.each([0, -1, 1.5, NaN, Infinity, "500000", null])(
 		"rejects invalid token count %s with an actionable error",
 		(value) => {

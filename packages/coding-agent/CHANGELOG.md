@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed the removed `compaction.thresholdPercent` warning being skipped when the key appears after `/reload` or when a project becomes trusted
 - Fixed `set_session_name` refusing to correct its own title after `/reload` or a restart
 - Fixed a class-based extension tool's `prepareArguments` running without its instance as `this`
 - Fixed the agents status widget truncating activity text one column early, leaving an extra space before the elapsed time

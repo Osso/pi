@@ -356,12 +356,10 @@ export class SettingsManager {
 		const projectTrusted = options.projectTrusted ?? true;
 		const globalLoad = SettingsManager.tryLoadFromStorage(storage, "global");
 		const projectLoad = SettingsManager.tryLoadFromStorage(storage, "project", projectTrusted);
-		const initialErrors: SettingsError[] = [];
-		for (const [scope, load] of [["global", globalLoad] as const, ["project", projectLoad] as const]) {
-			if (load.error) initialErrors.push({ scope, error: load.error });
-			const removed = removedCompactionSettingError(load.settings.compaction);
-			if (removed) initialErrors.push({ scope, error: removed });
-		}
+		const initialErrors = [
+			...SettingsManager.loadErrors("global", globalLoad),
+			...SettingsManager.loadErrors("project", projectLoad),
+		];
 
 		return new SettingsManager(
 			storage,
@@ -418,6 +416,12 @@ export class SettingsManager {
 		} catch (error) {
 			return { settings: {}, error: error as Error };
 		}
+	}
+
+	/** Errors to report for one scope's load: a read/parse failure, then a removed compaction key. */
+	private static loadErrors(scope: SettingsScope, load: { settings: Settings; error: Error | null }): SettingsError[] {
+		const errors = [load.error, removedCompactionSettingError(load.settings.compaction)];
+		return errors.filter((error): error is Error => error instanceof Error).map((error) => ({ scope, error }));
 	}
 
 	/** Migrate old settings format to new format */
@@ -618,34 +622,25 @@ export class SettingsManager {
 		const projectLoad = SettingsManager.tryLoadFromStorage(this.storage, "project", trusted);
 		this.projectSettings = projectLoad.settings;
 		this.projectSettingsLoadError = projectLoad.error;
-		if (projectLoad.error) {
-			this.recordError("project", projectLoad.error);
-		}
+		this.errors.push(...SettingsManager.loadErrors("project", projectLoad));
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings, this.overrides);
 	}
 
 	async reload(): Promise<void> {
 		await this.writeQueue;
 		const globalLoad = SettingsManager.tryLoadFromStorage(this.storage, "global");
-		if (!globalLoad.error) {
-			this.globalSettings = globalLoad.settings;
-			this.globalSettingsLoadError = null;
-		} else {
-			this.globalSettingsLoadError = globalLoad.error;
-			this.recordError("global", globalLoad.error);
-		}
+		// A failed load keeps the previous settings in effect.
+		if (!globalLoad.error) this.globalSettings = globalLoad.settings;
+		this.globalSettingsLoadError = globalLoad.error;
+		this.errors.push(...SettingsManager.loadErrors("global", globalLoad));
 
 		this.clearModifiedScope("global");
 		this.clearModifiedScope("project");
 
 		const projectLoad = SettingsManager.tryLoadFromStorage(this.storage, "project", this.projectTrusted);
-		if (!projectLoad.error) {
-			this.projectSettings = projectLoad.settings;
-			this.projectSettingsLoadError = null;
-		} else {
-			this.projectSettingsLoadError = projectLoad.error;
-			this.recordError("project", projectLoad.error);
-		}
+		if (!projectLoad.error) this.projectSettings = projectLoad.settings;
+		this.projectSettingsLoadError = projectLoad.error;
+		this.errors.push(...SettingsManager.loadErrors("project", projectLoad));
 
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings, this.overrides);
 	}
