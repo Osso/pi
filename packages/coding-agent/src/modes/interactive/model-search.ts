@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { ModelRegistry } from "../../core/model-registry.ts";
 
 export function listSelectableModels(
@@ -37,4 +38,20 @@ export function getModelSearchCandidates(item: ModelSearchItem): string[] {
 		candidates.push(name);
 	}
 	return candidates;
+}
+
+/**
+ * Fuzzy-filters models by their search candidates. An exact `provider/id` query names one model, so it
+ * ranks first: fuzzy scores tie for providers sharing a prefix (openai and openai-codex).
+ */
+export function searchModels<T>(items: T[], query: string, toSearchItem: (item: T) => ModelSearchItem): T[] {
+	const matches = fuzzyFilter(items, query, (item) => getModelSearchCandidates(toSearchItem(item)));
+	const reference = query.trim().toLowerCase();
+	const exactIndex = matches.findIndex((item) => {
+		const { provider, id } = toSearchItem(item);
+		return `${provider}/${id}`.toLowerCase() === reference;
+	});
+	if (exactIndex <= 0) return matches;
+	const [exact] = matches.splice(exactIndex, 1);
+	return exact === undefined ? matches : [exact, ...matches];
 }

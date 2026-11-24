@@ -1,16 +1,7 @@
 import { type Api, type Model, modelsAreEqual } from "@earendil-works/pi-ai";
-import {
-	Container,
-	type Focusable,
-	fuzzyFilter,
-	getKeybindings,
-	Input,
-	Spacer,
-	Text,
-	type TUI,
-} from "@earendil-works/pi-tui";
+import { Container, type Focusable, getKeybindings, Input, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import type { ModelRegistry } from "../../../core/model-registry.ts";
-import { getModelSearchCandidates } from "../model-search.ts";
+import { searchModels } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint } from "./keybinding-hints.ts";
@@ -212,9 +203,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 	private filterModels(query: string): void {
 		this.filteredModels = query
-			? fuzzyFilter(this.activeModels, query, ({ id, provider, model }) =>
-					getModelSearchCandidates({ id, provider, name: model.name }),
-				)
+			? searchModels(this.activeModels, query, ({ id, provider, model }) => ({ id, provider, name: model.name }))
 			: this.activeModels;
 		// A query highlights the best match; clearing it keeps the position clamped to the restored list.
 		this.selectedIndex = query ? 0 : Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));

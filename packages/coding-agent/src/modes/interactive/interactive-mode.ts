@@ -26,7 +26,6 @@ import {
 	CombinedAutocompleteProvider,
 	type Component,
 	Container,
-	fuzzyFilter,
 	isKeyRelease,
 	isTerminalRawModeFailure,
 	Loader,
@@ -202,7 +201,7 @@ import { formatHotkeysMarkdown } from "./hotkeys-help.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { type Expandable, ExpandableText, renderLoadedResources } from "./loaded-resources.ts";
 import { LoginFlow, type LoginFlowHost } from "./login-flow.ts";
-import { getModelSearchCandidates, listSelectableModels } from "./model-search.ts";
+import { listSelectableModels, searchModels } from "./model-search.ts";
 import { createScopedModelPatternMapper, scopedModelId } from "./scoped-model-patterns.ts";
 import { shareSessionAsGist } from "./share-gist.ts";
 import {
@@ -789,7 +788,7 @@ export class InteractiveMode {
 				}));
 
 				// Fuzzy filter by model ID + provider in either order.
-				const filtered = fuzzyFilter(items, prefix, getModelSearchCandidates);
+				const filtered = searchModels(items, prefix, (item) => item);
 
 				if (filtered.length === 0) return null;
 
