@@ -62,13 +62,14 @@ function writeInitialThinkingDeadlinePreload(paths: HeadlessPiPaths): string {
 		`const startTimer = globalThis.setTimeout;
 const thinkingPhaseMs = 20 * 60 * 1000;
 const firstThinkingPhaseMs = 200;
-let shortened = 0;
+// Each model request restarts the deadline, so count expired phases rather than armed timers.
+let expired = 0;
 globalThis.setTimeout = (callback, delay, ...args) => {
-	if (shortened < 2 && delay === thinkingPhaseMs) {
-		shortened += 1;
-		delay = firstThinkingPhaseMs;
-	}
-	return startTimer(callback, delay, ...args);
+	if (expired >= 2 || delay !== thinkingPhaseMs) return startTimer(callback, delay, ...args);
+	return startTimer(() => {
+		expired += 1;
+		callback(...args);
+	}, firstThinkingPhaseMs);
 };
 `,
 	);
