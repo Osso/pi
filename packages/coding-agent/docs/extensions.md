@@ -309,8 +309,8 @@ user sends prompt ────────────────────�
   │   ├─► model_request_end                        │       │
   │   │                                            │       │
   │   │   LLM may call tools:                      │       │
-  │   │     ├─► tool_execution_start               │       │
   │   │     ├─► tool_call (can block)              │       │
+  │   │     ├─► tool_execution_start               │       │
   │   │     ├─► tool_execution_update              │       │
   │   │     ├─► tool_result (can modify)           │       │
   │   │     └─► tool_execution_end                 │       │
@@ -806,7 +806,7 @@ Use this to update extension UI when `pi.setThinkingLevel()`, model changes, or 
 
 #### tool_call
 
-Fired after `tool_execution_start`, before the tool executes. **Can block.** Use `isToolCallEventType` to narrow and get typed inputs.
+Fired before `tool_execution_start` (which carries the prepared arguments) and before the tool executes. **Can block.** Use `isToolCallEventType` to narrow and get typed inputs.
 
 Before `tool_call` runs, pi waits for previously emitted Agent events to finish draining through `AgentSession`. This means `ctx.sessionManager` is up to date through the current assistant tool-calling message.
 
