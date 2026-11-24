@@ -151,7 +151,8 @@ function renderAgentRow(row: AgentRow, columns: ColumnWidths, width: number, now
 		leftWidth,
 		"…",
 	);
-	const activityWidth = Math.max(0, width - visibleWidth(left) - elapsedWidth - 2);
+	// One column separates the activity from the elapsed time.
+	const activityWidth = Math.max(0, width - visibleWidth(left) - elapsedWidth - 1);
 	const activity = truncateToWidth(singleLine(describeActivity(row.agent)), activityWidth, "…");
 	const padding = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(activity) - elapsedWidth));
 	return truncateToWidth(`${left}${theme.fg("muted", activity)}${padding}${elapsed}`, width, "…");

@@ -100,6 +100,24 @@ describe("agents status widget", () => {
 		expect(lines[0]).toMatch(/1s$/);
 	});
 
+	it("shows activity in full when it exactly fits before the elapsed time", () => {
+		const lines = render(
+			[
+				agent({
+					id: "a",
+					currentActivity: {
+						phase: "tool",
+						startedAt: "2026-10-08T11:59:59.000Z",
+						toolCallId: "call-1",
+						toolName: "bash",
+					},
+				}),
+			],
+			19,
+		);
+		expect(lines).toEqual([" ● a  test  bash 1s"]);
+	});
+
 	it("keeps the elapsed time when name and kind fill a narrow terminal", () => {
 		const lines = render(
 			[
