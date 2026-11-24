@@ -192,15 +192,14 @@ export class SettingsList implements Component {
 		} else if (kb.matches(data, "tui.select.cancel")) {
 			// Checked before the Space shortcut so a cancel binding on Space cancels instead of changing the value.
 			this.onCancel();
-		} else if (kb.matches(data, "tui.select.confirm") || data === " ") {
+		} else if (
+			kb.matches(data, "tui.select.confirm") ||
+			(data === " " && (!this.searchEnabled || this.searchInput?.getValue().length === 0))
+		) {
 			this.activateItem();
 		} else if (this.searchEnabled && this.searchInput) {
-			const sanitized = data.replace(/ /g, "");
-			if (!sanitized) {
-				return;
-			}
 			const previousQuery = this.searchInput.getValue();
-			this.searchInput.handleInput(sanitized);
+			this.searchInput.handleInput(data);
 			const query = this.searchInput.getValue();
 			if (query !== previousQuery) this.applyFilter(query);
 		}

@@ -105,6 +105,28 @@ describe("SettingsList", () => {
 		}
 	});
 
+	it("keeps spaces in an active search and still changes with Space before a query", () => {
+		const changes: string[] = [];
+		const list = new SettingsList(
+			[
+				{ id: "ui-mode", label: "UI mode", currentValue: "regular", values: ["regular", "fullscreen"] },
+				{ id: "steering-mode", label: "Steering mode", currentValue: "all", values: ["all", "one-at-a-time"] },
+			],
+			5,
+			theme,
+			(id, value) => changes.push(`${id}=${value}`),
+			() => {},
+			{ enableSearch: true },
+		);
+
+		list.handleInput(" ");
+		assert.deepStrictEqual(changes, ["ui-mode=fullscreen"]);
+		list.handleInput("mode steering");
+		assert.ok(list.render(60).some((line) => line.includes("mode steering")));
+		list.handleInput("\r");
+		assert.deepStrictEqual(changes, ["ui-mode=fullscreen", "steering-mode=one-at-a-time"]);
+	});
+
 	it("aligns values when a label is wider than the label column", () => {
 		const list = new SettingsList(
 			[
