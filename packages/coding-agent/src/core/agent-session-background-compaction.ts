@@ -206,6 +206,8 @@ export class BackgroundCompactionState {
 	private async generate(cache: BackgroundCompactionCache, model: Model<Api>): Promise<void> {
 		try {
 			await cache.extensionRunner.emit({ type: "background_compaction_start" });
+			// A start handler may abort; then nothing is generated, as for a foreground compaction.
+			if (cache.abortController.signal.aborted) return;
 			const startedAt = Date.now();
 			const extensionResult = cache.extensionRunner.hasHandlers("compaction")
 				? await cache.extensionRunner.emit({
