@@ -27,6 +27,12 @@ function stripAnsi(line: string): string {
 }
 
 describe("Markdown component", () => {
+	it("renders a list holding more lines than one call can take as arguments", () => {
+		const markdown = new Markdown(`- \`\`\`\n${"  x\n".repeat(132_000)}  \`\`\``, 0, 0, defaultMarkdownTheme);
+
+		assert.equal(markdown.render(80).length, 132_002);
+	});
+
 	describe("HTML", () => {
 		it("should hide HTML comments", () => {
 			const markdown = new Markdown("alpha\n\n<!-- -->\n\nbeta", 0, 0, defaultMarkdownTheme);

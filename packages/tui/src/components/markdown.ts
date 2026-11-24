@@ -397,8 +397,7 @@ export class Markdown implements Component {
 			}
 
 			case "list": {
-				const listLines = this.renderList(token as Tokens.List, 0, width, styleContext);
-				lines.push(...listLines);
+				for (const line of this.renderList(token as Tokens.List, 0, width, styleContext)) lines.push(line);
 				// Separate a following heading or fence; a space token adds its own line, adjacent lists stay together.
 				if (nextTokenType && nextTokenType !== "space" && nextTokenType !== "list") lines.push("");
 				break;
@@ -406,7 +405,7 @@ export class Markdown implements Component {
 
 			case "table": {
 				const tableLines = this.renderTable(token as Tokens.Table, width, nextTokenType, styleContext);
-				lines.push(...tableLines);
+				for (const line of tableLines) lines.push(line);
 				break;
 			}
 
@@ -625,7 +624,8 @@ export class Markdown implements Component {
 			for (const itemToken of item.tokens) {
 				if (itemToken.type === "list") {
 					if (!renderedAnyLine) lines.push(firstPrefix);
-					lines.push(...this.renderList(itemToken as Tokens.List, depth + 1, width, styleContext));
+					for (const line of this.renderList(itemToken as Tokens.List, depth + 1, width, styleContext))
+						lines.push(line);
 					renderedAnyLine = true;
 					continue;
 				}
