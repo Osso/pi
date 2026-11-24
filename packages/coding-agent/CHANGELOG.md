@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- A multiline `ask_questions` question no longer duplicates the tab bar after leaving the Submit tab; tab labels and the Submit summary render question text on one line
 - `attach_session_agent` fails with an error naming the recorded model when the attached session recorded a model that is no longer available, instead of running on the supervisor model
 - `attach_session_agent` with a session ID no longer attaches an indexed session whose transcript file was deleted; it reports the session as not found
 - A rate-limited background compaction no longer starts the foreground compaction cooldown, so a later context overflow is still compacted and retried

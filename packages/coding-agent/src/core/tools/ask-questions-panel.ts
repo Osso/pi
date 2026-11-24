@@ -57,6 +57,10 @@ function formatOptionMarker(multiSelect: boolean | undefined, selected: boolean)
 	return selected ? "● " : "○ ";
 }
 
+function formatSingleLine(text: string): string {
+	return text.replace(/\s*[\r\n]+\s*/g, " ");
+}
+
 /** Tabbed question panel: one tab per question plus a Submit tab when more than one answer is collected. */
 export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Component & Focusable {
 	const { questions, theme, keybindings: kb, requestRender, done } = options;
@@ -190,7 +194,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		const labels = questions.map((question, index) => {
 			const { answer } = getQuestionState(index);
 			const marker = hasAnswer(answer) ? "■" : "□";
-			const text = ` ${marker} ${question.header ?? `Q${index + 1}`} `;
+			const text = ` ${marker} ${formatSingleLine(question.header ?? `Q${index + 1}`)} `;
 			return index === tab ? theme.bg("selectedBg", theme.fg("text", text)) : theme.fg("muted", text);
 		});
 		const submitText = " ✓ Submit ";
@@ -219,7 +223,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		rows.push({ text: `${answer.custom === undefined ? "  " : "✎ "}${other}`, active: cursor === rows.length });
 		return rows.map((row) => {
 			const prefix = row.active ? theme.fg("accent", "> ") : "  ";
-			const text = row.text.replace(/\s*\r?\n\s*/g, " "); // One terminal row per choice.
+			const text = formatSingleLine(row.text);
 			return truncateToWidth(` ${prefix}${row.active ? theme.fg("accent", text) : text}`, width);
 		});
 	}
@@ -228,7 +232,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		const lines = questions.map((question, index) => {
 			const { answer } = getQuestionState(index);
 			const value = hasAnswer(answer) ? formatAnswer(question, answer) : theme.fg("warning", "—");
-			return truncateToWidth(`   ${theme.fg("muted", `${question.question} `)}→ ${value}`, width);
+			return truncateToWidth(`   ${theme.fg("muted", `${formatSingleLine(question.question)} `)}→ ${value}`, width);
 		});
 		const status = canSubmit()
 			? theme.fg("success", "Enter to submit")

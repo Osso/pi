@@ -128,6 +128,25 @@ describe("ask_questions panel free text", () => {
 		expect(empty.results[0]).toEqual({ answers: { "Which?": "", "Explain?": "detail" }, cancelled: false });
 	});
 
+	it("keeps multiline questions on one summary row and renders one tab bar after Shift+Tab", () => {
+		const { panel, press } = setup([
+			{ question: "For the migration:\nwhich database?", options: [{ label: "A" }, { label: "B" }] },
+			{ question: "Which host?", options: [{ label: "A" }, { label: "B" }] },
+		]);
+
+		press(KEY.enter, KEY.enter);
+		const summary = panel.render(80);
+		expect(summary.join("\n")).toContain("Enter to submit");
+		expect(summary.every((line) => !line.includes("\n"))).toBe(true);
+
+		press(KEY.shiftTab);
+		const lines = panel.render(80).map(stripAnsi);
+		const tabBars = lines.filter((line) => line.includes("Q1") && line.includes("Q2") && line.includes("Submit"));
+		expect(tabBars).toHaveLength(1);
+		expect(lines.join("\n")).toContain("Which host?");
+		expect(lines.join("\n")).toContain("● 1. A");
+	});
+
 	it("keeps the tab bar, help and submit lines within a narrow terminal width", () => {
 		const { panel, press } = setup(
 			["Database", "Hosting", "Caching", "Monitoring"].map((header) => ({ ...choice, header })),
