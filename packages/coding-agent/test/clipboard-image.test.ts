@@ -107,6 +107,24 @@ describe("readClipboardImage", () => {
 	});
 
 	test.each([
+		["lists no image type", "text/plain\n", Buffer.alloc(0)],
+		["returns an empty image", "image/png\n", Buffer.alloc(0)],
+	])("Wayland: does not paste a stale X11 image when wl-paste %s", async (_case, types, bytes) => {
+		mocks.spawnSync.mockImplementation((command, args) => {
+			if (command === "wl-paste") return spawnOk(args[0] === "--list-types" ? Buffer.from(types) : bytes);
+			if (args.includes("TARGETS")) return spawnOk(Buffer.from("image/png\n"));
+			return spawnOk(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+		});
+
+		const result = await readClipboardImage({
+			platform: "linux",
+			env: { WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" },
+		});
+
+		expect(result).toBeNull();
+	});
+
+	test.each([
 		["TARGETS fails", undefined],
 		["TARGETS lists only image/png, which fails", "image/png\n"],
 	])("Wayland xclip fallback does not probe unadvertised image types when %s", async (_case, targets) => {

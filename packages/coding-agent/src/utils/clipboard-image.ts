@@ -115,10 +115,12 @@ function runCommand(
 	return { ok: true, stdout };
 }
 
-function readClipboardImageViaWlPaste(): ClipboardImage | null {
+// Undefined means the backend failed; null means it has no image. An empty
+// Wayland clipboard must not fall through to stale X11 clipboard contents.
+function readClipboardImageViaWlPaste(): ClipboardImage | null | undefined {
 	const list = runCommand("wl-paste", ["--list-types"], { timeoutMs: DEFAULT_LIST_TIMEOUT_MS });
 	if (!list.ok) {
-		return null;
+		return undefined;
 	}
 
 	const types = list.stdout
@@ -133,9 +135,8 @@ function readClipboardImageViaWlPaste(): ClipboardImage | null {
 	}
 
 	const data = runCommand("wl-paste", ["--type", selectedType, "--no-newline"]);
-	if (!data.ok || data.stdout.length === 0) {
-		return null;
-	}
+	if (!data.ok) return undefined;
+	if (data.stdout.length === 0) return null;
 
 	return { bytes: data.stdout, mimeType: baseMimeType(selectedType) };
 }
@@ -252,9 +253,10 @@ async function readClipboardImageOnLinux(env: NodeJS.ProcessEnv): Promise<Clipbo
 	let image: ClipboardImage | null = null;
 
 	if (wayland || wsl) {
-		image = readClipboardImageViaWlPaste() ?? readClipboardImageViaXclip();
+		const wlPaste = readClipboardImageViaWlPaste();
+		image = wlPaste === undefined ? readClipboardImageViaXclip() : wlPaste;
 	} else if (!env.DISPLAY) {
-		image = readClipboardImageViaWlPaste();
+		image = readClipboardImageViaWlPaste() ?? null;
 	}
 	if (!image && wsl) {
 		image = readClipboardImageViaPowerShell();
