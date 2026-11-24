@@ -4695,8 +4695,8 @@ export class InteractiveMode {
 			const target = this.resolveViewedSessionTarget();
 			const result = await target.cycleModel(direction);
 			if (result === undefined) {
-				const msg = target.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
-				this.showStatus(msg);
+				// Cycling never falls back to all available models, so name the scope, not the catalog.
+				this.showStatus("No other model in scope; use /scoped-models to choose models to cycle");
 			} else {
 				InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 				this.footer.invalidate();

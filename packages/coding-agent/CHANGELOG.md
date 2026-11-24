@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Ctrl+P without another model in scope now says `No other model in scope; use /scoped-models to choose models to cycle` instead of `Only one model available` when several models are available
 - Shift+Tab now cycles the thinking level of the viewed live child agent instead of changing the main session and the global default thinking level
 - A goal completion pause no longer suppresses the end-of-run review of a replacement goal set later in the same run
 - A goal completion review that pauses now cancels an earlier completion wait from the same run, so the stale wait no longer re-reviews and restarts work 55 minutes later

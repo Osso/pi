@@ -3002,6 +3002,23 @@ describe("InteractiveMode selected-session model routing", () => {
 		expect(mainCycleModel).not.toHaveBeenCalled();
 	});
 
+	test("points Ctrl+P at the model scope when no other scoped model exists", async () => {
+		const fakeThis = {
+			childViewAgentId: undefined,
+			resolveViewedSessionTarget: vi
+				.fn()
+				.mockReturnValue({ cycleModel: vi.fn().mockResolvedValue(undefined), scopedModels: [] }),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+		};
+
+		await interactiveModeKeyHandlers.cycleModel.call(fakeThis, "forward");
+
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"No other model in scope; use /scoped-models to choose models to cycle",
+		);
+	});
+
 	test("routes thinking level cycling to the viewed live child without changing main", () => {
 		const mainCycleThinkingLevel = vi.fn();
 		const childCycleThinkingLevel = vi.fn().mockReturnValue("medium");
