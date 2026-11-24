@@ -31,11 +31,13 @@ export async function shareSessionAsGist(host: ShareGistHost): Promise<void> {
 		return;
 	}
 
-	// Export to a temp file
-	const tmpFile = path.join(os.tmpdir(), "session.html");
+	// Export to a private temp directory: a shared fixed path lets concurrent /share runs upload each other's export.
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-share-"));
+	const tmpFile = path.join(tmpDir, "session.html");
 	try {
 		await host.session.exportToHtml(tmpFile);
 	} catch (error: unknown) {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
 		host.showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
 		return;
 	}
@@ -52,11 +54,7 @@ export async function shareSessionAsGist(host: ShareGistHost): Promise<void> {
 		host.editorContainer.clear();
 		host.editorContainer.addChild(host.editor);
 		host.ui.setFocus(host.editor);
-		try {
-			fs.unlinkSync(tmpFile);
-		} catch {
-			// Ignore cleanup errors
-		}
+		fs.rmSync(tmpDir, { recursive: true, force: true });
 	};
 
 	// Create a secret gist asynchronously

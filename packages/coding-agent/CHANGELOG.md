@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed concurrent `/share` runs from different sessions uploading the same export, because every run wrote the fixed temp path `session.html`
 - Fixed `/sandbox` marking Default/Workspace Write as current when no sandbox profile is set, although Pi then runs tools unsandboxed with full access
 - Fixed Ctrl+C during Ctrl+R history search clearing the editor instead of cancelling the search and restoring the draft
 - Fixed `/settings` → Hide thinking not updating the response that was still streaming; it now matches the thinking-toggle shortcut
