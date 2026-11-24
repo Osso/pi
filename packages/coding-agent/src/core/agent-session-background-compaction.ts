@@ -73,7 +73,6 @@ interface BackgroundCompactionDependencies {
 	hasPendingMessages: () => boolean;
 	hasQueuedMessages: () => boolean;
 	isSessionCompacting: () => boolean;
-	recordCompactionFailure: (message: string) => void;
 }
 
 export class BackgroundCompactionState {
@@ -229,7 +228,6 @@ export class BackgroundCompactionState {
 			if (cache.abortController.signal.aborted) return;
 			const message = error instanceof Error ? error.message : String(error);
 			cache.state = "failed";
-			this.dependencies.recordCompactionFailure(message);
 			console.error(`Background compaction cache generation failed: ${message}`);
 			// A transient failure frees the slot so a later turn retries; a deterministic one stays failed.
 			if (classifyProviderErrorText(message).retryable && this.cache === cache) {

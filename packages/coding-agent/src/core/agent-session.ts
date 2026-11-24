@@ -809,7 +809,6 @@ export class AgentSession {
 			hasPendingMessages: () => this.hasPendingMessages(),
 			hasQueuedMessages: () => this.agent.hasQueuedMessages(),
 			isSessionCompacting: () => this.isCompacting,
-			recordCompactionFailure: (message) => this._recordCompactionFailure(message),
 		});
 		this._codexRestrictionRecovery = new CodexRestrictionRecoveryState({
 			getSessionManager: () => this.sessionManager,
