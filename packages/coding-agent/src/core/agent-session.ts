@@ -1299,6 +1299,7 @@ export class AgentSession {
 	private _updateThinkingPhaseDeadline(event: AgentEvent): void {
 		switch (event.type) {
 			case "agent_start":
+			case "model_request_start":
 				this._startThinkingPhaseDeadline();
 				return;
 			case "tool_execution_start":
@@ -1599,10 +1600,7 @@ export class AgentSession {
 		try {
 			await run();
 		} catch (error) {
-			const timeoutError = this._consumeThinkingPhaseTimeoutError();
-			if (!timeoutError) throw error;
-			await this._recoverThinkingTimeout(dispatch, timeoutError);
-			return;
+			if (!this._thinkingPhaseTimeoutError) throw error;
 		}
 		const timeoutError = this._consumeThinkingPhaseTimeoutError();
 		if (timeoutError) await this._recoverThinkingTimeout(dispatch, timeoutError);

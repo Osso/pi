@@ -18,6 +18,20 @@ function completedResponse(text: string) {
 	return fauxAssistantMessage([fauxText(text), fauxToolCall("end_turn", { reason: text })], { stopReason: "toolUse" });
 }
 
+function respondAfter(delayMs: number, message: ReturnType<typeof fauxAssistantMessage>): FauxResponseFactory {
+	return async (_context, options) => {
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(resolve, delayMs);
+			const stop = () => {
+				clearTimeout(timer);
+				resolve();
+			};
+			options?.signal?.addEventListener("abort", stop, { once: true });
+		});
+		return options?.signal?.aborted ? fauxAssistantMessage("Aborted", { stopReason: "aborted" }) : message;
+	};
+}
+
 async function recoveryHarness(): Promise<Harness> {
 	const harness = await createHarness({
 		thinkingPhaseTimeoutMs: PHASE_MS,
@@ -62,6 +76,24 @@ describe("AgentSession thinking watchdog recovery", () => {
 		expect(getUserTexts(harness)).toEqual(["Original input"]);
 		expect(harness.session.retryAttempt).toBe(0);
 		expect(harness.eventsOfType("auto_retry_start")).toMatchObject([{ attempt: 1, maxAttempts: 1 }]);
+	});
+
+	it("gives the end_turn continuation request a fresh thinking deadline", async () => {
+		vi.useFakeTimers();
+		const harness = await recoveryHarness();
+		const phaseMs = PHASE_MS * 0.6;
+		harness.setResponses([
+			respondAfter(phaseMs, fauxAssistantMessage("First response without an end_turn call")),
+			respondAfter(phaseMs, completedResponse("Second response completed normally")),
+			completedResponse("Watchdog recovery took over"),
+		]);
+		const dispatch = observeSettlement(harness.session.prompt("Finish the work"));
+
+		await vi.advanceTimersByTimeAsync(2 * phaseMs);
+
+		await expect(dispatch.result).resolves.toBeUndefined();
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.session.getLastAssistantText()).toBe("Second response completed normally");
 	});
 
 	it("keeps the public dispatch pending through recovery and stops on the second timeout", async () => {

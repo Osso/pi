@@ -8,7 +8,7 @@
 	"packages/ai/src/api/openai-codex-responses.ts": 1719,
 	"packages/ai/src/api/openai-completions.ts": 1293,
 	"packages/ai/src/types.ts": 755,
-	"packages/coding-agent/src/core/agent-session.ts": 5297,
+	"packages/coding-agent/src/core/agent-session.ts": 5295,
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1039,
 	"packages/coding-agent/src/core/export-html/template.js": 1861,
 	"packages/coding-agent/src/core/export-html/vendor/highlight.min.js": 1213,
