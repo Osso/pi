@@ -13,8 +13,8 @@ export function wrapRegisteredTool(registeredTool: RegisteredTool, runner: Exten
 	return wrapToolDefinition(
 		{
 			...definition,
-			// Spread copies own fields only; read the hook directly so class-based definitions keep it.
-			prepareArguments: definition.prepareArguments,
+			// Spread copies own fields only; bind the hook so class-based definitions keep it and its `this`.
+			prepareArguments: definition.prepareArguments?.bind(definition),
 			...(definition.prepareExecution
 				? {
 						prepareExecution: async (id, signal, ctx) =>

@@ -12,10 +12,11 @@ class EchoTool implements ToolDefinition<typeof echoSchema> {
 	label = "Echo text";
 	description = "Echo text";
 	parameters = echoSchema;
+	legacyKey = "oldText" as const;
 
 	prepareArguments(args: unknown): Static<typeof echoSchema> {
 		const input = args as { text?: string; oldText?: string };
-		return { text: input.text ?? input.oldText ?? "" };
+		return { text: input.text ?? input[this.legacyKey] ?? "" };
 	}
 
 	async execute(_toolCallId: string, params: Static<typeof echoSchema>) {
@@ -24,7 +25,7 @@ class EchoTool implements ToolDefinition<typeof echoSchema> {
 }
 
 describe("class-based extension tool", () => {
-	it("runs a prototype prepareArguments before validation", async () => {
+	it("runs a prototype prepareArguments bound to its instance before validation", async () => {
 		const harness = await createHarness({ extensionFactories: [(pi) => pi.registerTool(new EchoTool())] });
 		try {
 			harness.setResponses([
