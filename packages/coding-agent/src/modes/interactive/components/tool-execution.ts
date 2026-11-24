@@ -391,9 +391,16 @@ export class ToolExecutionComponent extends Container {
 		}
 	}
 
-	/** A finished wait_agent row carries no information; the agent report follows it. Errors and expanded view keep it. */
+	/** A finished wait_agent row carries no information; the agent report follows it. Outcomes without a report and
+	 * expanded view keep it. */
 	private isSettledWait(): boolean {
-		return this.toolName === "wait_agent" && !this.isPartial && !this.result?.isError && !this.expanded;
+		return this.toolName === "wait_agent" && !this.isPartial && !this.hasUnreportedOutcome() && !this.expanded;
+	}
+
+	/** Errors, and wait_agent timeouts (the agents keep running, so no agent report follows). */
+	private hasUnreportedOutcome(): boolean {
+		const timedOut = (this.result?.details as { timedOut?: boolean } | undefined)?.timedOut === true;
+		return this.result?.isError === true || (this.toolName === "wait_agent" && timedOut);
 	}
 
 	private resolveRenderMode(): "compact" | "self" | "default" {
@@ -427,7 +434,7 @@ export class ToolExecutionComponent extends Container {
 		const lines = [line];
 
 		const resultComponent = this.hideOutput ? undefined : this.resultRendererComponent;
-		const showResult = this.result?.isError || this.expanded;
+		const showResult = this.hasUnreportedOutcome() || this.expanded;
 		if (showResult && resultComponent) {
 			const resultLines = [...resultComponent.render(contentWidth)];
 			while (resultLines[0]?.trim() === "") resultLines.shift();

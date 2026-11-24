@@ -78,6 +78,30 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 		}
 	});
 
+	test("collapsed wait_agent keeps a timed-out wait visible because no agent report follows it", () => {
+		const component = new ToolExecutionComponent(
+			"wait_agent",
+			"tool-wait-agent-timeout",
+			{},
+			{},
+			createBaseToolDefinition("wait_agent"),
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.markExecutionStarted(Date.now());
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "Wait slice timed out: agents are still running." }],
+				details: { timedOut: true },
+				isError: false,
+			},
+			false,
+			Date.now(),
+		);
+
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Wait slice timed out");
+	});
+
 	test("status tools keep one outer margin and one width-bounded timing row", () => {
 		vi.useFakeTimers();
 		try {

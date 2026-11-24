@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed a timed-out `wait_agent` call disappearing from the collapsed transcript; the timeout notice now stays visible because no agent report follows it
 - Fixed rebuilding the transcript (for example toggling thinking) during a running tool hiding its partial output and leaving the old Bash card requesting renders every second after the command finished
 - Fixed a `spawn_agent` call aborted while the child session was being built still starting the child and sending its assignment
 - Fixed aborting a speculative background compaction from its start event still running the compaction hook and summary request
