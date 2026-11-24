@@ -2406,6 +2406,25 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("reviews a goal set after a completion pause when the same run ends", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValueOnce({ kind: "pause", reason: "The user must approve the rollout." })
+			.mockResolvedValue({ kind: "pause", reason: "idle review done" });
+		const harness = createGoalHarness(cwd, { reviewGoal, idle: false });
+		await harness.runCommand("set Deploy the release");
+		await harness.runAgentStart();
+		await harness.runGoalComplete("Ready to deploy.");
+		await harness.runCommand("set Run the standalone tests");
+
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls.map(([request]) => [request.kind, request.payload.objective])).toEqual([
+			["goal_completion_review", "Deploy the release"],
+			["goal_idle_review", "Run the standalone tests"],
+		]);
+	});
+
 	it("displays the Supervisor reason when completion review pauses the goal", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),

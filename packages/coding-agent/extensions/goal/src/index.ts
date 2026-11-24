@@ -504,8 +504,8 @@ interface GoalExtensionRuntime {
 	applyDecision: ApplyIdleDecision;
 	clearGoalSchedules: (sessionId: string) => void;
 	clearAllGoalSchedules: () => void;
-	/** Sessions whose completion review paused this run; its agent_end must not start an idle review. */
-	completionPausedSessions: Set<string>;
+	/** Goals whose completion review paused this run, by session; their agent_end must not start an idle review. */
+	completionPausedGoals: Map<string, Goal>;
 }
 
 interface IdleGoalSchedulerDeps {
@@ -600,7 +600,7 @@ function createGoalExtensionRuntime(
 		applyDecision,
 		clearGoalSchedules,
 		clearAllGoalSchedules,
-		completionPausedSessions: new Set(),
+		completionPausedGoals: new Map(),
 	};
 }
 
@@ -625,10 +625,11 @@ function registerManageGoal(
 			beforeGoalSave: () => runtime.clearGoalSchedules(ctx.sessionManager.getSessionId()),
 		});
 		const details = result.details as { completionPaused?: boolean } | undefined;
-		if (details?.completionPaused) {
+		const pausedGoal = details?.completionPaused ? loadOrMigrateActiveGoal(ctx) : null;
+		if (pausedGoal) {
 			// The pause supersedes any earlier completion wait from this run.
 			runtime.completionScheduler.clearSession(ctx.sessionManager.getSessionId());
-			runtime.completionPausedSessions.add(ctx.sessionManager.getSessionId());
+			runtime.completionPausedGoals.set(ctx.sessionManager.getSessionId(), pausedGoal);
 		}
 		return result;
 	});
@@ -674,8 +675,10 @@ function registerAgentGoalHandlers(
 	});
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		if (event.sessionContinuation) return;
-		// A completion pause leaves the goal active without scheduling another turn.
-		if (runtime.completionPausedSessions.delete(ctx.sessionManager.getSessionId())) return;
+		// A completion pause leaves its goal active without scheduling another turn; a replacement goal is still reviewed.
+		const pausedGoal = runtime.completionPausedGoals.get(ctx.sessionManager.getSessionId());
+		runtime.completionPausedGoals.delete(ctx.sessionManager.getSessionId());
+		if (pausedGoal && goalMatchesReview(loadOrMigrateActiveGoal(ctx), pausedGoal)) return;
 		// A completion wait already owns the next review; an idle review would replace it and drop the report.
 		if (runtime.completionScheduler.isWaiting(ctx.sessionManager.getSessionId())) return;
 		await runtime.goalWork.runEnding(ctx, () =>
@@ -692,7 +695,7 @@ function registerAgentGoalHandlers(
 		);
 	});
 	pi.on("before_agent_start", async (event, ctx) => {
-		runtime.completionPausedSessions.delete(ctx.sessionManager.getSessionId());
+		runtime.completionPausedGoals.delete(ctx.sessionManager.getSessionId());
 		runtime.clearGoalSchedules(ctx.sessionManager.getSessionId());
 		return injectGoalContext(event, ctx);
 	});
