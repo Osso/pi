@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/tree` now applies the `/daybreak` selection saved on the selected branch instead of keeping the previous branch's Daybreak Blue setting
 - `/tree` now applies the `/fast` mode saved on the selected branch instead of keeping the previous branch's Codex service tier
 - `change_working_directory` no longer drops steering or follow-up messages queued during the relocated turn; they move to the relocated session and are delivered once
 - Pressing Escape while a `/tree` native compaction summary load waits to retry a dropped connection now reports the load as cancelled instead of showing the earlier provider error

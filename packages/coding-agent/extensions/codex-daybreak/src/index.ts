@@ -115,11 +115,14 @@ export default function codexDaybreakExtension(pi: ExtensionAPI): void {
 			ctx.ui.setEditorText("");
 		},
 	});
-	pi.on("session_start", async (_event, ctx) => {
+	// /tree selects another branch, whose saved selection must apply like it does at startup.
+	const restoreProgram = async (ctx: ExtensionContext) => {
 		if (isChildRuntime(ctx)) return;
 		state.cyber = await readPersistedProgram(ctx);
 		updateStatus(ctx, state);
-	});
+	};
+	pi.on("session_start", (_event, ctx) => restoreProgram(ctx));
+	pi.on("session_tree", (_event, ctx) => restoreProgram(ctx));
 	pi.on("model_select", (event, ctx) => {
 		updateStatus(ctx, state, event.model);
 	});

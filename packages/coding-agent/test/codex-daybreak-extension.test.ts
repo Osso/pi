@@ -35,6 +35,7 @@ function createHarness(options: DaybreakHarnessOptions = {}) {
 	let beforeProviderRequest: BeforeProviderRequestHandler | undefined;
 	let modelSelect: ModelSelectHandler | undefined;
 	let sessionStart: SessionStartHandler | undefined;
+	let sessionTree: SessionStartHandler | undefined;
 	const appendEntry = vi.fn();
 	const pi = {
 		appendEntry,
@@ -42,6 +43,7 @@ function createHarness(options: DaybreakHarnessOptions = {}) {
 			if (event === "before_provider_request") beforeProviderRequest = handler as BeforeProviderRequestHandler;
 			if (event === "model_select") modelSelect = handler as ModelSelectHandler;
 			if (event === "session_start") sessionStart = handler as SessionStartHandler;
+			if (event === "session_tree") sessionTree = handler as SessionStartHandler;
 		},
 		registerCommand: (name: string, value: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
 			commandName = name;
@@ -79,6 +81,7 @@ function createHarness(options: DaybreakHarnessOptions = {}) {
 		modelSelect,
 		notify,
 		sessionStart,
+		sessionTree,
 		setEditorText,
 		setStatus,
 	};
@@ -253,6 +256,25 @@ describe("Codex Daybreak extension", () => {
 		});
 		await cleared.sessionStart({ type: "session_start" } as SessionStartEvent, cleared.ctx);
 		expect(cleared.beforeProviderRequest(requestFor("gpt-6-sol"), cleared.ctx)).toBeUndefined();
+	});
+
+	it("restores the selection saved on the branch selected with /tree", async () => {
+		const off: DaybreakStateEntry = { customType: "codex-daybreak", data: { cyber: null }, type: "custom" };
+		const blue: DaybreakStateEntry = {
+			customType: "codex-daybreak",
+			data: { cyber: "daybreak_blue" },
+			type: "custom",
+		};
+		const options: DaybreakHarnessOptions = { branch: [off, blue] };
+		const harness = createHarness(options);
+		await harness.sessionStart({ type: "session_start" } as SessionStartEvent, harness.ctx);
+		expect(harness.setStatus).toHaveBeenLastCalledWith("codex-daybreak", "daybreak blue");
+
+		options.branch = [off];
+		await harness.sessionTree?.({ type: "session_start" } as SessionStartEvent, harness.ctx);
+
+		expect(harness.beforeProviderRequest(requestFor("gpt-6-sol"), harness.ctx)).toBeUndefined();
+		expect(harness.setStatus).toHaveBeenLastCalledWith("codex-daybreak", undefined);
 	});
 
 	it("warns and leaves a non-object payload unchanged while keeping the selection", async () => {
