@@ -457,7 +457,16 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 		convertToLlm: convertToLlmWithBlockImages,
 		streamFn: (model, context, options) =>
 			model.provider === "pool"
-				? modelRegistry.streamPool(model, context, options, streamModel)
+				? modelRegistry.streamPool(
+						model,
+						context,
+						{
+							...options,
+							maxRetryDelayMs:
+								options?.maxRetryDelayMs ?? settingsManager.getProviderRetrySettings().maxRetryDelayMs,
+						},
+						streamModel,
+					)
 				: streamModel(model, context, options),
 		onPayload: async (payload, model) => {
 			const runner = extensionRunnerRef.current;
