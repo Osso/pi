@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed Pyrun session proxies becoming zombie processes after a Pi restart; the proxy is no longer a child of Pi
 - Fixed Pyrun guidance letting models pass a new descriptive `session_id` on one-off calls, each keeping a Python process for an hour
 - Fixed every distinct Pyrun `session_id` starting its own proxy process (about 50 MB each); one proxy per Pi session now hosts all named Pythons
 - Fixed `--session claude/<id>` imports mixing Claude Code subagent sidechain messages into the main conversation

@@ -5,6 +5,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../../src/config.ts";
 import {
@@ -100,33 +101,59 @@ function pyrunSessionProxyInvocation(): { args: string[]; executable: string } {
 	return { args, executable: process.execPath };
 }
 
+/**
+ * Pi restarts by re-executing itself in place, and the new image never reaps children of the old one, so a
+ * proxy started as Pi's child became a zombie when it exited after a restart. A short-lived shell starts the
+ * proxy in the background and exits; the proxy is then re-parented away from Pi. The shell reports the
+ * proxy's PID on fd 3 so a proxy that dies during startup fails the call at once.
+ */
+const PROXY_LAUNCH_SCRIPT = 'exec 4<&0; "$@" <&4 4<&- 3>&- & echo $! >&3';
+
 async function startPyrunSessionProxy(socketPath: string, target: PyrunSessionProxyTarget): Promise<void> {
 	const logPath = socketPath.replace(/\.sock$/, ".log");
 	const log = openSync(logPath, "w", 0o600);
 	const { args, executable } = pyrunSessionProxyInvocation();
-	const child = spawn(executable, args, {
+	const launcher = spawn("/bin/sh", ["-c", PROXY_LAUNCH_SCRIPT, "pi-pyrun-proxy", executable, ...args], {
 		cwd: dirname(target.sessionPath),
 		detached: true,
 		env: process.env,
-		stdio: ["pipe", log, log],
+		stdio: ["pipe", log, log, "pipe"],
 	});
 	closeSync(log);
-	child.once("error", () => undefined);
+	const proxyPid = readLaunchedPid(launcher.stdio[3] as Readable);
+	launcher.once("error", () => undefined);
 	// The config travels over stdin: the runner environment must not be written to disk.
 	const config: PyrunSessionProxyConfig = {
 		owner: readProcessIdentity(process.pid),
 		runnerOptions: target.runnerOptions,
 		socketPath,
 	};
-	child.stdin?.end(JSON.stringify(config));
-	child.unref();
+	launcher.stdin?.end(JSON.stringify(config));
+	const pid = await proxyPid;
 	const deadline = Date.now() + START_TIMEOUT_MS;
 	while (!(await canConnect(socketPath))) {
-		if (child.exitCode !== null || Date.now() >= deadline) {
+		if (!isProcessAlive(pid) || Date.now() >= deadline) {
 			const diagnostic = readFileSync(logPath, "utf8").trim();
 			throw new Error(`Pyrun session proxy did not start${diagnostic ? `: ${diagnostic}` : ""}`);
 		}
 		await new Promise((resolve) => setTimeout(resolve, START_POLL_MS));
+	}
+}
+
+async function readLaunchedPid(stream: Readable): Promise<number> {
+	let output = "";
+	for await (const chunk of stream) output += String(chunk);
+	const pid = Number(output.trim());
+	if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Pyrun session proxy launcher reported no PID");
+	return pid;
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
 	}
 }
 

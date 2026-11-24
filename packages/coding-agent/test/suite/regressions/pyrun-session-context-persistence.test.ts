@@ -89,6 +89,30 @@ describe("Pyrun session context", () => {
 		});
 	}, 60_000);
 
+	// A restart re-executes Pi in place, and the new image never reaps children of the old one: a proxy that
+	// was Pi's child stayed a zombie after it exited, one per named session per restart.
+	it("does not run the session proxy as a child of its Pi process", async () => {
+		const grandparentProbe = [
+			"import os",
+			"grand = open(f'/proc/{os.getppid()}/stat').read().rsplit(')', 1)[1].split()[1]",
+			'print(f"grandparent={grand}")',
+		].join("\n");
+		const grandparent = (text: string) => {
+			const pid = text.match(/grandparent=(\d+)/)?.[1];
+			if (!pid) throw new Error(`Grandparent probe output missing: ${text}`);
+			return Number(pid);
+		};
+		await withHeadlessPi(async (pi) => {
+			await pi.send({ type: "prompt", message: "Probe Pyrun process parents" });
+			const start = await pi.waitForLlmRequest((request) => request.agentId === null);
+			// An unnamed call's Python runs under a runner that Pi started, so its grandparent is Pi.
+			const unnamed = await callPyrun(pi, start, { code: grandparentProbe });
+			const named = await callPyrun(pi, unnamed.next, { code: grandparentProbe, session_id: "work" });
+			expect(grandparent(named.text)).not.toBe(grandparent(unnamed.text));
+			await pi.crash();
+		});
+	}, 60_000);
+
 	it("stops an idle named session while its Pi process keeps running", async () => {
 		await withHeadlessPi(
 			async (pi) => {
