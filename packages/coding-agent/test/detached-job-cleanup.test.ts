@@ -606,6 +606,27 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(newest)).toBe(true);
 	});
 
+	it("counts a terminal directory that also has a foreground marker once toward the byte cap", () => {
+		// A payload that exits during detach registration leaves both a terminal row and the marker.
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const directory = persistArtifact({
+			controlDbPath,
+			jobId: "bash_both",
+			lifecycle: "completed",
+			root,
+			sessionName: "both",
+			size: Math.ceil(1.1 * ONE_GIB),
+			updatedAt: new Date(NOW - 60 * 60 * 1_000).toISOString(),
+		});
+		writeFileSync(join(directory, "foreground-completed"), "");
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
+
+		expect(result.deletedDirectories).toEqual([]);
+		expect(existsSync(join(directory, "output.log"))).toBe(true);
+	});
+
 	it("deletes expired job output and its agent row together at 24 hours", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);

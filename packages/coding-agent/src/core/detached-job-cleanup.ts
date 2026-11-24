@@ -54,8 +54,12 @@ export function cleanupDetachedJobArtifacts(
 		errors,
 		now - DETACHED_ARTIFACT_MAX_AGE_MS,
 	);
+	// A directory with a terminal row is already a candidate; its marker must not count its bytes twice.
+	const terminalPaths = new Set(terminal.candidates.map((candidate) => candidate.directoryPath));
 	const candidates = terminal.candidates.concat(
-		collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors),
+		collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors).filter(
+			(candidate) => !terminalPaths.has(candidate.directoryPath),
+		),
 	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,

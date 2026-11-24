@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed detached job cleanup deleting a recent output log below the 2 GiB cap when its directory had both a terminal job row and a foreground completion marker
 - Fixed `/agents` labeling the main thread `current` while a child agent is the selected view
 - Fixed `/agents` moving the highlight to a different agent when closed agents are shown or hidden
 - Fixed the startup resource list shortening a path that only shares the home directory prefix, such as `/home/alex-work/AGENTS.md` shown as `~-work/AGENTS.md`
