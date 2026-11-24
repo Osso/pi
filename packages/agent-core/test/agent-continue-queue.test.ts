@@ -130,6 +130,49 @@ describe("Agent queued continuation", () => {
 		},
 	);
 
+	it("sends start messages together after an unfinished restored tool call", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const echo: AgentTool<typeof toolSchema, undefined> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return { content: [{ type: "text", text: `echoed: ${params.value}` }], details: undefined };
+			},
+		};
+		const providerRequestRoles: string[][] = [];
+		const agent = new Agent({
+			initialState: { tools: [echo] },
+			streamFn: (_model, context) => {
+				providerRequestRoles.push(context.messages.map((message) => message.role));
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Reported") });
+				});
+				return stream;
+			},
+		});
+		agent.state.messages = [
+			{ role: "user", content: [{ type: "text", text: "Echo this" }], timestamp: Date.now() - 10 },
+			{
+				...createAssistantMessage(""),
+				content: [{ type: "toolCall", id: "call-1", name: "echo", arguments: { value: "restored" } }],
+				stopReason: "toolUse",
+			},
+		];
+
+		await agent.continue({
+			startMessages: [
+				{ role: "user", content: [{ type: "text", text: "hook A" }], timestamp: Date.now() },
+				{ role: "user", content: [{ type: "text", text: "hook B" }], timestamp: Date.now() },
+			],
+		});
+
+		// The default one-at-a-time steering mode must not split start messages across requests.
+		expect(providerRequestRoles).toEqual([["user", "assistant", "toolResult", "user", "user"]]);
+	});
+
 	it("starts an empty transcript from queued steering", async () => {
 		const providerRequestTexts: string[] = [];
 		const agent = new Agent({

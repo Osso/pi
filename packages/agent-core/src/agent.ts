@@ -141,7 +141,8 @@ export interface AgentOptions {
 }
 
 class PendingMessageQueue {
-	private messages: AgentMessage[] = [];
+	/** Each entry drains as a unit; a batch (such as continue() start messages) is never split. */
+	private entries: AgentMessage[][] = [];
 	public mode: QueueMode;
 
 	constructor(mode: QueueMode) {
@@ -149,31 +150,25 @@ class PendingMessageQueue {
 	}
 
 	enqueue(message: AgentMessage): void {
-		this.messages.push(message);
+		this.entries.push([message]);
+	}
+
+	enqueueBatch(messages: AgentMessage[]): void {
+		if (messages.length > 0) this.entries.push(messages);
 	}
 
 	hasItems(): boolean {
-		return this.messages.length > 0;
+		return this.entries.length > 0;
 	}
 
 	drain(): AgentMessage[] {
-		if (this.mode === "all") {
-			const drained = this.messages.slice();
-			this.messages = [];
-			return drained;
-		}
-
-		const first = this.messages[0];
-		if (!first) {
-			return [];
-		}
-		this.messages = this.messages.slice(1);
-		return [first];
+		if (this.mode === "all") return this.clear();
+		return this.entries.shift() ?? [];
 	}
 
 	clear(): AgentMessage[] {
-		const cleared = this.messages;
-		this.messages = [];
+		const cleared = this.entries.flat();
+		this.entries = [];
 		return cleared;
 	}
 }
@@ -410,7 +405,7 @@ export class Agent {
 				return;
 			}
 		}
-		for (const message of startMessages) this.steeringQueue.enqueue(message);
+		this.steeringQueue.enqueueBatch(startMessages);
 
 		// Queued messages can start an empty transcript; plain continuation needs a message to continue from.
 		if (!lastMessage) throw new Error("No messages to continue from");

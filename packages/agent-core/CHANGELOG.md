@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- Fixed `continue({ startMessages })` sending multiple start messages in separate requests after an unfinished restored tool call in the default one-at-a-time steering mode
 - Aborting a run while `prepareNextTurn` or `shouldStopAfterTurn` is pending no longer drops steering or follow-up messages queued meanwhile; they stay queued for the next run
 - Steering queued from an assistant `message_end` listener no longer aborts the run; the completed response stays and the steering message starts the next request
 - Fixed `Agent.continue()` sending queued steering or follow-up messages before running unfinished tool calls restored from the transcript
