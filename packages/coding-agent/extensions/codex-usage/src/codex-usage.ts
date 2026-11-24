@@ -344,7 +344,11 @@ async function getCodexAccessToken(
 	ctx: ExtensionCommandContext,
 	providerId = resolveCodexProviderId(ctx),
 ): Promise<string> {
-	const token = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
+	// A failed OAuth refresh throws its reason instead of reading as a missing login.
+	const token = await ctx.modelRegistry.authStorage.getApiKey(providerId, {
+		includeFallback: false,
+		throwOnRefreshFailure: true,
+	});
 	if (!token) throw new Error(`OpenAI Codex provider ${providerId} is not logged in. Run /login ${providerId}.`);
 	return token;
 }

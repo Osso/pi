@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
 
@@ -116,6 +117,25 @@ describe("registered /usage all Central timezone resets", () => {
 		expect(lines).toContain("5h Week Resets Provider Account Resets Central (5h | week)");
 		expect(lines).toContain(`42% - - Claude alessio ${expected} | -`);
 		expect(lines).toContain(`42% - - Codex usage@example.com [openai-codex] * ${expected} | -`);
+	});
+});
+
+describe("registered /usage openai OAuth refresh failure", () => {
+	it("reports the refresh failure instead of a missing login", async () => {
+		const h = registerUsage("openai-codex");
+		const authStorage = AuthStorage.inMemory({
+			"openai-codex": { type: "oauth", access: "expired-access", refresh: "refresh-token", expires: 0 },
+		});
+		(h.ctx.modelRegistry as unknown as { authStorage: AuthStorage }).authStorage = authStorage;
+		// The token endpoint is down; every request in this test fails with 503.
+		h.fetch.mockImplementation(async () => new Response('{"error":"server_error"}', { status: 503 }));
+
+		await h.command.handler("openai", h.ctx);
+
+		const content: string = h.sendMessage.mock.calls[0][0].content;
+		const row = content.split("\n").find((line) => line.includes("openai-codex ") || line.includes("[openai-codex]"));
+		expect(row).toContain("Authentication failed");
+		expect(content).not.toContain("openai-codex is not logged in");
 	});
 });
 
@@ -718,7 +738,10 @@ describe("registered /usage provider routing", () => {
 		h.fetch.mockResolvedValueOnce(usageResponse(42, 3));
 		await h.command.handler("  ", h.ctx);
 		expect(bridgeRequests).toEqual([]);
-		expect(h.getApiKey).toHaveBeenCalledExactlyOnceWith("openai-codex", { includeFallback: false });
+		expect(h.getApiKey).toHaveBeenCalledExactlyOnceWith("openai-codex", {
+			includeFallback: false,
+			throwOnRefreshFailure: true,
+		});
 		expect(h.fetch).toHaveBeenCalledTimes(1);
 		const [url, options] = h.fetch.mock.calls[0];
 		expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");

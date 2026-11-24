@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/usage` reporting an OpenAI Codex account as not logged in when its OAuth token refresh failed; the row now shows the refresh error
 - Fixed the removed `compaction.thresholdPercent` warning being skipped when the key appears after `/reload` or when a project becomes trusted
 - Fixed `set_session_name` refusing to correct its own title after `/reload` or a restart
 - Fixed a class-based extension tool's `prepareArguments` running without its instance as `this`
