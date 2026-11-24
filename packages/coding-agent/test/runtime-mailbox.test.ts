@@ -96,7 +96,7 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/index.ts";
-import { createHarness as createBaseHarness, getUserTexts, type Harness } from "./suite/harness.ts";
+import { createHarness as createBaseHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
 function createHarness(options: Parameters<typeof createBaseHarness>[0] = {}) {
 	return createBaseHarness({ persistedSession: true, ...options });
@@ -3032,6 +3032,23 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		expect(readRuntimeMailboxMessage(controlDbPath, afterToolMessageId)).toBeUndefined();
 		expect(readRuntimeMailboxMessage(controlDbPath, nextModelMessageId)).toBeUndefined();
+	});
+
+	it("delivers after-tool-result steering at the idle drain once the turn ended without a tool result", async () => {
+		const { controlDbPath, harness } = await createBoundMailboxHarness();
+		harness.setResponses([fauxAssistantMessage("applied the second correction")]);
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Apply the second correction after a tool result",
+			kind: "steer",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			targetCheckpoint: "after_tool_result",
+		});
+
+		await harness.session.drainRuntimeCoordination();
+
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
+		expect(getAssistantTexts(harness)).toContain("applied the second correction");
 	});
 
 	it("backgrounds a running detachable tool when a steer is pending so the steer reaches the next checkpoint", async () => {

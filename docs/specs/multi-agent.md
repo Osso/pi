@@ -412,7 +412,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Child agents can contact their current direct parent without direct access to sibling internals.
 - [x] Spawned child dispatches perform a final runtime-coordination drain before end-of-turn completion;
       steering that races with turn end is delivered before terminalization and cannot remain pending
-      after the child reaches `completed`.
+      after the child reaches `completed`. This includes `after_tool_result` steering whose turn ended
+      without another tool result: the idle drain delivers it.
 - [x] Child terminal paths select active direct children whose `parentId` is the child, `agentType` is `"background"`,
       `worker.adapter` is `"runtime"`, and `detached` is `true`, then cancel those directly owned detached Bash/Pyrun
       jobs before descendant settlement. Notification suppression is persisted with cancellation intent and survives

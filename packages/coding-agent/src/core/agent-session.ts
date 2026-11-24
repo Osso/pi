@@ -2846,8 +2846,8 @@ export class AgentSession {
 			return options.checkpoint !== "after_tool_result" || options.includeNextModelCall === true;
 		}
 		const checkpoint = message.targetCheckpoint ?? "next_model_call";
-		if (checkpoint === "after_tool_result") return options.checkpoint === "after_tool_result";
-		if (checkpoint === "when_waiting") return options.triggerIfIdle && !this.isStreaming;
+		if (checkpoint === "after_tool_result" && options.checkpoint === "after_tool_result") return true;
+		if (checkpoint !== "next_model_call") return options.triggerIfIdle && !this.isStreaming; // turn ended
 		return options.checkpoint === "next_model_call" || options.includeNextModelCall === true || options.triggerIfIdle;
 	}
 
