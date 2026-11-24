@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/settings` → Hide thinking not updating the response that was still streaming; it now matches the thinking-toggle shortcut
 - Fixed tool cards, `/tree`, the session picker and `pi config` abbreviating a path that only starts with the home directory name, e.g. showing `/home/alex-other` as `~-other`
 - Fixed the `/fork` scroll indicator exceeding narrow terminal widths, which made the TUI stop with a line-width error
 - Fixed the "Pi response complete" desktop notification being skipped, and a stale one left open, when the main session finished or restarted while a child agent transcript was selected

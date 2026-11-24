@@ -4739,8 +4739,13 @@ export class InteractiveMode {
 	}
 
 	private toggleThinkingBlockVisibility(): void {
-		this.hideThinkingBlock = !this.hideThinkingBlock;
-		this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
+		this.setThinkingBlockHidden(!this.hideThinkingBlock);
+		this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
+	}
+
+	private setThinkingBlockHidden(hidden: boolean): void {
+		this.hideThinkingBlock = hidden;
+		this.settingsManager.setHideThinkingBlock(hidden);
 
 		// Rebuild chat from session messages
 		this.chatContainer.clear();
@@ -4754,8 +4759,6 @@ export class InteractiveMode {
 			this.streamingComponent.updateContent(this.streamingMessage);
 			this.transcriptTailContainer.addChild(this.streamingComponent);
 		}
-
-		this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
 	}
 
 	private async openExternalEditor(): Promise<void> {
@@ -5180,17 +5183,7 @@ export class InteractiveMode {
 						void this.themeController.applyFromSettings();
 					},
 					onThemePreview: (themeName) => this.themeController.preview(themeName),
-					onHideThinkingBlockChange: (hidden) => {
-						this.hideThinkingBlock = hidden;
-						this.settingsManager.setHideThinkingBlock(hidden);
-						for (const child of this.chatContainer.children) {
-							if (child instanceof AssistantMessageComponent) {
-								child.setHideThinkingBlock(hidden);
-							}
-						}
-						this.chatContainer.clear();
-						this.rebuildChatFromMessages();
-					},
+					onHideThinkingBlockChange: (hidden) => this.setThinkingBlockHidden(hidden),
 					onCollapseChangelogChange: (collapsed) => {
 						this.settingsManager.setCollapseChangelog(collapsed);
 					},
