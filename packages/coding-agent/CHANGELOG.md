@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `/sandbox` labelling Workspace Write as "Default/Workspace Write", although an unset profile runs tools unsandboxed
 - Fixed `pi login --browser-cli` not opening the device verification URL for device-code logins such as GitHub Copilot
 - Fixed a goal Supervisor `wait` with running agents re-reviewing after the 25-minute `wait_agent` slice timed out instead of at the 55-minute deadline
 - Fixed a resident console replaced while its UI was still starting staying open until Ctrl+D, because its disconnect listener was registered after the connection closed

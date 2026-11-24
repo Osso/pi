@@ -62,7 +62,8 @@ describe("approval and sandbox selectors", () => {
 
 		expect(output).toContain("Sandbox profiles");
 		expect(output).toContain("Read Only");
-		expect(output).toContain("Default/Workspace Write ✓");
+		expect(output).toContain("Workspace Write ✓");
+		expect(output).not.toContain("Default/");
 		expect(output).toContain("Full Access");
 		expect(output).not.toContain("auto-approve");
 		expect(output).not.toContain("never");
@@ -93,7 +94,7 @@ describe("approval and sandbox selectors", () => {
 		});
 		const output = stripAnsi(selector.render(140).join("\n"));
 		expect(output).toContain("Read Only (unsupported on darwin; Linux only) ✓");
-		expect(output).toContain("Default/Workspace Write (unsupported on darwin; Linux only)");
+		expect(output).toContain("Workspace Write (unsupported on darwin; Linux only)");
 		expect(output).toContain("Full Access");
 		expect(output).not.toContain("Full Access (unsupported");
 		selector.handleInput("\n");

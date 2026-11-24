@@ -54,7 +54,7 @@ export function approvalPresetToBypassPermissions(presetName: ApprovalPresetName
 
 export const SANDBOX_PROFILES = [
 	{ name: "read-only", label: "Read Only" },
-	{ name: "workspace-write", label: "Default/Workspace Write" },
+	{ name: "workspace-write", label: "Workspace Write" },
 	{ name: "full-access", label: "Full Access" },
 ] as const satisfies ReadonlyArray<SandboxProfile>;
 

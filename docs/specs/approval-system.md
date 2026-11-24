@@ -74,8 +74,9 @@ Implementation details belong in
   Auto Approve (auto-approve).
 - [x] Register `/sandbox` as a slash command that opens a sandbox/profile
   selector without changing approval policy; choices must include at least:
-  Read Only (where supported by the external container), Default/Workspace
-  Write, and Full Access.
+  Read Only (where supported by the external container), Workspace Write, and
+  Full Access. With no profile set, tools run unsandboxed and Full Access is
+  marked current; no choice is labelled as the default.
 - [x] Do not present `/sandbox` choices as approval modes; approval behavior and
   sandbox access are separate concerns.
 - [x] Persist the selected approval preset to `.pi/settings.json` (project) or
