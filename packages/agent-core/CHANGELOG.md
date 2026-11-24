@@ -12,6 +12,7 @@
 
 ### Added
 
+- `Agent.clearSteeringQueue()` and `Agent.clearFollowUpQueue()` return the messages they remove
 - Added a `startMessages` option to `Agent.continue()`; the messages join the first request of the run
 - Added authoritative `AgentState.isModelRequestActive` state for distinguishing model requests from tool execution.
 - Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.

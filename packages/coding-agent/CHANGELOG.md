@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `change_working_directory` no longer drops steering or follow-up messages queued during the relocated turn; they move to the relocated session and are delivered once
 - Pressing Escape while a `/tree` native compaction summary load waits to retry a dropped connection now reports the load as cancelled instead of showing the earlier provider error
 - A multiline `ask_questions` question no longer duplicates the tab bar after leaving the Submit tab; tab labels and the Submit summary render question text on one line
 - `attach_session_agent` fails with an error naming the recorded model when the attached session recorded a model that is no longer available, instead of running on the supervisor model

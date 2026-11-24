@@ -315,14 +315,14 @@ export class Agent {
 		this.followUpQueue.enqueue(message);
 	}
 
-	/** Remove all queued steering messages. */
-	clearSteeringQueue(): void {
-		this.steeringQueue.clear();
+	/** Remove and return all queued steering messages. */
+	clearSteeringQueue(): AgentMessage[] {
+		return this.steeringQueue.clear();
 	}
 
-	/** Remove all queued follow-up messages. */
-	clearFollowUpQueue(): void {
-		this.followUpQueue.clear();
+	/** Remove and return all queued follow-up messages. */
+	clearFollowUpQueue(): AgentMessage[] {
+		return this.followUpQueue.clear();
 	}
 
 	/** Remove and return all queued steering messages, then follow-up messages. */

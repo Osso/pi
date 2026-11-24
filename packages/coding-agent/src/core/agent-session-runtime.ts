@@ -348,11 +348,13 @@ export class AgentSessionRuntime {
 	}
 
 	/**
-	 * Moves the transcript and its control data (including multi-agent rows) to the target cwd, then rebuilds the
-	 * runtime there. Tools that ran in the same batch as the relocation request, such as spawn_agent, have already
-	 * committed under the old session path, so the move carries their records along.
+	 * Moves the transcript and control data (including multi-agent rows) to the target cwd, then rebuilds the runtime
+	 * there. Same-batch tools such as spawn_agent already committed under the old path, so the move carries them along.
 	 */
 	private async activateRelocation(prepared: PreparedCwdRelocation): Promise<void> {
+		// The relocated turn continues on a new agent, so queued user input must move with it.
+		const steering = this.session.agent.clearSteeringQueue();
+		const followUps = this.session.agent.clearFollowUpQueue();
 		const previousCwd = this.cwd;
 		const previousSessionFile = this.session.sessionFile;
 		const sessionManager = this.session.sessionManager;
@@ -370,14 +372,12 @@ export class AgentSessionRuntime {
 				cwd: sessionManager.getCwd(),
 				agentDir: this.services.agentDir,
 				sessionManager,
-				sessionStartEvent: {
-					type: "session_start",
-					reason: "resume",
-					previousSessionFile,
-				},
+				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
 				projectTrustContext: prepared.projectTrustContext,
 			}),
 		);
+		for (const message of steering) this.session.agent.steer(message);
+		for (const message of followUps) this.session.agent.followUp(message);
 		await this.finishSessionReplacement();
 	}
 
