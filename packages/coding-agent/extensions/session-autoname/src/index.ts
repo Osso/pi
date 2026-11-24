@@ -14,11 +14,11 @@ const SET_SESSION_NAME_PARAMETERS = Type.Object({
 
 interface SetSessionNameDetails {
 	name: string;
+	/** Persisted name revision of a successful write; the transcript keeps it across reload and restart. */
+	revision?: number;
 }
 
 export default function sessionAutonameExtension(pi: ExtensionAPI): void {
-	let lastWrite: { sessionId: string; revision: number } | undefined;
-
 	pi.registerTool<typeof SET_SESSION_NAME_PARAMETERS, SetSessionNameDetails>({
 		name: "set_session_name",
 		label: "Set Session Name",
@@ -35,14 +35,28 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 			const refusal = describeIneligibleSession(ctx, name);
 			if (refusal) return errorResult(refusal);
 
-			const sessionId = ctx.sessionManager.getSessionId();
-			const expectedRevision = lastWrite?.sessionId === sessionId ? lastWrite.revision : null;
-			const result = pi.setSessionName(name, expectedRevision);
+			const result = pi.setSessionName(name, findLastWriteRevision(ctx));
 			if (!result.written || result.revision === null) return errorResult(describeWriteRefusal(result));
-			lastWrite = { sessionId, revision: result.revision };
-			return { content: [{ type: "text", text: `Session name set to "${name}".` }], details: { name } };
+			return {
+				content: [{ type: "text", text: `Session name set to "${name}".` }],
+				details: { name, revision: result.revision },
+			};
 		},
 	});
+}
+
+/** Revision of this tool's latest successful write in the session, or null when it never named the session. */
+function findLastWriteRevision(ctx: ExtensionContext): number | null {
+	const entries = ctx.sessionManager.getEntries();
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry?.type !== "message") continue;
+		const message = entry.message;
+		if (message.role !== "toolResult" || message.toolName !== "set_session_name" || message.isError) continue;
+		const revision = (message.details as SetSessionNameDetails | undefined)?.revision;
+		return typeof revision === "number" ? revision : null;
+	}
+	return null;
 }
 
 /** Return why the session cannot take this name, or undefined when it can. */

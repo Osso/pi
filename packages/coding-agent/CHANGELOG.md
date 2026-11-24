@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- Fixed `set_session_name` refusing to correct its own title after `/reload` or a restart
 - Fixed a class-based extension tool's `prepareArguments` running without its instance as `this`
 - Fixed the agents status widget truncating activity text one column early, leaving an extra space before the elapsed time
 - Fixed child agents loading project resources such as `.pi/rules/` from a project the parent did not trust (for example under `--no-approve`); children in the parent's cwd now share its trust decision

@@ -22,7 +22,7 @@ Session naming is a default first-party extension that lets the model name the c
 
 - [x] A name set outside the tool (for example `/name` or `--name`) is not overwritten by the tool.
 - [x] A name explicitly cleared with `/unname` blocks later tool naming; the session stays unnamed.
-- [x] The tool may correct a name it set earlier in the same session.
+- [x] The tool may correct a name it set earlier in the same session, including after an extension reload (`packages/coding-agent/test/session-autoname-reload.test.ts`).
 - [x] A manual rename or clear that another process persists takes precedence over the tool, even if the rename repeats the tool's title. The tool refuses the write and the session can continue its work.
 - [x] A correction is allowed only while the tool's last successful write is still the current persisted name write.
 
