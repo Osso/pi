@@ -57,6 +57,35 @@ describe("Hide thinking setting", () => {
 		expect(tail()).toContain("Private reasoning fixture");
 	});
 
+	test("keeps duplicate-turn replies hidden after rebuilding chat", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses(Array.from({ length: 3 }, () => fauxAssistantMessage("Repeated answer fixture")));
+		await harness.session.prompt("Start");
+		const storedCopies = JSON.stringify(harness.sessionManager.getEntries()).match(/Repeated answer fixture/g);
+		expect(storedCopies?.length).toBe(3);
+
+		const chatContainer = new Container();
+		const view = Object.assign(Object.create(InteractiveMode.prototype), {
+			chatContainer,
+			getMarkdownThemeWithSettings: getMarkdownTheme,
+			hiddenThinkingLabel: "Thinking...",
+			hideThinkingBlock: false,
+			outputPad: 0,
+			pendingTools: new Map(),
+			runtimeHost: { session: harness.session },
+			toolOutputExpanded: false,
+			ui: { requestRender: () => {} },
+			getRegisteredToolDefinition: () => undefined,
+		}) as { rebuildChatFromMessages(): void };
+
+		view.rebuildChatFromMessages();
+
+		const transcript = stripAnsi(chatContainer.render(80).join("\n"));
+		const visibleCopies = transcript.match(/Repeated answer fixture/g)?.length ?? 0;
+		expect(visibleCopies).toBe(1);
+	});
+
 	test("turning terminal progress off clears the indicator a running turn started", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

@@ -4223,7 +4223,7 @@ export class InteractiveMode {
 				continue;
 			}
 
-			yield item;
+			if (!isDuplicateTurnAssistantMessage(item)) yield item;
 		}
 	}
 
