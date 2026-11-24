@@ -12,7 +12,7 @@ import {
 	type UserMessage,
 	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
-import { endsInterruptibleBlock, STEERING_INTERRUPTION_NOTE } from "./steering-interruption.ts";
+import { interruptedContentAfterBlock } from "./steering-interruption.ts";
 import { capToolResult } from "./tool-result-cap.ts";
 import type {
 	AgentContext,
@@ -521,11 +521,10 @@ async function streamAssistantResponse(
 						assistantMessageEvent: event,
 						message: { ...partialMessage },
 					});
-					if (endsInterruptibleBlock(event.type, partialMessage) && config.shouldInterruptAfterBlock?.()) {
+					const interruptedContent = interruptedContentAfterBlock(event, partialMessage);
+					if (interruptedContent && config.shouldInterruptAfterBlock?.()) {
 						requestController.abort();
-						// Keep the completed blocks; the note gives replayed thinking the following item providers require.
-						const note = { type: "text" as const, text: STEERING_INTERRUPTION_NOTE };
-						interrupted = { ...partialMessage, content: [...partialMessage.content, note], stopReason: "stop" };
+						interrupted = { ...partialMessage, content: interruptedContent, stopReason: "stop" };
 						break stream;
 					}
 				}

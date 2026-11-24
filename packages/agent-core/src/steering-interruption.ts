@@ -16,7 +16,17 @@ export function hasToolCall(message: AgentMessage | undefined): boolean {
 	return message?.role === "assistant" && message.content.some((block) => block.type === "toolCall");
 }
 
-/** A steer that waited for its block ends the request when a thinking or text block of a tool-free message ends. */
-export function endsInterruptibleBlock(eventType: AssistantMessageEvent["type"], message: AssistantMessage): boolean {
-	return (eventType === "thinking_end" || eventType === "text_end") && !hasToolCall(message);
+/**
+ * A steer that waited for its block ends the request when a thinking or text block of a tool-free message ends.
+ * Returns the content to keep: the blocks through the ended one (providers may already have appended later blocks to
+ * the shared partial), then the note that gives replayed thinking the following item providers require.
+ */
+export function interruptedContentAfterBlock(
+	event: AssistantMessageEvent,
+	message: AssistantMessage,
+): AssistantMessage["content"] | undefined {
+	if (event.type !== "thinking_end" && event.type !== "text_end") return undefined;
+	const content = message.content.slice(0, event.contentIndex + 1);
+	if (content.some((block) => block.type === "toolCall")) return undefined;
+	return [...content, { type: "text", text: STEERING_INTERRUPTION_NOTE }];
 }

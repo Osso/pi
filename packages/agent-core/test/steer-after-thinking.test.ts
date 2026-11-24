@@ -72,6 +72,63 @@ function thinkingAgent() {
 }
 
 describe("steering during a content block", () => {
+	it("ends at the finished block even when the provider already appended a tool call to the shared partial", async () => {
+		const requests: Context["messages"][] = [];
+		let toolRuns = 0;
+		let endThinking = () => {};
+		const tool: AgentTool<ReturnType<typeof Type.Object>> = {
+			name: "noop",
+			label: "Noop",
+			description: "Does nothing",
+			parameters: Type.Object({}),
+			async execute() {
+				toolRuns += 1;
+				return { content: [{ type: "text", text: "noop done" }], details: undefined };
+			},
+		};
+		const agent = new Agent({
+			initialState: { tools: [tool] },
+			streamFn: (_model, context) => {
+				requests.push(structuredClone(context.messages));
+				const stream = createStream();
+				if (requests.length > 1) {
+					queueMicrotask(() =>
+						stream.push({ type: "done", reason: "stop", message: assistant([{ type: "text", text: "done" }]) }),
+					);
+					return stream;
+				}
+				// One mutable partial, as the built-in providers stream it.
+				const partial = assistant([{ type: "thinking", thinking: "Plan A" }]);
+				queueMicrotask(() => {
+					stream.push({ type: "start", partial });
+					stream.push({ type: "thinking_start", contentIndex: 0, partial });
+				});
+				endThinking = () => {
+					partial.content[0] = signedThinking;
+					stream.push({ type: "thinking_end", contentIndex: 0, content: "Plan A", partial });
+					const toolCall = { type: "toolCall" as const, id: "call-1", name: "noop", arguments: {} };
+					partial.content.push(toolCall);
+					stream.push({ type: "toolcall_end", contentIndex: 1, toolCall, partial });
+					stream.push({ type: "done", reason: "toolUse", message: { ...partial, stopReason: "toolUse" } });
+				};
+				return stream;
+			},
+		});
+		const prompt = agent.prompt("hello");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		agent.steer(steering);
+		endThinking();
+		await prompt;
+
+		expect(toolRuns).toBe(0);
+		const [, interrupted, steer] = requests[1] ?? [];
+		expect(interrupted).toMatchObject({
+			stopReason: "stop",
+			content: [signedThinking, { type: "text", text: STEERING_INTERRUPTION_NOTE }],
+		});
+		expect(steer).toMatchObject(steering);
+	});
 	it("waits for the thinking block to end and keeps the thinking in the next request", async () => {
 		const { agent, requests, endThinking } = thinkingAgent();
 		const prompt = agent.prompt("hello");
