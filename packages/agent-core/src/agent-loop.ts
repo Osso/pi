@@ -29,7 +29,7 @@ import type {
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
 const END_TURN_CONTINUATION_INSTRUCTION =
-	"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
+	"Your previous response was already delivered. Do not repeat it or infer a new user request. If the current request is fully handled, call `end_turn` with a concise reason; otherwise continue working on it.";
 
 /**
  * Start an agent loop with a new prompt message.

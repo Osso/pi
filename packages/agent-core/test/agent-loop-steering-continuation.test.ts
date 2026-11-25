@@ -96,7 +96,7 @@ it("lets steering at text-only turn end supersede the previous completion instru
 	expect(requests[2].at(-1)).toMatchObject({
 		role: "user",
 		content:
-			"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.",
+			"Your previous response was already delivered. Do not repeat it or infer a new user request. If the current request is fully handled, call `end_turn` with a concise reason; otherwise continue working on it.",
 	});
 	expect(messages.filter((message) => message.role === "user")).toEqual([
 		{ role: "user", content: "Fix the first message.", timestamp: 1 },

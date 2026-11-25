@@ -1361,7 +1361,7 @@ describe("agentLoop with AgentMessage", () => {
 		const context: AgentContext = { systemPrompt: "", messages: [], tools: [endTool] };
 		const config = createLoopConfig();
 		const continuationInstruction =
-			"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
+			"Your previous response was already delivered. Do not repeat it or infer a new user request. If the current request is fully handled, call `end_turn` with a concise reason; otherwise continue working on it.";
 		let callIndex = 0;
 		let secondRequestMessages: Message[] = [];
 		const stream = agentLoop([createUserMessage("work")], context, config, undefined, (_model, requestContext) => {
