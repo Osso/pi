@@ -25,7 +25,7 @@ it("delivers both final steering messages before enforcing end_turn on an uninte
 		await agent.send({ type: "prompt", message: "Start final steering regression" });
 		let request = await agent.waitForLlmRequest();
 		agent.respondToLlmRequest(request.id, fauxAssistantMessage("Initial text-only response"));
-		const runtimeInstruction = "Do not continue, repeat, or infer a new user request";
+		const runtimeInstruction = "Your previous response was already delivered";
 		const initialId = request.id;
 		request = await agent.waitForLlmRequest(
 			(candidate) =>
