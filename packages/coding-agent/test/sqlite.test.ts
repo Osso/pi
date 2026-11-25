@@ -250,6 +250,32 @@ console.log(JSON.stringify(errors));
 		30000,
 	);
 
+	test.runIf(hasBun)("Bun reports a session root as indexed only after it was marked", () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-bun-sqlite-indexed-root-"));
+		const scriptPath = join(directory, "check.ts");
+		const metadataModuleUrl = pathToFileURL(
+			resolve(import.meta.dirname, "../src/core/session-control-db/session-metadata.ts"),
+		).href;
+		writeFileSync(
+			scriptPath,
+			`import { isSessionRootIndexed, markSessionRootIndexed } from ${JSON.stringify(metadataModuleUrl)};
+const controlDbPath = ${JSON.stringify(join(directory, "control.sqlite"))};
+const root = "/home/user/.config/pi/agent/sessions";
+const before = isSessionRootIndexed(controlDbPath, root);
+markSessionRootIndexed(controlDbPath, root);
+console.log(JSON.stringify({ before, after: isSessionRootIndexed(controlDbPath, root) }));
+`,
+		);
+
+		try {
+			const result = spawnSync("bun", [scriptPath], { encoding: "utf8" });
+			expect(result.status, result.stderr).toBe(0);
+			expect(JSON.parse(result.stdout)).toEqual({ before: false, after: true });
+		} finally {
+			rmSync(directory, { force: true, recursive: true });
+		}
+	});
+
 	test.runIf(process.platform === "linux" && hasBun)(
 		"Bun closes prepared statements before closing each database connection",
 		() => {

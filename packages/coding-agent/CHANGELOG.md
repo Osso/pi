@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed the Bun build treating unindexed session roots as indexed, which hid existing sessions without metadata from resume lists
 - Fixed an aborted or Supervisor-answered `ask_questions` request waiting until an earlier open question panel closed
 - Fixed compaction summary retries ignoring the provider-requested retry delay after a transient failure
 - Fixed the working status showing `Thinking...` after returning from a child view although the main session was already streaming

@@ -77,7 +77,12 @@ function createBunSqliteDatabase(path: string, options?: { readonly?: boolean })
 		prepare: (sql) => {
 			const statement = database.prepare(sql);
 			statements.add(statement);
-			return statement;
+			return {
+				all: (...values) => statement.all(...values),
+				// bun:sqlite returns null when no row matches; node:sqlite and callers expect undefined.
+				get: (...values) => statement.get(...values) ?? undefined,
+				run: (...values) => statement.run(...values),
+			};
 		},
 	};
 }
