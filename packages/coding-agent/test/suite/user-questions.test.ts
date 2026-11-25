@@ -1,11 +1,11 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { getControlDbPath, readUserQuestion } from "../../src/core/session-control-db.ts";
 import { askUserQuestion } from "../../src/user-questions/ask.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 function finishTurn(text: string) {
-	return fauxAssistantMessage([text, fauxToolCall("end_turn", { reason: text })], { stopReason: "toolUse" });
+	return fauxAssistantMessage([fauxText(text), fauxToolCall("end_turn", { reason: text })], { stopReason: "toolUse" });
 }
 
 it("delivers user questions, records model answers, and carries answers into follow-ups", async () => {
