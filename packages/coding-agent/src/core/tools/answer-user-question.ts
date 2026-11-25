@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
@@ -15,6 +16,34 @@ export type AnswerUserQuestionToolInput = Static<typeof answerUserQuestionSchema
 export interface AnswerUserQuestionToolDetails {
 	id: number;
 	answer: string;
+}
+
+/**
+ * Queues an answer for the question store on the Supervisor host; the relay there records it. Each
+ * answer gets its own message ID, so a revision can be queued while an earlier answer is still in transit.
+ */
+export function sendRemoteUserQuestionAnswer(
+	controlDbPath: string,
+	supervisor: { sessionId: string; host: string },
+	params: AnswerUserQuestionToolInput,
+): void {
+	const messageId = `user_question_answer:${hostname()}:${params.id}:${randomUUID()}`;
+	enqueueStoredRuntimeMailboxMessage(controlDbPath, {
+		kind: "message",
+		recipientHost: supervisor.host,
+		recipient: { sessionId: supervisor.sessionId, agentId: null },
+		sender: { sessionId: "pi-questions", agentId: null },
+		storeRef: { sessionPath: USER_QUESTION_STORE_PATH, messageId },
+		message: {
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			fromAgentId: "main",
+			toAgentId: "main",
+			body: JSON.stringify({ id: params.id, answer: params.answer }),
+			createdAt: new Date().toISOString(),
+		},
+	});
 }
 
 export function createAnswerUserQuestionToolDefinition(): ToolDefinition<
@@ -39,23 +68,11 @@ export function createAnswerUserQuestionToolDefinition(): ToolDefinition<
 				}
 			} else {
 				if (!supervisor.sessionId) throw new Error("A Supervisor session is required for remote user questions");
-				const messageId = `user_question_answer:${hostname()}:${params.id}`;
-				enqueueStoredRuntimeMailboxMessage(controlDbPath, {
-					kind: "message",
-					recipientHost: supervisor.host,
-					recipient: { sessionId: supervisor.sessionId, agentId: null },
-					sender: { sessionId: "pi-questions", agentId: null },
-					storeRef: { sessionPath: USER_QUESTION_STORE_PATH, messageId },
-					message: {
-						id: messageId,
-						kind: "message",
-						status: "pending",
-						fromAgentId: "main",
-						toAgentId: "main",
-						body: JSON.stringify({ id: params.id, answer: params.answer }),
-						createdAt: new Date().toISOString(),
-					},
-				});
+				sendRemoteUserQuestionAnswer(
+					controlDbPath,
+					{ sessionId: supervisor.sessionId, host: supervisor.host },
+					params,
+				);
 			}
 			return {
 				content: [{ type: "text", text: `Recorded answer to user question ${params.id}.` }],

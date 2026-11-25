@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
+import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { cleanupExpiredMessages, withControlDb } from "../src/core/session-control-db/connection.ts";
 import {
 	listUserQuestions,
@@ -10,11 +10,9 @@ import {
 	readUserQuestion,
 	recordUserQuestionAnswer,
 } from "../src/core/session-control-db/user-questions.ts";
-import {
-	enqueueStoredRuntimeMailboxMessage,
-	listRuntimeMailboxMessagesForSession,
-} from "../src/core/session-control-db.ts";
+import { listRuntimeMailboxMessagesForSession } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { sendRemoteUserQuestionAnswer } from "../src/core/tools/answer-user-question.ts";
 import { askUserQuestion } from "../src/user-questions/ask.ts";
 
 const directories: string[] = [];
@@ -91,31 +89,25 @@ describe("user question storage", () => {
 		expect(readUserQuestion(path, current)).toBeDefined();
 	});
 
-	it("records an answer imported from a remote host without queuing it for a session", () => {
+	it("records remote answers and a later revision imported in order, without queuing them for a session", () => {
 		const senderDb = makeDbPath();
 		const storeDb = makeDbPath();
 		const id = postUserQuestion(storeDb, { targetSessionId: "remote-session", question: "Remote?" });
-		const messageId = `user_question_answer:agent-server:${id}`;
-		enqueueStoredRuntimeMailboxMessage(senderDb, {
-			kind: "message",
-			recipientHost: "aso",
-			recipient: { sessionId: "supervisor", agentId: null },
-			sender: { sessionId: "remote-session", agentId: null },
-			storeRef: { sessionPath: "user-questions", messageId },
-			message: {
-				id: messageId,
-				kind: "message",
-				status: "pending",
-				fromAgentId: "main",
-				toAgentId: "main",
-				body: JSON.stringify({ id, answer: "Recorded remotely" }),
-				createdAt: new Date().toISOString(),
-			},
-		});
-		const relayed = nextRelayMailbox(senderDb, "aso");
-		if (!relayed) throw new Error("Expected the remote answer to be queued for relay");
-		importRelayMailbox(storeDb, "agent-server", relayed, "aso");
+		const supervisor = { sessionId: "supervisor", host: "aso" };
+		// The revision is queued while the first answer is still waiting for the relay.
+		sendRemoteUserQuestionAnswer(senderDb, supervisor, { id, answer: "Recorded remotely" });
+		sendRemoteUserQuestionAnswer(senderDb, supervisor, { id, answer: "Revised remotely" });
+
+		const first = nextRelayMailbox(senderDb, "aso");
+		if (!first) throw new Error("Expected the first answer to be queued for relay");
+		importRelayMailbox(storeDb, "agent-server", first, "aso");
 		expect(readUserQuestion(storeDb, id)).toMatchObject({ status: "answered", answer: "Recorded remotely" });
+		ackRelayMailbox(senderDb, "aso", first);
+		const second = nextRelayMailbox(senderDb, "aso");
+		if (!second) throw new Error("Expected the revision to be queued for relay");
+		importRelayMailbox(storeDb, "agent-server", second, "aso");
+		expect(readUserQuestion(storeDb, id)).toMatchObject({ status: "answered", answer: "Revised remotely" });
+
 		const db = createSqliteDatabase(storeDb);
 		try {
 			expect(
