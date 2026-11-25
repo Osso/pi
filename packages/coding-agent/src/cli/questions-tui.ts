@@ -56,7 +56,7 @@ function askedField(entry: QuestionEntry): string {
 function describeUserQuestion(entry: UserQuestionEntry): string {
 	const parent = entry.parentId === undefined ? [] : [field("Follow-up", `to u${entry.parentId}`)];
 	return [
-		`${entry.ref}  you \u2192 ${describeAddress(entry.session)}  [${entry.state}]`,
+		`${entry.ref}  you \u2192  [${entry.state}]`,
 		"",
 		field("Question", entry.question),
 		field("Answer", entry.answer ?? "(no answer yet)"),
@@ -78,7 +78,7 @@ function describeAgentQuestion(entry: AgentQuestionEntry): string {
 		field("Answer", entry.answers?.[q.question] ?? "(no answer)"),
 	]);
 	return [
-		`${entry.ref}  ${describeAddress(entry.session)} \u2192 you  [${entry.state}]`,
+		`${entry.ref}  \u2192 you  [${entry.state}]`,
 		"",
 		...pairs,
 		...describeAnswerSource(entry),
