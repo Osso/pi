@@ -164,6 +164,8 @@ Used inside the `ask_questions` panel. Up/down move within a question, Enter sel
 | `app.questions.next` | `right`, `tab` | Next question tab |
 | `app.questions.previous` | `left`, `shift+tab` | Previous question tab |
 | `app.questions.toggleAll` | `tab` | In the `pi questions` list: switch between unanswered and all questions |
+| `app.questions.listUp` | `k` | In the `pi questions` list: move the selection up (in addition to `tui.select.up`) |
+| `app.questions.listDown` | `j` | In the `pi questions` list: move the selection down (in addition to `tui.select.down`) |
 
 ### Scoped Models Selector
 

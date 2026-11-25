@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import {
+	listActiveSessionMetadata,
 	listQuestionRequests,
 	listUserQuestions,
 	type QuestionAnswerSource,
@@ -206,6 +207,15 @@ export function listAskTargets(center: QuestionCenter): AskTarget[] {
 		targets.set(sessionId, { sessionId, host, label: `${host}:${sessionId}` });
 	}
 	return [...targets.values()];
+}
+
+/** Names of the named sessions on this host, by session ID. */
+export function listSessionNames(center: QuestionCenter): Map<string, string> {
+	const names = new Map<string, string>();
+	for (const session of listActiveSessionMetadata(center.controlDbPath)) {
+		if (session.name) names.set(session.id, session.name);
+	}
+	return names;
 }
 
 /** Validates stored agent questions before they open in a panel. */

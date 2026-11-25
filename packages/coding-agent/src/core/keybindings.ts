@@ -68,6 +68,8 @@ export interface AppKeybindings {
 	"app.questions.next": true;
 	"app.questions.previous": true;
 	"app.questions.toggleAll": true;
+	"app.questions.listUp": true;
+	"app.questions.listDown": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -275,6 +277,14 @@ export const KEYBINDINGS = {
 	"app.questions.toggleAll": {
 		defaultKeys: "tab",
 		description: "pi questions: switch between unanswered and all questions",
+	},
+	"app.questions.listUp": {
+		defaultKeys: "k",
+		description: "pi questions: move the selection up (in addition to tui.select.up)",
+	},
+	"app.questions.listDown": {
+		defaultKeys: "j",
+		description: "pi questions: move the selection down (in addition to tui.select.down)",
 	},
 } as const satisfies KeybindingDefinitions;
 

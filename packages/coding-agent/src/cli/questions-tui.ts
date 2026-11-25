@@ -1,4 +1,4 @@
-import { type Component, getKeybindings, type TUI } from "@earendil-works/pi-tui";
+import type { Component, TUI } from "@earendil-works/pi-tui";
 import { getAgentDir } from "../config.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
@@ -13,6 +13,7 @@ import {
 	askAgent,
 	listAskTargets,
 	listQuestionEntries,
+	listSessionNames,
 	openQuestionCenter,
 	panelQuestions,
 	type QuestionCenter,
@@ -21,6 +22,7 @@ import {
 	type UserQuestionEntry,
 } from "../questions/question-center.ts";
 import { runQuestionsControl } from "./questions-control.ts";
+import { formatAge, QuestionListComponent } from "./questions-list.ts";
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
 
 /**
@@ -36,73 +38,58 @@ const BACK = "Back";
 const REVISE = "Revise the answer";
 const ANSWER_LATE = "Answer it now (the asker gets your answer as a message)";
 const MANUAL_TARGET = "Enter host:session-id";
-const SUMMARY_WIDTH = 70;
-
-function clip(text: string): string {
-	const line = text.replace(/\s+/g, " ").trim();
-	return line.length > SUMMARY_WIDTH ? `${line.slice(0, SUMMARY_WIDTH - 1)}\u2026` : line;
-}
-
-function chosenAnswers(entry: AgentQuestionEntry): string {
-	return entry.questions.map((q) => entry.answers?.[q.question] ?? "?").join(" / ");
-}
-
-function summarize(entry: QuestionEntry): string {
-	if (entry.direction === "user") return `${entry.ref} [${entry.state}] ${clip(`you: ${entry.question}`)}`;
-	const text = entry.questions.map((q) => q.question).join(" / ");
-	const state = entry.state === "answered" ? `answered: ${clip(chosenAnswers(entry))}` : entry.state;
-	return `${entry.ref} [${state}] ${clip(text)}`;
-}
 
 function describeAddress(address: SessionAddress): string {
 	return address.host ? `${address.host}:${address.sessionId}` : address.sessionId;
 }
 
-function describeUserQuestion(entry: UserQuestionEntry): string {
-	const parent = entry.parentId === undefined ? "" : ` (follow-up to u${entry.parentId})`;
-	const answer = entry.answer ?? "(no answer yet)";
-	return `${entry.ref} to ${describeAddress(entry.session)}${parent}\n\nYou asked: ${entry.question}\n\nAnswer: ${answer}`;
+/** One aligned `Label    value` line of a detail view. */
+function field(label: string, value: string): string {
+	return `${label.padEnd(10)}${value}`;
 }
 
-function describeAnswerSource(entry: AgentQuestionEntry): string {
-	if (!entry.answeredBy) return "";
+function askedField(entry: QuestionEntry): string {
+	const at = entry.createdAt.slice(0, 16).replace("T", " ");
+	return field("Asked", `${at} UTC (${formatAge(entry.createdAt, Date.now())} ago)`);
+}
+
+function describeUserQuestion(entry: UserQuestionEntry): string {
+	const parent = entry.parentId === undefined ? [] : [field("Follow-up", `to u${entry.parentId}`)];
+	return [
+		`${entry.ref}  you \u2192 ${describeAddress(entry.session)}  [${entry.state}]`,
+		"",
+		field("Question", entry.question),
+		field("Answer", entry.answer ?? "(no answer yet)"),
+		field("Session", describeAddress(entry.session)),
+		...parent,
+		askedField(entry),
+	].join("\n");
+}
+
+function describeAnswerSource(entry: AgentQuestionEntry): string[] {
+	if (!entry.answeredBy) return [];
 	const revised = entry.revisedAt ? `, revised ${entry.revisedAt}` : "";
-	return ` by ${entry.answeredBy}${revised}`;
+	return [field("Source", `${entry.answeredBy}${revised}`)];
 }
 
 function describeAgentQuestion(entry: AgentQuestionEntry): string {
-	const lines = entry.questions.map(
-		(q) => `- ${q.question}\n  \u2192 ${entry.answers?.[q.question] ?? "(no answer)"}`,
-	);
-	const head = `${entry.ref} from ${describeAddress(entry.session)} [${entry.state}${describeAnswerSource(entry)}]`;
-	return `${head}\n\n${lines.join("\n")}`;
+	const pairs = entry.questions.flatMap((q) => [
+		field("Question", q.question),
+		field("Answer", entry.answers?.[q.question] ?? "(no answer)"),
+	]);
+	return [
+		`${entry.ref}  ${describeAddress(entry.session)} \u2192 you  [${entry.state}]`,
+		"",
+		...pairs,
+		...describeAnswerSource(entry),
+		field("Session", describeAddress(entry.session)),
+		askedField(entry),
+	].join("\n");
 }
 
 /** Unanswered: waiting for you, for the Supervisor, or for the asked agent. */
 function isUnanswered(entry: QuestionEntry): boolean {
 	return entry.state === "open" || entry.state === "supervisor";
-}
-
-/** The question list; `app.questions.toggleAll` switches between unanswered and all questions. */
-class QuestionListComponent extends ExtensionSelectorComponent {
-	private readonly onToggleAll: () => void;
-
-	constructor(
-		title: string,
-		options: string[],
-		onSelect: (option: string) => void,
-		onCancel: () => void,
-		onToggleAll: () => void,
-		ui: TUI,
-	) {
-		super(title, options, onSelect, onCancel, { tui: ui });
-		this.onToggleAll = onToggleAll;
-	}
-
-	override handleInput(keyData: string): void {
-		if (getKeybindings().matches(keyData, "app.questions.toggleAll")) this.onToggleAll();
-		else super.handleInput(keyData);
-	}
 }
 
 function parseManualTarget(value: string): SessionAddress {
@@ -112,7 +99,7 @@ function parseManualTarget(value: string): SessionAddress {
 	return { host: trimmed.slice(0, separator), sessionId: trimmed.slice(separator + 1) };
 }
 
-class QuestionsApp {
+export class QuestionsApp {
 	private readonly ui: TUI;
 	private readonly center: QuestionCenter;
 	private readonly keybindings = KeybindingsManager.create();
@@ -168,30 +155,33 @@ class QuestionsApp {
 
 	showList(): void {
 		const entries = listQuestionEntries(this.center).filter((entry) => this.showAll || isUnanswered(entry));
-		const byLabel = new Map(entries.map((entry) => [summarize(entry), entry]));
-		const heading = this.showAll
-			? "All questions, last three days, newest first (tab: unanswered only)"
-			: `Unanswered questions, newest first (tab: all questions)${entries.length === 0 ? "\n\nNothing is waiting." : ""}`;
-		const title = [heading, this.notice].filter(Boolean).join("\n");
+		const notice = this.notice;
 		this.notice = "";
-		const list = new QuestionListComponent(
-			title,
-			[ASK_NEW, REFRESH, ...byLabel.keys(), QUIT],
-			(option) => {
-				if (option === ASK_NEW) return this.chooseTarget();
-				if (option === QUIT) return this.finish();
-				const entry = byLabel.get(option);
-				if (!entry) return this.showList();
+		const list = new QuestionListComponent({
+			heading: this.showAll ? "All questions, last three days, newest first" : "Unanswered questions, newest first",
+			notice,
+			emptyText: this.showAll ? "No questions in the last three days." : "Nothing is waiting.",
+			toggleLabel: this.showAll ? "unanswered only" : "all questions",
+			entries,
+			sessionNames: listSessionNames(this.center),
+			now: Date.now(),
+			actions: [ASK_NEW, REFRESH],
+			closingActions: [QUIT],
+			onAction: (action) => {
+				if (action === ASK_NEW) return this.chooseTarget();
+				if (action === QUIT) return this.finish();
+				this.showList();
+			},
+			onEntry: (entry) => {
 				if (entry.direction === "user") return this.showUserQuestion(entry);
 				this.showAgentQuestion(entry);
 			},
-			this.finish,
-			() => {
+			onCancel: this.finish,
+			onToggleAll: () => {
 				this.showAll = !this.showAll;
 				this.showList();
 			},
-			this.ui,
-		);
+		});
 		this.show(list);
 	}
 
