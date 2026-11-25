@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed compaction summary retries ignoring the provider-requested retry delay after a transient failure
 - Fixed the working status showing `Thinking...` after returning from a child view although the main session was already streaming
 - Fixed durable Pyrun results showing older streamed console instead of the latest lines when the output artifact cap dropped progress records
 - Main-session `end_turn` is rejected when no visible assistant text answers the latest user prompt, so a thinking-only turn can no longer end silently

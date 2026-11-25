@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { classifyProviderError } from "@earendil-works/pi-ai/compat";
 
-/** Waits before each repeat; jitter adds up to a quarter of the delay. */
+/** Waits before each repeat; jitter adds up to a quarter of the delay. A longer provider retry delay wins. */
 export const SUMMARIZATION_RETRY_DELAYS_MS = [2_000, 4_000, 8_000];
 
 function sleep(delayMs: number, signal: AbortSignal | undefined): Promise<void> {
@@ -27,7 +27,7 @@ export async function retryTransientSummarization(
 	let response = await request();
 	for (const delayMs of SUMMARIZATION_RETRY_DELAYS_MS) {
 		if (classifyProviderError(response).kind !== "transient" || signal?.aborted) return response;
-		await sleep(delayMs * (1 + Math.random() * 0.25), signal);
+		await sleep(Math.max(delayMs * (1 + Math.random() * 0.25), response.retryAfterMs ?? 0), signal);
 		if (signal?.aborted) return response;
 		response = await request();
 	}
