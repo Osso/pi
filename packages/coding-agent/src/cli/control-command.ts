@@ -6,7 +6,6 @@ import {
 	readRunningSessionIdByPid,
 	readSessionHealth,
 } from "../core/session-control-db.ts";
-import { handleQuestionsControl } from "./questions-control.ts";
 
 export { handleQuestionsCommand } from "./questions-tui.ts";
 
@@ -100,11 +99,6 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 
 	if (subcommand === "path") {
 		stdout(`${getControlDbPath()}\n`);
-		return true;
-	}
-
-	if (subcommand === "questions") {
-		handleQuestionsControl(args.slice(2), stdout, stderr);
 		return true;
 	}
 

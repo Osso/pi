@@ -89,6 +89,32 @@ function runQuestionsCommand(center: QuestionCenter, args: string[], stdout: Wri
 	throw new Error(USAGE);
 }
 
+function writeFully(stream: NodeJS.WriteStream, text: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		stream.write(text, (error) => (error ? reject(error) : resolve()));
+	});
+}
+
+/**
+ * Runs `pi control questions ...` and waits until its output is flushed: the caller exits the process
+ * next, and the compiled binary drops unflushed pipe output (a long `list --json` was cut at 64 KiB).
+ */
+export async function runQuestionsControl(args: string[]): Promise<void> {
+	let out = "";
+	let err = "";
+	handleQuestionsControl(
+		args,
+		(text) => {
+			out += text;
+		},
+		(text) => {
+			err += text;
+		},
+	);
+	await writeFully(process.stdout, out);
+	await writeFully(process.stderr, err);
+}
+
 /** `pi control questions ...`: non-interactive access to the question store for scripts and services. */
 export function handleQuestionsControl(args: string[], stdout: Write, stderr: Write): void {
 	if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {

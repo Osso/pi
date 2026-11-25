@@ -20,6 +20,7 @@ import {
 	type SessionAddress,
 	type UserQuestionEntry,
 } from "../questions/question-center.ts";
+import { runQuestionsControl } from "./questions-control.ts";
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
 
 /**
@@ -204,6 +205,10 @@ class QuestionsApp {
 
 /** Runs `pi questions` when `args` start with it; returns false for any other command. */
 export async function handleQuestionsCommand(args: string[]): Promise<boolean> {
+	if (args[0] === "control" && args[1] === "questions") {
+		await runQuestionsControl(args.slice(2));
+		return true;
+	}
 	if (args[0] !== "questions") return false;
 	const settingsManager = SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
 	const center = openQuestionCenter(settingsManager, getControlDbPath());

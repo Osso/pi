@@ -917,7 +917,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(process.exitCode ?? 0);
 	}
 
-	if (handleControlCommand(args, {}) || (await handleQuestionsCommand(args))) {
+	if ((await handleQuestionsCommand(args)) || handleControlCommand(args, {})) {
 		process.exit(process.exitCode ?? 0);
 	}
 
