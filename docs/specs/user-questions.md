@@ -1,8 +1,8 @@
 # User questions
 
-User questions let a person send a durable question to a running main Pi session. Source lives in `packages/coding-agent/src/user-questions/` and `packages/coding-agent/src/core/tools/`; see the [user questions implementation notes](../wiki/systems/user-questions.md).
-
 Module boundary: core subsystem.
+
+User questions let a person send a durable question to a running main Pi session. Source lives in `packages/coding-agent/src/user-questions/` and `packages/coding-agent/src/core/tools/`; see the [user questions implementation notes](../wiki/systems/user-questions.md).
 
 ## What it must do
 
@@ -16,10 +16,10 @@ Module boundary: core subsystem.
 
 ### Asking and answering
 
-- [ ] `askUserQuestion` delivers a user question to a running main session through its runtime mailbox and wakes an idle session.
+- [x] `askUserQuestion` delivers a user question to a running main session through its runtime mailbox and wakes an idle session.
 - [ ] The target answers with `answer_user_question { id, answer }`. Reject blank answers and record the answer centrally.
 - [x] For remote stores, relay the answer to the Supervisor host and record it there without requiring the Supervisor session to run.
-- [ ] Allow follow-up questions. A follow-up targets the original question's session and includes the earlier question and answer in the delivered message.
+- [x] Allow follow-up questions. A follow-up targets the original question's session and includes the earlier question and answer in the delivered message.
 - [ ] Render a compact transcript row that includes the answer.
 - [ ] Exclude `answer_user_question` from child-agent runtimes.
 - [ ] The separately built `pi questions` CLI lists questions, asks questions, and asks follow-ups.
@@ -43,8 +43,8 @@ Module boundary: core subsystem.
 
 ## Known gaps (current cycle)
 
-- [ ] Run the live-session test with a Node binary that supports `--experimental-strip-types`; the available Node 22.22.1 binary exits with `ERR_NO_TYPESCRIPT`.
-- [ ] Add a direct test that the answer transcript row displays the stored answer.
+- [ ] Test remote question delivery to the configured Supervisor host and remote answer submission through the tool.
+- [ ] Add direct tests for blank-answer rejection, the answer transcript row, and child-runtime exclusion.
 - [ ] Verify `pi questions` CLI behavior in its separately built repository.
 
 ## Out of scope
