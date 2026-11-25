@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleQuestionsControl } from "../src/cli/questions-control.ts";
 import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
 import {
+	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
@@ -120,6 +121,26 @@ describe("pi control questions", () => {
 		expect(correction?.body).toBe(`User revised answers (request call-1):\n- ${QUESTION} → jest`);
 		expect(run("list").out).toContain("answered");
 		expect(run("list").out).toContain("by user (revised)");
+	});
+
+	it("answers a question that ended without an answer and sends the answer to the asker", () => {
+		escalatedQuestion();
+		cancelSupervisorRequest(
+			controlDbPath,
+			{ sessionId: "asker", agentId: null, requestId: "call-1" },
+			"Asker stopped.",
+		);
+		expect(run("list").out).toContain("a1 cancelled");
+
+		expect(run("answer", "a1", "vitest")).toMatchObject({ code: 0, out: "answered a1\n" });
+
+		const late = mail().find((message) => message.id.startsWith("supervisor_correction:"));
+		expect(late).toMatchObject({ host: "laptop" });
+		expect(late?.body).toBe(
+			`User answered after the question ended without an answer (request call-1):\n- ${QUESTION} → vitest`,
+		);
+		expect(run("list").out).toContain(`${QUESTION} → vitest`);
+		expect(run("answer", "a1", "jest")).toMatchObject({ code: 0, out: "revised a1\n" });
 	});
 
 	it("asks a session, then a follow-up that carries the earlier answer to the same session", () => {

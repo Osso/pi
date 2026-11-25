@@ -130,13 +130,17 @@ export function sendQuestionCorrection(
 	route: SupervisorReplyRoute,
 	answers: Record<string, string>,
 	revisedAt: string,
+	late = false,
 ): void {
 	const lines = Object.entries(answers).map(([question, answer]) => `- ${question} → ${answer}`);
+	const header = late
+		? `User answered after the question ended without an answer (request ${route.requestId}):`
+		: `User revised answers (request ${route.requestId}):`;
 	const messageId = `${CORRECTION_PREFIX}${routeKey(route)}:${revisedAt}`;
 	enqueueStoredRuntimeMailboxMessage(controlDbPath, {
 		kind: "message",
 		message: {
-			body: [`User revised answers (request ${route.requestId}):`, ...lines].join("\n"),
+			body: [header, ...lines].join("\n"),
 			id: messageId,
 			kind: "message",
 			status: "pending",

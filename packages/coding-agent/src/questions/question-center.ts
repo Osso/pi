@@ -147,7 +147,8 @@ function requireCompleteAnswers(entry: AgentQuestionEntry, answers: Record<strin
 }
 
 /**
- * Answers an agent question waiting for the user, or revises one that already has an answer.
+ * Answers an agent question waiting for the user or one that ended without an answer, or revises one
+ * that already has an answer.
  * Returns which of the two happened.
  */
 export function answerAgentQuestion(
@@ -161,15 +162,12 @@ export function answerAgentQuestion(
 		if (answerQuestionAsUser(center.controlDbPath, center.supervisorSessionId, entry.id, answers)) return "answered";
 		throw new Error(`${entry.ref} was answered or withdrawn first.`);
 	}
-	if (entry.state === "answered") {
-		if (reviseQuestionAsUser(center.controlDbPath, center.supervisorSessionId, entry.id, answers)) return "revised";
-		throw new Error(`${entry.ref} could not be revised.`);
+	if (entry.state === "supervisor") throw new Error(`${entry.ref} is still with the Supervisor.`);
+	const late = entry.state === "cancelled";
+	if (reviseQuestionAsUser(center.controlDbPath, center.supervisorSessionId, entry.id, answers, late)) {
+		return late ? "answered" : "revised";
 	}
-	throw new Error(
-		entry.state === "supervisor"
-			? `${entry.ref} is still with the Supervisor.`
-			: `${entry.ref} was cancelled without an answer.`,
-	);
+	throw new Error(`${entry.ref} could not be ${late ? "answered" : "revised"}.`);
 }
 
 /** Asks a session a question; with `followUpOf`, asks the session that answered that question. */

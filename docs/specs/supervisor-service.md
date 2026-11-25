@@ -41,6 +41,7 @@ Questions use the same queue and reply transport as other requests, with kind `q
 - [x] A local user answer cancels the row and stores those answers with source `local`; a cancelled question is never answered by the Supervisor or the user.
 - [x] Store every final answer in the row with its source: absent for the Supervisor, `user` for the Supervisor UI or CLI, `local` for the asker's own panel.
 - [x] The user may revise a stored answer. The revision replaces the stored answer (source `user`, `revisedAt`) and reaches the asking session as a new inbox message `User revised answers (request <id>):`, through the relay for another host. It is never matched to the original question's waiter.
+- [x] The user may also answer a question that was cancelled without an answer (the asker stopped waiting). The answer is stored like a revision and reaches the asking session as an inbox message `User answered after the question ended without an answer (request <id>):`.
 - [x] Keep question rows three days from creation, whatever their status; other request kinds keep the 24h retention after they finish.
 - [x] Deliver each question reply (escalation, then any answer) to the asking session's mailbox. A failed question decision is delivered as an escalation.
 

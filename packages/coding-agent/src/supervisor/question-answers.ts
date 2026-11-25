@@ -30,17 +30,20 @@ export function answerQuestionAsUser(
 }
 
 /**
- * Replaces the stored answer of an answered question and sends the revision to the asking session as a
- * correction. Returns the revised request, or undefined when the question has no answer yet.
+ * Replaces the stored answer of an answered question, or answers one that ended without an answer
+ * (`late`), and sends it to the asking session as a correction. Returns the updated request, or
+ * undefined when the question is still pending.
  */
 export function reviseQuestionAsUser(
 	controlDbPath: string,
 	supervisorSessionId: string,
 	requestId: number,
 	answers: Record<string, string>,
+	late = false,
 ): SupervisorRequest | undefined {
 	const request = reviseQuestionAnswer(controlDbPath, requestId, answers);
 	if (request?.response?.kind !== "answer" || !request.response.revisedAt || !request.replyTo) return undefined;
-	sendQuestionCorrection(controlDbPath, supervisorSessionId, request.replyTo, answers, request.response.revisedAt);
+	const { revisedAt } = request.response;
+	sendQuestionCorrection(controlDbPath, supervisorSessionId, request.replyTo, answers, revisedAt, late);
 	return request;
 }

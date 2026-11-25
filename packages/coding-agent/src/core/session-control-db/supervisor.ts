@@ -330,7 +330,8 @@ export function reviseQuestionAnswer(
 		const row = db
 			.prepare(
 				`UPDATE supervisor_requests SET response_json = ?
-				 WHERE id = ? AND kind = 'question' AND json_extract(response_json, '$.kind') = 'answer'
+				 WHERE id = ? AND kind = 'question'
+				   AND (status = 'cancelled' OR json_extract(response_json, '$.kind') = 'answer')
 				 RETURNING ${SUPERVISOR_REQUEST_COLUMNS}`,
 			)
 			.get(JSON.stringify(response), requestId) as SupervisorRequestRow | undefined;
