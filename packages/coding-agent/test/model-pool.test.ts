@@ -383,6 +383,30 @@ describe("model pools", () => {
 		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, FIRST]);
 	});
 
+	test("stays retryable when a member skipped for an earlier rate limit frees while a later member fails on quota", async () => {
+		const reg = registry();
+		let secondAttempts = 0;
+		const request = register((model) => {
+			if (model.provider === FIRST) {
+				return fromEvents(
+					request.mock.calls.length === 1
+						? events(model, "429 rate limit reached", undefined, 5_000)
+						: events(model),
+				);
+			}
+			if (++secondAttempts === 1) return fromEvents(events(model));
+			now += 6_000;
+			return fromEvents(events(model, "insufficient_quota"));
+		});
+		expect((await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result()).provider).toBe(SECOND);
+
+		const result = await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result();
+		expect(result).toMatchObject({ stopReason: "error", retryAfterMs: 0 });
+		expect(isRetryableAssistantError(result)).toBe(true);
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(FIRST);
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, SECOND, FIRST]);
+	});
+
 	test("does not rotate on other provider errors and forwards start and error unchanged", async () => {
 		const reg = registry();
 		const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "500 internal server error");

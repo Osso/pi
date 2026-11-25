@@ -219,6 +219,8 @@ export class ModelPools {
 		let lastRateLimitError: ErrorEvent | undefined;
 		const rateLimitedNow = new Set<string>();
 		for (const member of this.getMembers(model)) {
+			const earlierCooldown = this.cooldowns.get(memberKey(member));
+			if (earlierCooldown?.rateLimited && earlierCooldown.until > this.now()) rateLimitedNow.add(memberKey(member));
 			const auth = await this.resolveAvailableMember(member);
 			if (options?.signal?.aborted) return;
 			if (!auth) continue;
@@ -244,8 +246,9 @@ export class ModelPools {
 
 	/**
 	 * When no member could serve but one is only rate limited, a retryable error naming the earliest free member;
-	 * the caller's retry then reaches it instead of failing the turn. A member rate limited during this request
-	 * counts even if its cooldown already ended while later members were tried; it is free now.
+	 * the caller's retry then reaches it instead of failing the turn. A member rate limited during this request, or
+	 * skipped for an earlier rate limit, counts even if its cooldown already ended while later members were tried; it
+	 * is free now.
 	 */
 	private rateLimitedPoolError(
 		model: Model<Api>,
