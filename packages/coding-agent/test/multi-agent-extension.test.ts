@@ -242,6 +242,7 @@ async function spawnWorkerAndWait(harness: ReturnType<typeof createMultiAgentHar
 const productionChildExcludedTools = [
 	"agent_viewer",
 	"answer_question",
+	"answer_user_question",
 	"attach_session_agent",
 	"close_agent",
 	"set_agent_model",

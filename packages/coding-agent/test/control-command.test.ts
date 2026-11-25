@@ -209,7 +209,7 @@ describe("control command", () => {
 
 				expect(handled).toBe(true);
 				expect(stdout).toEqual([
-					"Usage:\n  pi control send [--pid <pid>] <message>\n  pi control restart --session-id <session-id>\n  pi control last\n  pi control path\n",
+					"Usage:\n  pi control send [--pid <pid>] <message>\n  pi control restart --session-id <session-id>\n  pi control last\n  pi control path\n  pi control questions <list|answer|ask|follow-up> ...\n",
 				]);
 				expect(stderr).toEqual([]);
 				expect(process.exitCode).toBe(0);

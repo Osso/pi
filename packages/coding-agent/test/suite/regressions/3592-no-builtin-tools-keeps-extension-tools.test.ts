@@ -80,6 +80,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 				.map((tool) => tool.name)
 				.sort(),
 		).toEqual([
+			"answer_user_question",
 			"ask_questions",
 			"ask_supervisor",
 			"bash",
