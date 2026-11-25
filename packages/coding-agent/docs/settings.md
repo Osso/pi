@@ -169,16 +169,16 @@ Idle compaction requires at least 100,000 context tokens in the latest assistant
 | `retry.enabled` | boolean | `true` | Enable automatic agent-level retry on transient errors |
 | `retry.maxRetries` | number | `30` | Maximum agent-level retries after the initial request |
 | `retry.baseDelayMs` | number | `30000` | Initial exponential backoff delay in milliseconds (30s) |
-| `retry.maxBackoffMs` | number | `300000` | Maximum individual agent-level retry delay in milliseconds (5min) |
+| `retry.maxBackoffMs` | number | `300000` | Maximum agent-level backoff in milliseconds (5min) |
 | `retry.provider.timeoutMs` | number | SDK default | Provider/SDK request timeout in milliseconds |
 | `retry.provider.maxRetries` | number | `0` | Provider/SDK retry attempts |
 | `retry.provider.maxRetryDelayMs` | number | `60000` | Max server-requested delay before failing (60s) |
 
 Main and child Pi sessions share this agent-level policy through `AgentSession`. Each retry doubles the nominal delay from `retry.baseDelayMs`, caps it at `retry.maxBackoffMs`, applies ±20% random jitter, then clamps the sampled wait to `retry.maxBackoffMs`. Default nominal delays before jitter are 30s, 60s, 120s, 240s, 300s, 300s, … . Jitter has no configuration setting.
 
-The five-minute cap limits each delay, not the 30 retries after the initial request or total wall-clock time. Provider request latency and any provider-level retry waits add to elapsed time. Existing custom `baseDelayMs` values now set the initial exponential base, not a fixed gap. Success resets the retry sequence; cancellation still stops the wait, and the interactive retry spinner continues into the resumed request.
+The five-minute cap limits the exponential backoff, not the provider-requested delay, the 30 retries after the initial request, or total wall-clock time. Provider request latency and any provider-level retry waits add to elapsed time. Existing custom `baseDelayMs` values now set the initial exponential base, not a fixed gap. Success resets the retry sequence; cancellation still stops the wait, and the interactive retry spinner continues into the resumed request.
 
-Provider `Retry-After` handling is split across layers. Providers parse `retry-after-ms`/`retry-after` from a failed response, or the "try again in …" duration when a streamed error carries no headers, and record the delay on the assistant message; provider-internal retries may still wait within `retry.provider.maxRetryDelayMs`. The agent-level policy then stops instead of retrying when the recorded delay exceeds `retry.provider.maxRetryDelayMs`; earlier retries would only repeat the same failure. Retries with a delay inside the cap use the agent-level backoff above, which does not wait for the provider-requested delay itself.
+Provider `Retry-After` handling is split across layers. Providers parse `retry-after-ms`/`retry-after` from a failed response or supported error-message durations such as "try again in …" and "reset after 3h17m42s", and record the delay on the assistant message; provider-internal retries may still wait within `retry.provider.maxRetryDelayMs`. The agent-level policy stops instead of retrying when the recorded delay exceeds `retry.provider.maxRetryDelayMs`. For delays within the cap, the agent waits for the greater of the jittered exponential backoff and the provider-requested delay.
 
 When a provider requests a retry delay longer than `retry.provider.maxRetryDelayMs` (e.g., an OpenAI token-per-minute 429 that resets in 144h, or Google's "quota will reset after 5h"), the turn ends after the first failure with the provider error instead of retrying silently. Set to `0` to disable the cap.
 
