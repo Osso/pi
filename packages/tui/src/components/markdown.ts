@@ -2,7 +2,7 @@ import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { stripTerminalControls } from "../terminal-controls.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
-import { applyBackgroundToLine, visibleWidth } from "../utils.ts";
+import { applyBackgroundToLine, getGraphemeSegmenter, visibleWidth } from "../utils.ts";
 import { wrapTextWithAnsi } from "../wrap-ansi.ts";
 import { renderCachedTokens, type TokenRenderCache } from "./markdown-token-cache.ts";
 import { padTableCell } from "./table-cell.ts";
@@ -13,6 +13,10 @@ const HTML_COMMENT_REGEX = /<!--[\s\S]*?(?:-->|$)/g;
 
 function stripHtmlComments(html: string): string {
 	return html.replace(HTML_COMMENT_REGEX, "");
+}
+
+function containsWideGrapheme(text: string): boolean {
+	return Array.from(getGraphemeSegmenter().segment(text)).some(({ segment }) => visibleWidth(segment) === 2);
 }
 
 function getTokenRawHtml(token: Token): string | undefined {
@@ -654,15 +658,8 @@ export class Markdown implements Component {
 
 	/** Get the visible width of the longest word in a string. */
 	private getLongestWordWidth(text: string, maxWidth?: number): number {
-		const words = text.split(/\s+/).filter((word) => word.length > 0);
-		let longest = 0;
-		for (const word of words) {
-			longest = Math.max(longest, visibleWidth(word));
-		}
-		if (maxWidth === undefined) {
-			return longest;
-		}
-		return Math.min(longest, maxWidth);
+		const longestWordWidth = text.split(/\s+/).reduce((maxSoFar, word) => Math.max(maxSoFar, visibleWidth(word)), 0);
+		return maxWidth === undefined ? longestWordWidth : Math.min(longestWordWidth, maxWidth);
 	}
 
 	/**
@@ -714,12 +711,14 @@ export class Markdown implements Component {
 		// Calculate natural column widths (what each column needs without constraints)
 		const naturalWidths: number[] = [];
 		const minWordWidths: number[] = [];
+		const hasWideCharacters: boolean[] = new Array(numCols).fill(false);
 		for (let i = 0; i < numCols; i++) {
 			const headerCell = token.header[i];
 			if (!headerCell) throw new Error(`Missing table header cell at index ${i}`);
 			const headerText = this.renderInlineTokens(headerCell.tokens || [], styleContext);
 			naturalWidths[i] = visibleWidth(headerText);
 			minWordWidths[i] = Math.max(1, this.getLongestWordWidth(headerText, maxUnbrokenWordWidth));
+			hasWideCharacters[i] ||= containsWideGrapheme(headerText);
 		}
 		for (const row of token.rows) {
 			for (let i = 0; i < row.length; i++) {
@@ -731,6 +730,7 @@ export class Markdown implements Component {
 					minWordWidths[i] || 1,
 					this.getLongestWordWidth(cellText, maxUnbrokenWordWidth),
 				);
+				hasWideCharacters[i] ||= containsWideGrapheme(cellText);
 			}
 		}
 
@@ -738,8 +738,8 @@ export class Markdown implements Component {
 		let minCellsWidth = minColumnWidths.reduce((a, b) => a + b, 0);
 
 		if (minCellsWidth > availableForCells) {
-			// Keep room for a wide (two-cell) character in each column when it fits; a narrower column drops it.
-			const wideFloors = minWordWidths.map((width) => Math.min(2, width));
+			// Keep room for wide characters only in columns that contain them when it fits.
+			const wideFloors = minWordWidths.map((width, index) => (hasWideCharacters[index] ? Math.min(2, width) : 1));
 			const fitsWide = wideFloors.reduce((a, b) => a + b, 0) <= availableForCells;
 			minColumnWidths = fitsWide ? wideFloors : new Array(numCols).fill(1);
 			const remaining = availableForCells - minColumnWidths.reduce((a, b) => a + b, 0);

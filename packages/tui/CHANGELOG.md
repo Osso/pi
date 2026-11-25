@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed narrow Markdown tables dropping wide characters when only some columns require two terminal cells
 - Markdown lists and tables that render to more than about 125k lines no longer crash with `RangeError: Maximum call stack size exceeded`
 - Fixed Markdown control stripping treating a cursor-movement sequence such as `ESC [1A` as running to the next `m`, which deleted the following text and styling or left `[1A` visible
 - Fixed moving focus between components laid out by `RootCompositor` while an overlay was covered handing focus back to the overlay, so a still-visible selector lost its Enter key

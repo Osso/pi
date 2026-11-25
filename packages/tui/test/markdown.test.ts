@@ -545,6 +545,29 @@ describe("Markdown component", () => {
 			);
 		});
 
+		it("keeps wide characters in narrow tables when only one column needs two cells", () => {
+			const markdown = new Markdown(
+				`| File | 状 |
+| --- | --- |
+| very-long-fixture-filename.txt | 済 |`,
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const plainLines = markdown.render(10).map(stripAnsi);
+
+			assert.ok(
+				plainLines.some((line) => line.includes("状")),
+				plainLines.join("\n"),
+			);
+			assert.ok(
+				plainLines.some((line) => line.includes("済")),
+				plainLines.join("\n"),
+			);
+			for (const line of plainLines) assert.ok(visibleWidth(line) <= 10, `Line exceeds width 10: "${line}"`);
+		});
+
 		it("should wrap table cells when table exceeds available width", () => {
 			const markdown = new Markdown(
 				`| Command | Description | Example |
