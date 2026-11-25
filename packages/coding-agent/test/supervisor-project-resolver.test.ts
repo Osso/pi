@@ -1,8 +1,13 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	extractRemoteRepositoryIdentity,
 	extractRemoteRepositoryName,
 	resolveSupervisorProject,
+	resolveSupervisorProjectForCwd,
 	type SupervisorProjectConfig,
 } from "../src/supervisor/project-resolver.ts";
 
@@ -54,6 +59,19 @@ describe("Supervisor project resolver", () => {
 			"pi-mono",
 		);
 		expect(resolveSupervisorProject({ config: {}, cwd: "/repos/pi", remoteRepositoryNames: [] })).toBe("pi");
+	});
+
+	it("falls back to the repository root name from a subdirectory of a repository without remotes", () => {
+		const parent = mkdtempSync(join(tmpdir(), "pi-supervisor-project-"));
+		try {
+			const repository = join(parent, "example-repo");
+			mkdirSync(join(repository, "src"), { recursive: true });
+			expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(0);
+
+			expect(resolveSupervisorProjectForCwd(join(repository, "src"), join(parent, "kb"))).toBe("example-repo");
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
 	});
 
 	it("distinguishes repositories with the same basename by owner identity", () => {

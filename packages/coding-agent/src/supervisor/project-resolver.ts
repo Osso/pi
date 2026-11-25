@@ -14,6 +14,8 @@ export type SupervisorProjectConfig = Record<string, SupervisorProjectMapping>;
 export interface ResolveSupervisorProjectInput {
 	config: SupervisorProjectConfig;
 	cwd: string;
+	/** Git work-tree root for `cwd`, used for the directory-name fallback. */
+	repositoryRoot?: string;
 	remoteRepositoryNames: string[];
 }
 
@@ -34,7 +36,12 @@ export function extractRemoteRepositoryName(remoteUrl: string): string | undefin
 
 export function resolveSupervisorProjectForCwd(cwd: string, kbDir: string): string {
 	const config = readSupervisorProjectConfig(join(kbDir, "memory", "supervisor", "projects.json"));
-	return resolveSupervisorProject({ config, cwd, remoteRepositoryNames: readRemoteRepositoryNames(cwd) });
+	return resolveSupervisorProject({
+		config,
+		cwd,
+		repositoryRoot: readRepositoryRoot(cwd),
+		remoteRepositoryNames: readRemoteRepositoryNames(cwd),
+	});
 }
 
 export function readSupervisorProjectConfig(path: string): SupervisorProjectConfig {
@@ -56,7 +63,10 @@ export function resolveSupervisorProject(input: ResolveSupervisorProjectInput): 
 	const remoteMatch = findProjectByRemote(input.config, input.remoteRepositoryNames);
 	if (remoteMatch) return remoteMatch;
 
-	return input.remoteRepositoryNames[0]?.split("/").at(-1)?.toLowerCase() ?? basename(resolve(input.cwd));
+	return (
+		input.remoteRepositoryNames[0]?.split("/").at(-1)?.toLowerCase() ??
+		basename(resolve(input.repositoryRoot ?? input.cwd))
+	);
 }
 
 function findProjectByRoot(config: SupervisorProjectConfig, cwd: string): string | undefined {
@@ -71,6 +81,11 @@ function findProjectByRemote(config: SupervisorProjectConfig, remoteRepositoryNa
 	return Object.entries(config).find(([, mapping]) =>
 		mapping.remotes?.some((remote) => remoteNames.has(remote.toLowerCase())),
 	)?.[0];
+}
+
+function readRepositoryRoot(cwd: string): string | undefined {
+	const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+	return result.status === 0 ? result.stdout.trim() || undefined : undefined;
 }
 
 function readRemoteRepositoryNames(cwd: string): string[] {
