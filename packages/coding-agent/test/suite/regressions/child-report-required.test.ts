@@ -153,7 +153,7 @@ describe("child report required", () => {
 			const report = "Findings: two concrete bugs in the relay";
 			agent.respondToLlmRequest(request.id, fauxAssistantMessage(report));
 			const continuation = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
-			expect(continuation.userMessages.at(-1)).toContain("Call `end_turn` now");
+			expect(continuation.userMessages.at(-1)).toContain("Your previous response was already delivered");
 			agent.respondToLlmRequest(continuation.id, fauxAssistantMessage("The bug hunt is complete."));
 			const second = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
 			const end = fauxToolCall("end_turn", { reason: "Reported" });
