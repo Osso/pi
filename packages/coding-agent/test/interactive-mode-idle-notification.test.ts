@@ -300,6 +300,23 @@ describe("InteractiveMode idle desktop notifications", () => {
 		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
 	});
 
+	it("switches the hidden main session to Streaming on its first visible delta while a child view is selected", async () => {
+		const context = createContext();
+		context.multiAgentStore = { getSelectedAgentId: () => "agent_1", getAgent: () => ({ id: "agent_1" }) };
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "model_request_start" });
+		expect(context.startThinkingTimer).toHaveBeenCalledTimes(1);
+		const assistantMessage = createAssistantMessage();
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "message_update",
+			message: assistantMessage,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "hello", partial: assistantMessage },
+		});
+
+		expect(context.stopThinkingTimer).toHaveBeenCalledTimes(1);
+		expect(context.currentWorkingDefaultMessage).toBe("Streaming...");
+	});
+
 	it("notifies when the main session finishes while a child transcript is selected", async () => {
 		const context = createContext();
 		context.multiAgentStore = { getSelectedAgentId: () => "agent_1", getAgent: () => ({ id: "agent_1" }) };

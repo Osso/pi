@@ -3650,6 +3650,9 @@ export class InteractiveMode {
 		if (event.type === "model_request_end") this.stopThinkingTimer();
 		if (event.type === "agent_start") this.closeResponseCompleteNotification();
 		if (event.type === "agent_end") this.notifyResponseComplete(event);
+		const visibleDelta = event.type === "message_update" && this.isVisibleAssistantDelta(event);
+		if (visibleDelta) this.stopThinkingTimer();
+		if (visibleDelta) this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 		if (this.handleHiddenMainSessionDisplayEvent(event)) return;
 
 		switch (event.type) {
@@ -3742,10 +3745,7 @@ export class InteractiveMode {
 				break;
 
 			case "message_update":
-				if (!this.isVisibleAssistantDelta(event)) break;
-				this.stopThinkingTimer();
-				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
-				if (this.streamingComponent && event.message.role === "assistant") {
+				if (visibleDelta && this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
 					this.scheduleDeferredRender(() => this.transcriptTailRegion.requestRender());
