@@ -205,6 +205,7 @@ export type {
 	PostArchitectRequestInput,
 	PostSharedChannelMessageInput,
 	PostSupervisorRequestInput,
+	QuestionAnswerSource,
 	ResumeSessionMetadataOptions,
 	RuntimeMailboxAddress,
 	RuntimeMailboxListener,

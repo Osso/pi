@@ -6,6 +6,9 @@ import {
 	readRunningSessionIdByPid,
 	readSessionHealth,
 } from "../core/session-control-db.ts";
+import { handleQuestionsControl } from "./questions-control.ts";
+
+export { handleQuestionsCommand } from "./questions-tui.ts";
 
 interface ControlCommandDependencies {
 	stdout?: (text: string) => void;
@@ -100,6 +103,11 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 		return true;
 	}
 
+	if (subcommand === "questions") {
+		handleQuestionsControl(args.slice(2), stdout, stderr);
+		return true;
+	}
+
 	printControlHelp(subcommand === "--help" || subcommand === "-h" ? stdout : stderr);
 	process.exitCode = subcommand === "--help" || subcommand === "-h" ? 0 : 1;
 	return true;
@@ -140,5 +148,6 @@ function printControlHelp(write: (text: string) => void): void {
   pi control restart --session-id <session-id>
   pi control last
   pi control path
+  pi control questions <list|answer|ask|follow-up> ...
 `);
 }

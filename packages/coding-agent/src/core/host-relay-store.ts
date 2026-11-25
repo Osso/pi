@@ -133,7 +133,10 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		if (typeof payload.id !== "number" || typeof payload.answer !== "string" || !payload.answer.trim()) {
 			throw new Error("Invalid relayed user-question answer");
 		}
-		recordUserQuestionAnswer(path, payload.id, payload.answer);
+		if (!recordUserQuestionAnswer(path, payload.id, payload.answer)) {
+			// The question expired from the three-day store; the answer has nowhere to go.
+			console.error(`Dropped relayed answer from ${peer} to unknown user question ${payload.id}`);
+		}
 		withControlDb(path, (db) => writeCounter(db, `relay-in:${peer}`, message.seq));
 		return;
 	}

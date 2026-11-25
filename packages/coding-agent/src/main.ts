@@ -58,7 +58,7 @@ import supervisorSessionExtension from "../extensions/supervisor-session/src/ind
 import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
 import { type Args, optionArgs, parseArgs, printHelp } from "./cli/args.ts";
-import { handleControlCommand } from "./cli/control-command.ts";
+import { handleControlCommand, handleQuestionsCommand } from "./cli/control-command.ts";
 import { handleDebugCommand } from "./cli/debug-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -917,7 +917,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(process.exitCode ?? 0);
 	}
 
-	if (handleControlCommand(args, {})) {
+	if (handleControlCommand(args, {}) || (await handleQuestionsCommand(args))) {
 		process.exit(process.exitCode ?? 0);
 	}
 
