@@ -77,6 +77,8 @@ export interface ReadOperations {
 	readFile: (absolutePath: string) => Promise<Buffer>;
 	/** Read a byte range as a Buffer. End is exclusive. */
 	readRange?: (absolutePath: string, start: number, end: number) => Promise<Buffer>;
+	/** Stream file contents in chunks for bounded text reads. */
+	createReadStream?: (absolutePath: string, options: { signal?: AbortSignal }) => AsyncIterable<Uint8Array>;
 	/** Get file metadata before reading contents. */
 	stat?: (absolutePath: string) => Promise<ReadFileStat>;
 	/** Check if file is readable (throw if not) */
@@ -97,9 +99,22 @@ async function readLocalRange(path: string, start: number, end: number): Promise
 	}
 }
 
+async function* readLocalFileChunks(path: string, _options: { signal?: AbortSignal }): AsyncGenerator<Uint8Array> {
+	const file = await fsOpen(path, "r");
+	try {
+		const stats = await file.stat();
+		const end = stats.isFile() && stats.size > 0 ? stats.size - 1 : undefined;
+		// Do not pass the signal to the stream: aborting before iteration starts can emit an unhandled error.
+		yield* file.createReadStream({ end, autoClose: false });
+	} finally {
+		await file.close();
+	}
+}
+
 const defaultReadOperations: ReadOperations = {
 	readFile: (path) => fsReadFile(path),
 	readRange: readLocalRange,
+	createReadStream: readLocalFileChunks,
 	stat: (path) => fsStat(path),
 	access: (path) => fsAccess(path, constants.R_OK),
 	detectImageMimeType: detectSupportedImageMimeTypeFromFile,
@@ -164,6 +179,21 @@ function trimTrailingEmptyLines(lines: string[]): string[] {
 	return lines.slice(0, end);
 }
 
+interface StreamReadSelection {
+	totalFileLines: number;
+	endLine: number;
+	selectedContent: string;
+	truncation: TruncationResult;
+	firstLineBytes: number;
+}
+
+interface ReadTextBufferResult {
+	buffer: Buffer;
+	fileSize?: number;
+	rangeLimited: boolean;
+	streamSelection?: StreamReadSelection;
+}
+
 function canUseHeadRangeRead(
 	fileStat: ReadFileStat | undefined,
 	ops: ReadOperations,
@@ -179,12 +209,121 @@ function canUseHeadRangeRead(
 	return limit === undefined || limit > DEFAULT_MAX_LINES;
 }
 
+function canStreamRange(offset: number | undefined, limit: number | undefined): boolean {
+	return (
+		(offset === undefined || Number.isInteger(offset)) &&
+		(limit === undefined || (Number.isInteger(limit) && limit >= 0))
+	);
+}
+
+async function selectLinesFromStream(
+	chunks: AsyncIterable<Uint8Array>,
+	startLine: number,
+	limit: number | undefined,
+	signal: AbortSignal | undefined,
+): Promise<StreamReadSelection> {
+	const endLine = limit === undefined ? Number.POSITIVE_INFINITY : startLine + limit;
+	const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+	const storedLines: string[] = [];
+	let storedBytes = 0;
+	let storedPastCaps = false;
+	let lineIndex = 0;
+	let selectedLineCount = 0;
+	let selectedBytes = 0;
+	let firstLineBytes = 0;
+	let lastSelectedLineEmpty = true;
+	let hasDecodedText = false;
+	let fileEndsWithNewline = false;
+	let pieces: string[] | undefined = [];
+	let lineBytes = 0;
+	let lineHasText = false;
+
+	const appendToLine = (text: string, start: number, end: number) => {
+		lineHasText = true;
+		const piece = text.slice(start, end);
+		const pieceBytes = Buffer.byteLength(piece, "utf-8");
+		selectedBytes += pieceBytes;
+		if (pieces && lineBytes <= DEFAULT_MAX_BYTES) pieces.push(piece);
+		lineBytes += pieceBytes;
+	};
+	const finishLine = () => {
+		if (selectedLineCount > 0) selectedBytes++;
+		if (selectedLineCount === 0) firstLineBytes = lineBytes;
+		if (pieces) {
+			if (storedLines.length > DEFAULT_MAX_LINES || storedBytes > DEFAULT_MAX_BYTES) storedPastCaps = true;
+			const text = pieces.join("");
+			storedBytes += Buffer.byteLength(text, "utf-8") + (storedLines.length > 0 ? 1 : 0);
+			storedLines.push(text);
+		}
+		selectedLineCount++;
+		lastSelectedLineEmpty = !lineHasText;
+		pieces = storedPastCaps ? undefined : [];
+		lineBytes = 0;
+		lineHasText = false;
+	};
+	const select = (text: string) => {
+		if (text.length > 0) {
+			hasDecodedText = true;
+			fileEndsWithNewline = text.endsWith("\n");
+		}
+		let position = 0;
+		while (true) {
+			const selected = lineIndex >= startLine && lineIndex < endLine;
+			const newline = text.indexOf("\n", position);
+			const end = newline === -1 ? text.length : newline;
+			if (selected && end > position) appendToLine(text, position, end);
+			if (newline === -1) break;
+			if (selected) finishLine();
+			lineIndex++;
+			position = newline + 1;
+		}
+	};
+
+	for await (const chunk of chunks) {
+		if (signal?.aborted) throw new Error("Operation aborted");
+		select(decoder.decode(chunk, { stream: true }));
+	}
+	select(decoder.decode());
+	if (lineIndex >= startLine && lineIndex < endLine) finishLine();
+
+	const splitLineCount = lineIndex + 1;
+	const totalFileLines = Math.max(1, lineIndex + (hasDecodedText && fileEndsWithNewline ? 0 : 1));
+	const selectedEndLine = limit === undefined ? splitLineCount : Math.min(startLine + limit, splitLineCount);
+	const endsOnBlankLine = selectedLineCount > 0 && selectedEndLine <= totalFileLines && lastSelectedLineEmpty;
+	const selectedContent = storedLines.join("\n");
+	const truncation = truncateHead(endsOnBlankLine ? `${selectedContent}\n` : selectedContent);
+	const selectedContentEndsWithNewline = selectedLineCount > 1 && lastSelectedLineEmpty;
+	return {
+		totalFileLines,
+		endLine: selectedEndLine,
+		selectedContent,
+		truncation: {
+			...truncation,
+			totalLines: selectedLineCount - (selectedContentEndsWithNewline ? 1 : 0) + (endsOnBlankLine ? 1 : 0),
+			totalBytes: selectedBytes + (endsOnBlankLine ? 1 : 0),
+		},
+		firstLineBytes,
+	};
+}
+
+function canUseStreamRead(
+	fileStat: ReadFileStat | undefined,
+	ops: ReadOperations,
+	offset: number | undefined,
+	limit: number | undefined,
+): boolean {
+	if (!fileStat || !ops.createReadStream || fileStat.size <= DEFAULT_MAX_BYTES) return false;
+	if (canUseHeadRangeRead(fileStat, ops, offset, limit)) return false;
+	return canStreamRange(offset, limit);
+}
+
 async function readTextBuffer(
 	absolutePath: string,
 	ops: ReadOperations,
 	offset: number | undefined,
 	limit: number | undefined,
-): Promise<{ buffer: Buffer; fileSize?: number; rangeLimited: boolean }> {
+	signal: AbortSignal | undefined,
+): Promise<ReadTextBufferResult> {
 	const fileStat = ops.stat ? await ops.stat(absolutePath) : undefined;
 	const readRange = ops.readRange;
 	if (readRange && canUseHeadRangeRead(fileStat, ops, offset, limit)) {
@@ -195,11 +334,64 @@ async function readTextBuffer(
 			rangeLimited: true,
 		};
 	}
+	if (fileStat && ops.createReadStream && canUseStreamRead(fileStat, ops, offset, limit)) {
+		const streamSelection = await selectLinesFromStream(
+			ops.createReadStream(absolutePath, { signal }),
+			offset ? Math.max(0, offset - 1) : 0,
+			limit,
+			signal,
+		);
+		return {
+			buffer: Buffer.from(streamSelection.selectedContent, "utf-8"),
+			fileSize: fileStat.size,
+			rangeLimited: false,
+			streamSelection,
+		};
+	}
 	return {
 		buffer: await ops.readFile(absolutePath),
 		fileSize: fileStat?.size,
 		rangeLimited: false,
 	};
+}
+
+function formatStreamReadResult(
+	absolutePath: string,
+	offset: number | undefined,
+	limit: number | undefined,
+	selection: StreamReadSelection,
+): { outputText: string; details?: ReadToolDetails } {
+	const startLine = offset ? Math.max(0, offset - 1) : 0;
+	const startLineDisplay = startLine + 1;
+	if (startLine >= selection.totalFileLines) {
+		throw new Error(`Offset ${offset} is beyond end of file (${selection.totalFileLines} lines total)`);
+	}
+
+	const { truncation } = selection;
+	if (truncation.firstLineExceedsLimit) {
+		const firstLineSize = formatSize(selection.firstLineBytes);
+		return {
+			outputText: `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`,
+			details: { truncation },
+		};
+	}
+	if (truncation.truncated) {
+		const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+		const nextOffset = endLineDisplay + 1;
+		const outputText =
+			truncation.truncatedBy === "lines"
+				? `${truncation.content}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${selection.totalFileLines}. Use offset=${nextOffset} to continue.]`
+				: `${truncation.content}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${selection.totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+		return { outputText, details: { truncation } };
+	}
+	if (limit !== undefined && selection.endLine < selection.totalFileLines) {
+		const remaining = selection.totalFileLines - selection.endLine;
+		const nextOffset = selection.endLine + 1;
+		return {
+			outputText: `${selection.selectedContent}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`,
+		};
+	}
+	return { outputText: selection.selectedContent };
 }
 
 function toPosixPath(filePath: string): string {
@@ -397,93 +589,109 @@ function createReadToolDefinitionInternal(
 								];
 							}
 						} else {
-							// Read text content. Oversized files use a bounded head read so the model never receives the full file.
-							const { buffer, fileSize, rangeLimited } = await readTextBuffer(absolutePath, ops, offset, limit);
-							const textContent = buffer.toString("utf-8");
-							const allLines = textContent.split("\n");
-							const rangeHasMoreLines = buffer.length !== fileSize || allLines[allLines.length - 1] !== "";
-							// A bounded head read usually stops mid-line; never present that fragment as a whole line.
-							const firstLineCut = rangeLimited && allLines.length === 1;
-							if (rangeLimited && allLines.length > 1) allLines.pop();
-							// A final newline ends the last line; it does not start another one.
-							const endsWithNewline =
-								!rangeLimited && allLines.length > 1 && allLines[allLines.length - 1] === "";
-							const lineCount = endsWithNewline ? allLines.length - 1 : allLines.length;
-							// A head read does not know how many lines the whole file has.
-							const totalFileLines = rangeLimited ? "file" : String(lineCount);
-							// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
-							const startLine = offset ? Math.max(0, offset - 1) : 0;
-							const startLineDisplay = startLine + 1;
-							// Check if offset is out of bounds.
-							if (startLine >= lineCount) {
-								throw new Error(`Offset ${offset} is beyond end of file (${lineCount} lines total)`);
-							}
-							const endLine =
-								limit === undefined ? allLines.length : Math.min(startLine + limit, allLines.length);
-							const selectedLines = allLines.slice(startLine, endLine);
-							const selectedContent = selectedLines.join("\n");
-							// Give a selected blank line its terminator so truncateHead counts it as a line.
-							const endsOnBlankLine = endLine <= lineCount && selectedLines.at(-1) === "";
-							const truncation = truncateHead(endsOnBlankLine ? `${selectedContent}\n` : selectedContent);
-							let outputText: string;
-							if (truncation.firstLineExceedsLimit || firstLineCut) {
-								// First line alone exceeds the byte limit. Point the model at a bash fallback.
-								const firstLine = allLines[startLine];
-								if (firstLine === undefined && !firstLineCut)
-									throw new Error(`Line ${startLine} is missing from ${path}`);
-								let firstLineSize: string;
-								if (firstLineCut) {
-									firstLineSize = `more than ${formatSize(DEFAULT_MAX_BYTES)}`;
-								} else {
-									if (firstLine === undefined) throw new Error(`Line ${startLine} is missing from ${path}`);
-									firstLineSize = formatSize(Buffer.byteLength(firstLine, "utf-8"));
-								}
-								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`;
-								details = {
-									truncation: rangeLimited
-										? { ...truncation, totalBytes: fileSize ?? truncation.totalBytes }
-										: truncation,
-								};
-							} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
-								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-								const nextOffset = endLineDisplay + 1;
-								outputText = `${selectedContent}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
-								details = {
-									truncation: {
-										...truncation,
-										content: selectedContent,
-										outputBytes: Buffer.byteLength(selectedContent, "utf-8"),
-										truncated: true,
-										truncatedBy: "bytes",
-										totalBytes: fileSize ?? truncation.totalBytes,
-									},
-								};
-							} else if (truncation.truncated) {
-								// Truncation occurred. Build an actionable continuation notice.
-								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-								const nextOffset = endLineDisplay + 1;
-								outputText = truncation.content;
-								if (truncation.truncatedBy === "lines") {
-									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
-								} else {
-									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
-								}
-								// A head read counts only the lines in its buffer, not the file's line total.
-								details = {
-									truncation: rangeLimited
-										? { ...truncation, truncatedBy: "bytes", totalBytes: fileSize ?? truncation.totalBytes }
-										: truncation,
-								};
-							} else if (limit !== undefined && endLine < lineCount) {
-								// User-specified limit stopped early, but the file still has more content.
-								const remaining = lineCount - endLine;
-								const nextOffset = endLine + 1;
-								outputText = `${selectedContent}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
+							// Read text content with a bounded head read or a line-streamed page for oversized files.
+							const readResult = await readTextBuffer(absolutePath, ops, offset, limit, signal);
+							if (readResult.streamSelection) {
+								const formatted = formatStreamReadResult(
+									absolutePath,
+									offset,
+									limit,
+									readResult.streamSelection,
+								);
+								content = [{ type: "text", text: formatted.outputText }];
+								details = formatted.details;
 							} else {
-								// No truncation and no remaining user-limited content.
-								outputText = selectedContent;
+								const { buffer, fileSize, rangeLimited } = readResult;
+								const textContent = buffer.toString("utf-8");
+								const allLines = textContent.split("\n");
+								const rangeHasMoreLines = buffer.length !== fileSize || allLines[allLines.length - 1] !== "";
+								// A bounded head read usually stops mid-line; never present that fragment as a whole line.
+								const firstLineCut = rangeLimited && allLines.length === 1;
+								if (rangeLimited && allLines.length > 1) allLines.pop();
+								// A final newline ends the last line; it does not start another one.
+								const endsWithNewline =
+									!rangeLimited && allLines.length > 1 && allLines[allLines.length - 1] === "";
+								const lineCount = endsWithNewline ? allLines.length - 1 : allLines.length;
+								// A head read does not know how many lines the whole file has.
+								const totalFileLines = rangeLimited ? "file" : String(lineCount);
+								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
+								const startLine = offset ? Math.max(0, offset - 1) : 0;
+								const startLineDisplay = startLine + 1;
+								// Check if offset is out of bounds.
+								if (startLine >= lineCount) {
+									throw new Error(`Offset ${offset} is beyond end of file (${lineCount} lines total)`);
+								}
+								const endLine =
+									limit === undefined ? allLines.length : Math.min(startLine + limit, allLines.length);
+								const selectedLines = allLines.slice(startLine, endLine);
+								const selectedContent = selectedLines.join("\n");
+								// Give a selected blank line its terminator so truncateHead counts it as a line.
+								const endsOnBlankLine = endLine <= lineCount && selectedLines.at(-1) === "";
+								const truncation = truncateHead(endsOnBlankLine ? `${selectedContent}\n` : selectedContent);
+								let outputText: string;
+								if (truncation.firstLineExceedsLimit || firstLineCut) {
+									// First line alone exceeds the byte limit. Point the model at a bash fallback.
+									const firstLine = allLines[startLine];
+									if (firstLine === undefined && !firstLineCut)
+										throw new Error(`Line ${startLine} is missing from ${path}`);
+									let firstLineSize: string;
+									if (firstLineCut) {
+										firstLineSize = `more than ${formatSize(DEFAULT_MAX_BYTES)}`;
+									} else {
+										if (firstLine === undefined) throw new Error(`Line ${startLine} is missing from ${path}`);
+										firstLineSize = formatSize(Buffer.byteLength(firstLine, "utf-8"));
+									}
+									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellPath(absolutePath)} | head -c ${DEFAULT_MAX_BYTES}]`;
+									details = {
+										truncation: rangeLimited
+											? { ...truncation, totalBytes: fileSize ?? truncation.totalBytes }
+											: truncation,
+									};
+								} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
+									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+									const nextOffset = endLineDisplay + 1;
+									outputText = `${selectedContent}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+									details = {
+										truncation: {
+											...truncation,
+											content: selectedContent,
+											outputBytes: Buffer.byteLength(selectedContent, "utf-8"),
+											truncated: true,
+											truncatedBy: "bytes",
+											totalBytes: fileSize ?? truncation.totalBytes,
+										},
+									};
+								} else if (truncation.truncated) {
+									// Truncation occurred. Build an actionable continuation notice.
+									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+									const nextOffset = endLineDisplay + 1;
+									outputText = truncation.content;
+									if (truncation.truncatedBy === "lines") {
+										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+									} else {
+										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+									}
+									// A head read counts only the lines in its buffer, not the file's line total.
+									details = {
+										truncation: rangeLimited
+											? {
+													...truncation,
+													truncatedBy: "bytes",
+													totalBytes: fileSize ?? truncation.totalBytes,
+												}
+											: truncation,
+									};
+								} else if (limit !== undefined && endLine < lineCount) {
+									// User-specified limit stopped early, but the file still has more content.
+									const remaining = lineCount - endLine;
+									const nextOffset = endLine + 1;
+									outputText = `${selectedContent}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
+								} else {
+									// No truncation and no remaining user-limited content.
+									outputText = selectedContent;
+								}
+								content = [{ type: "text", text: outputText }];
 							}
-							content = [{ type: "text", text: outputText }];
 						}
 
 						if (aborted) return;
