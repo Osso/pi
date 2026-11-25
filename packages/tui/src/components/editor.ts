@@ -599,8 +599,9 @@ export class Editor implements Component, Focusable {
 		return this.history.flatMap((entry, index) => (entry.toLocaleLowerCase().includes(query) ? [index] : []));
 	}
 
-	private updateHistorySearch(startMatchIndex: number): void {
+	private updateHistorySearch(startMatchIndex: number, appendedText?: string): void {
 		if (!this.historySearchDraft) return;
+		if (appendedText !== undefined) this.historySearchQuery += appendedText;
 		this.setTextInternal(this.historySearchQuery);
 		const matches = this.getHistorySearchMatches();
 		this.historySearchIndex = matches[startMatchIndex] ?? -1;
@@ -870,9 +871,7 @@ export class Editor implements Component, Focusable {
 	handleInput(data: string): void {
 		const kb = getKeybindings();
 
-		if (this.handleHistorySearchInput(data, kb)) {
-			return;
-		}
+		if (!this.isInPaste && !data.includes("\x1b[200~") && this.handleHistorySearchInput(data, kb)) return;
 
 		// Handle character jump mode (awaiting next character to jump to)
 		if (this.jumpMode !== null) {
@@ -1424,20 +1423,21 @@ export class Editor implements Component, Focusable {
 	}
 
 	private handlePaste(pastedText: string): void {
-		this.cancelAutocomplete();
-		this.exitHistoryBrowsing();
-		this.lastAction = null;
-
-		this.pushUndoSnapshot();
-
 		// Clean the pasted text: decode CSI-u control keys, normalize line endings, expand tabs
 		const cleanText = this.normalizeText(decodePastedControlKeys(pastedText));
-
 		// Filter out non-printable characters except newlines
 		let filteredText = cleanText
 			.split("")
 			.filter((char) => char === "\n" || !/[\x00-\x1f\x7f-\x9f]/.test(char))
 			.join("");
+		if (this.historySearchDraft) {
+			this.updateHistorySearch(0, filteredText);
+			return;
+		}
+		this.cancelAutocomplete();
+		this.exitHistoryBrowsing();
+		this.lastAction = null;
+		this.pushUndoSnapshot();
 
 		// If pasting a file path (starts with /, ~, or .) and the character before
 		// the cursor is a word character, prepend a space for better readability

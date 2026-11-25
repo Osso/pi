@@ -111,6 +111,30 @@ describe("Editor state after non-typing edits", () => {
 		assert.deepStrictEqual(submitted, [`${large} literal [paste #1 +12 lines] end`]);
 	});
 
+	it("keeps Ctrl+R history search active when pasting query text", () => {
+		const editor = createEditor();
+		editor.addToHistory("open config docs");
+		editor.handleInput("\x12"); // Ctrl+R
+		editor.handleInput("config");
+		editor.handleInput("\x1b[200~ docs\x1b[201~");
+
+		assert.strictEqual(editor.getText(), "config docs");
+
+		editor.handleInput("\r"); // accept the matching history entry
+		assert.strictEqual(editor.getText(), "open config docs");
+	});
+
+	it("normalizes pasted line endings before matching history entries", () => {
+		const editor = createEditor();
+		editor.addToHistory("open config\ndocs");
+		editor.handleInput("\x12"); // Ctrl+R
+		editor.handleInput("\x1b[200~config\r\ndocs\x1b[201~");
+
+		assert.strictEqual(editor.getText(), "config\ndocs");
+		editor.handleInput("\r");
+		assert.strictEqual(editor.getText(), "open config\ndocs");
+	});
+
 	it("undoes an accepted Ctrl+R history search back to the draft", () => {
 		const editor = createEditor();
 		editor.addToHistory("abc def");
