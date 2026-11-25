@@ -94,6 +94,12 @@ describe("retry-after parsing", () => {
 			142 * 3_600_000 + 36 * 60_000 + 11_520,
 		);
 		expect(getRetryAfterMsFromText("Rate limit reached. Please try again in 15.11s.")).toBe(15_110);
+		expect(getRetryAfterMsFromText("Please retry in 41.297487613s.")).toBe(41_297);
+		expect(
+			getRetryAfterMsFromText(
+				'{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"120.500s"}]}}',
+			),
+		).toBe(120_500);
 		expect(getRetryAfterMsFromText("no delay here")).toBeUndefined();
 		expect(getRetryAfterMsFromText(undefined)).toBeUndefined();
 	});

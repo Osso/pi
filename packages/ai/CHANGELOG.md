@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Google Generative AI and Vertex errors dropping provider-requested retry delays
 - Fixed Anthropic errors dropping the provider `Retry-After` delay, so session retries now respect it
 - Codex `response.failed` frames carrying the Daybreak Blue verification error are now retried like the same error from an `error` frame
 - Codex SSE no longer resends a request after a non-retryable HTTP error (such as a 507 request-buffer overflow or a 400) when provider retries are enabled, so the error reaches compaction and error handling at once

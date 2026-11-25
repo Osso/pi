@@ -24,6 +24,7 @@ import type {
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
+import { getErrorRetryAfterMs, getRetryAfterMsFromText } from "../utils/retry-after.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import {
 	clampGoogleMaxOutputTokens,
@@ -297,6 +298,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
+			output.retryAfterMs = getErrorRetryAfterMs(error) ?? getRetryAfterMsFromText(output.errorMessage);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

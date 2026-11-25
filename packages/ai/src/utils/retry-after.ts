@@ -1,7 +1,9 @@
 /** Default cap for provider-requested retry delays. */
 export const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 
-const RETRY_AFTER_TEXT_PATTERN = /\btry again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)/i;
+const RETRY_AFTER_TEXT_PATTERN =
+	/\b(?:try again|retry) in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)/i;
+const RETRY_INFO_DELAY_PATTERN = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i;
 
 /**
  * Extract the provider's requested retry delay from HTTP response headers.
@@ -38,9 +40,15 @@ export function getRetryAfterMs(headers: Headers | null | undefined): number | u
 export function getRetryAfterMsFromText(text: string | undefined): number | undefined {
 	if (!text) return undefined;
 	const match = RETRY_AFTER_TEXT_PATTERN.exec(text);
-	if (!match) return undefined;
-	const millis = Number(match[1] ?? 0) * 3_600_000 + Number(match[2] ?? 0) * 60_000 + Number(match[3]) * 1000;
-	return Number.isFinite(millis) ? Math.max(0, millis) : undefined;
+	if (match) {
+		const millis = Number(match[1] ?? 0) * 3_600_000 + Number(match[2] ?? 0) * 60_000 + Number(match[3]) * 1000;
+		return Number.isFinite(millis) ? Math.max(0, Math.round(millis)) : undefined;
+	}
+
+	const retryInfoMatch = RETRY_INFO_DELAY_PATTERN.exec(text);
+	if (!retryInfoMatch) return undefined;
+	const millis = Number(retryInfoMatch[1]) * 1000;
+	return Number.isFinite(millis) ? Math.max(0, Math.round(millis)) : undefined;
 }
 
 /** Requested retry delay carried by a provider or SDK error response. */
