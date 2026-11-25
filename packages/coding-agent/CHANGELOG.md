@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed periodic checks rejecting a checklist whose frontmatter delimiter lines have trailing whitespace
 - Fixed a model pool returning a non-retryable quota error when a member skipped for an earlier rate limit became free during failover
 - Fixed the Bun build treating unindexed session roots as indexed, which hid existing sessions without metadata from resume lists
 - Fixed an aborted or Supervisor-answered `ask_questions` request waiting until an earlier open question panel closed

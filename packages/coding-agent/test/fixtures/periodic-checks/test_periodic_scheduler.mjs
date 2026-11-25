@@ -321,6 +321,18 @@ test("arms a checklist saved with a UTF-8 byte order mark", async (t) => {
 	assert.equal(f.calls.length, 1);
 });
 
+test("arms a checklist whose frontmatter delimiters have trailing whitespace", async (t) => {
+	const f = await fixture(t);
+	f.restoreChecklist(`--- \ntype: Periodic Checks\ninterval_seconds: 60\n---\t\n${checklistBody}`);
+	f.emit("session_start");
+	assert.equal(
+		await f.status("status"),
+		`Periodic checks: armed\nChecklist: ${f.checklist}\ninterval_seconds: 60\nNext run: in 1 minute`,
+	);
+	await f.tick(60000);
+	assert.equal(f.calls.length, 1);
+});
+
 const invalidChecklists = [
 	["missing frontmatter", checklistBody],
 	["unclosed frontmatter", "---\ntype: Periodic Checks\ninterval_seconds: 60\n"],

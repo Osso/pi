@@ -13,13 +13,9 @@ const gitTimeoutMs = 5000;
 const gitMaxBuffer = 64 * 1024;
 
 function parseChecklistInterval(content: string): number {
-	// The shared frontmatter parser accepts a UTF-8 BOM, so the header match does too.
-	const header = /^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/.exec(content);
-	if (!header) throw new Error("Missing or malformed YAML frontmatter");
-	const { frontmatter } = parseFrontmatter(header[0]);
-	if (typeof frontmatter !== "object" || Array.isArray(frontmatter)) {
-		throw new Error("YAML frontmatter must be a mapping");
-	}
+	// The shared parser yields no keys for a missing, empty, or non-mapping header.
+	const { frontmatter } = parseFrontmatter(content);
+	if (Object.keys(frontmatter).length === 0) throw new Error("Missing or malformed YAML frontmatter");
 	if (typeof frontmatter.type !== "string" || !frontmatter.type.trim()) {
 		throw new Error("type must be a nonempty string");
 	}
