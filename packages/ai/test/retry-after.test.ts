@@ -104,6 +104,15 @@ describe("retry-after parsing", () => {
 		expect(getRetryAfterMsFromText(undefined)).toBeUndefined();
 	});
 
+	it("parses the aggregate provider cooldown duration", () => {
+		expect(getRetryAfterMsFromText("All credentials are cooling down (reset after 5h)")).toBe(18_000_000);
+		expect(getRetryAfterMsFromText("All credentials are cooling down (reset after 17m)")).toBe(1_020_000);
+		expect(getRetryAfterMsFromText("All credentials are cooling down (reset after 42s)")).toBe(42_000);
+		expect(
+			getRetryAfterMsFromText("All credentials are cooling down (reset after an unknown delay)"),
+		).toBeUndefined();
+	});
+
 	it("falls back to error text when the response carried no retry-after header", () => {
 		const error = new Error("Error Code tokens: Rate limit reached. Please try again in 2m4s.");
 		expect(getErrorRetryAfterMs(error)).toBe(124_000);

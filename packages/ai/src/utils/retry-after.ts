@@ -2,7 +2,7 @@
 export const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 
 const RETRY_AFTER_TEXT_PATTERN =
-	/\b(?:try again|retry) in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)/i;
+	/\b(?:(?:try again|retry) in|reset after)\s+(?=\d+\s*[hm]|\d+(?:\.\d+)?\s*s)(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)?\b/i;
 const RETRY_INFO_DELAY_PATTERN = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i;
 
 /**
@@ -40,8 +40,8 @@ export function getRetryAfterMs(headers: Headers | null | undefined): number | u
 export function getRetryAfterMsFromText(text: string | undefined): number | undefined {
 	if (!text) return undefined;
 	const match = RETRY_AFTER_TEXT_PATTERN.exec(text);
-	if (match) {
-		const millis = Number(match[1] ?? 0) * 3_600_000 + Number(match[2] ?? 0) * 60_000 + Number(match[3]) * 1000;
+	if (match && (match[1] !== undefined || match[2] !== undefined || match[3] !== undefined)) {
+		const millis = Number(match[1] ?? 0) * 3_600_000 + Number(match[2] ?? 0) * 60_000 + Number(match[3] ?? 0) * 1000;
 		return Number.isFinite(millis) ? Math.max(0, Math.round(millis)) : undefined;
 	}
 

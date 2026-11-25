@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed proxy rate-limit errors with a `reset after` cooldown duration dropping the retry delay
 - Fixed Google Generative AI and Vertex errors dropping provider-requested retry delays
 - Fixed Anthropic errors dropping the provider `Retry-After` delay, so session retries now respect it
 - Codex `response.failed` frames carrying the Daybreak Blue verification error are now retried like the same error from an `error` frame
