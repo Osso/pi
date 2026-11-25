@@ -311,6 +311,23 @@ describe("pi questions list", () => {
 		expect(narrow).toContain("\u2026");
 	});
 
+	it.each(["detail", "answer panel"])("returns from %s without quitting on a repeated Escape event", (view) => {
+		const { ui, finished } = start(140);
+		press(ui, "\t");
+		for (let step = 0; step < 8; step++) {
+			if (/^ \u2192 a1 /.test(screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "")) break;
+			press(ui, "j");
+		}
+		press(ui, "\r");
+		expect(screen(ui, 140).join("\n")).toContain("Revise the answer");
+		if (view === "answer panel") press(ui, "\r");
+		press(ui, "\x1b[27;1u", "\x1b[27;1:2u");
+		expect(finished()).toBe(false);
+		expect(screen(ui, 140).join("\n")).toContain("All questions, last three days, newest first");
+		press(ui, "\x1b[27;1u");
+		expect(finished()).toBe(true);
+	});
+
 	it("moves the selection with j/k and the arrows, opens the detail view, and quits on escape", () => {
 		const { ui, finished } = start(140);
 		press(ui, "\t");

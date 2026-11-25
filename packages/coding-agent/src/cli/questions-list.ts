@@ -1,5 +1,12 @@
 import { hostname } from "node:os";
-import { type Component, getKeybindings, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	getKeybindings,
+	isKeyRepeat,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import { DynamicBorder } from "../modes/interactive/components/dynamic-border.ts";
 import { keyHint, rawKeyHint } from "../modes/interactive/components/keybinding-hints.ts";
 import { type ThemeColor, theme } from "../modes/interactive/theme/theme.ts";
@@ -205,7 +212,7 @@ export class QuestionListComponent implements Component {
 		else if (kb.matches(keyData, "tui.select.up") || kb.matches(keyData, "app.questions.listUp")) this.move(-1);
 		else if (kb.matches(keyData, "tui.select.down") || kb.matches(keyData, "app.questions.listDown")) this.move(1);
 		else if (kb.matches(keyData, "tui.select.confirm")) this.confirm();
-		else if (kb.matches(keyData, "tui.select.cancel")) this.options.onCancel();
+		else if (kb.matches(keyData, "tui.select.cancel") && !isKeyRepeat(keyData)) this.options.onCancel();
 	}
 
 	invalidate(): void {}
