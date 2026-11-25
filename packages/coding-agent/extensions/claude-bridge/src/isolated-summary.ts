@@ -180,6 +180,7 @@ export function describeRateLimitFailure(
 interface IsolatedAttempt {
 	text: string;
 	errorText?: string;
+	retryAfterMs?: number;
 	quotaFailure: QueryContext["quotaFailure"];
 }
 
@@ -192,6 +193,7 @@ async function consumeIsolatedQuery(
 	let assistantText = "";
 	let finalText = "";
 	let errorText: string | undefined;
+	let retryAfterMs: number | undefined;
 	let rejection: QueryContext["rateLimitRejection"] = null;
 	let quotaFailure: QueryContext["quotaFailure"] = null;
 	let firstEventLogged = false;
@@ -215,7 +217,12 @@ async function consumeIsolatedQuery(
 				errorText = resultErrorText(message);
 				// A rejection belongs only to the failure Claude Code sends next.
 				quotaFailure = errorText ? classifyAccountFailure(errorText, rejection) : null;
-				if (errorText && rejection) errorText = describeRateLimitFailure(rejection, errorText);
+				if (errorText && rejection) {
+					errorText = describeRateLimitFailure(rejection, errorText);
+					if (rejection.resetsAt !== undefined && Number.isFinite(rejection.resetsAt)) {
+						retryAfterMs = Math.max(0, rejection.resetsAt * 1000 - Date.now());
+					}
+				}
 				rejection = null;
 				if (!errorText && message.subtype === "success") finalText = message.result || assistantText;
 			}
@@ -224,7 +231,7 @@ async function consumeIsolatedQuery(
 		// Claude Code exits non-zero after a quota error result, so the SDK throws; the caller still rotates accounts.
 		if (!quotaFailure) throw error;
 	}
-	return { text: finalText || assistantText, errorText, quotaFailure };
+	return { text: finalText || assistantText, errorText, retryAfterMs, quotaFailure };
 }
 
 async function consumeIsolatedQueryWithAuthTrace(
@@ -294,6 +301,7 @@ export async function runIsolatedSummary(
 
 		let finalText = "";
 		let errorText: string | undefined;
+		let retryAfterMs: number | undefined;
 		let account: ReturnType<typeof prepareProviderAccount>;
 		try {
 			account = prepareProviderAccount();
@@ -345,12 +353,14 @@ export async function runIsolatedSummary(
 			}
 			finalText = attempt.text;
 			errorText = attempt.errorText;
+			retryAfterMs = attempt.retryAfterMs;
 			const quotaRejection = attempt.quotaFailure;
 			if (wasAborted || !errorText || !account || !quotaRejection) break;
 			const next = account.manager.reject(account.name, quotaRejection.resetsAt, Date.now() / 1000);
 			debug(`compact summary: ${account.name} quota rejected; ${next ? `retrying on ${next}` : "no account left"}`);
 			if (next === undefined) {
 				errorText = ACCOUNTS_EXHAUSTED;
+				retryAfterMs = undefined;
 				break;
 			}
 			account = prepareProviderAccount();
@@ -368,7 +378,9 @@ export async function runIsolatedSummary(
 		if (errorText || !text.trim()) {
 			const msg = errorText ?? "Claude Code summary returned empty text";
 			debug(`compact summary: error ${msg}`);
-			stream.push({ type: "error", reason: "error", error: newAssistantOutput(model, "", "error", msg) });
+			const output = newAssistantOutput(model, "", "error", msg);
+			if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
+			stream.push({ type: "error", reason: "error", error: output });
 			stream.end();
 			return;
 		}

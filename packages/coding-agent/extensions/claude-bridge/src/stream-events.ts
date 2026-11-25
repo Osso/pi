@@ -497,6 +497,9 @@ export async function consumeQuery(
 				if (queryCtx.turnOutput) {
 					queryCtx.turnOutput.stopReason = "error";
 					queryCtx.turnOutput.errorMessage = resultError;
+					if (rejection?.resetsAt !== undefined && Number.isFinite(rejection.resetsAt)) {
+						queryCtx.turnOutput.retryAfterMs = Math.max(0, rejection.resetsAt * 1000 - Date.now());
+					}
 				}
 			}
 		}

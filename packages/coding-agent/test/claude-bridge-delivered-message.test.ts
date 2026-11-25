@@ -1,8 +1,22 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { type Api, createAssistantMessageEventStream, type Model } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import {
+	type Api,
+	type Context,
+	createAssistantMessageEventStream,
+	type Model,
+	type SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runIsolatedSummary, setIsolatedQueryImpl } from "../extensions/claude-bridge/src/isolated-summary.ts";
 import { QueryContext } from "../extensions/claude-bridge/src/query-state.ts";
-import { claimCurrentPiStream, consumeQuery } from "../extensions/claude-bridge/src/stream-events.ts";
+import {
+	claimCurrentPiStream,
+	consumeQuery,
+	finalizeCurrentStream,
+} from "../extensions/claude-bridge/src/stream-events.ts";
 
 const model: Model<Api> = {
 	id: "claude-opus-5-5",
@@ -16,6 +30,29 @@ const model: Model<Api> = {
 	contextWindow: 200000,
 	maxTokens: 32000,
 };
+
+let tempDir: string | undefined;
+
+afterEach(() => {
+	setIsolatedQueryImpl(null);
+	vi.unstubAllEnvs();
+	if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+	tempDir = undefined;
+});
+
+async function* quotaRejectedQuery(resetsAt: number): AsyncGenerator<SDKMessage> {
+	yield {
+		type: "rate_limit_event",
+		rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt },
+	} as unknown as SDKMessage;
+	yield {
+		type: "result",
+		subtype: "success",
+		is_error: true,
+		result: "You've hit your session limit · resets 12:40pm (America/Chicago)",
+	} as unknown as SDKMessage;
+	throw new Error("Claude Code returned an error result after the quota rejection");
+}
 
 function streamEvent(event: Record<string, unknown>): SDKMessage {
 	return {
@@ -53,6 +90,53 @@ async function* toolTurnThenFailedResult(): AsyncGenerator<SDKMessage> {
 }
 
 describe("Claude bridge delivered messages", () => {
+	it("sets retryAfterMs from rejected quota reset times on provider and summary errors", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-claude-retry-after-"));
+		vi.stubEnv("PI_CODING_AGENT_DIR", join(tempDir, "agent"));
+
+		for (const delayMs of [5 * 60 * 60 * 1000, 5_000]) {
+			const resetsAt = (Date.now() + delayMs) / 1000;
+			const expectedDelayMs = resetsAt * 1000 - Date.now();
+
+			const queryCtx = new QueryContext();
+			queryCtx.resetTurnState(model);
+			const providerStream = createAssistantMessageEventStream();
+			claimCurrentPiStream(providerStream, "retry-after-test", queryCtx);
+			await expect(
+				consumeQuery(
+					quotaRejectedQuery(resetsAt) as unknown as ReturnType<typeof query>,
+					new Map(),
+					model,
+					() => false,
+					queryCtx,
+				),
+			).rejects.toThrow("Claude Code returned an error result after the quota rejection");
+			finalizeCurrentStream(queryCtx, "error");
+			const providerError = await providerStream.result();
+
+			expect(providerError.stopReason).toBe("error");
+			expect(providerError.retryAfterMs).toBeDefined();
+			expect(Math.abs((providerError.retryAfterMs ?? 0) - expectedDelayMs)).toBeLessThan(100);
+
+			const isolatedStream = createAssistantMessageEventStream();
+			const sdkQuery = Object.assign(quotaRejectedQuery(resetsAt), { interrupt: async () => {}, close: () => {} });
+			setIsolatedQueryImpl((() => sdkQuery) as never);
+			await runIsolatedSummary(
+				model,
+				{
+					messages: [{ role: "user", content: "Summarize this text.", timestamp: Date.now() }],
+				} as Context,
+				{ cwd: tempDir } as SimpleStreamOptions,
+				isolatedStream,
+			);
+			const summaryError = await isolatedStream.result();
+
+			expect(summaryError.stopReason).toBe("error");
+			expect(summaryError.retryAfterMs).toBeDefined();
+			expect(Math.abs((summaryError.retryAfterMs ?? 0) - expectedDelayMs)).toBeLessThan(100);
+		}
+	});
+
 	it("keeps a delivered tool-use turn unchanged when the query fails at the tool boundary", async () => {
 		const queryCtx = new QueryContext();
 		queryCtx.resetTurnState(model);

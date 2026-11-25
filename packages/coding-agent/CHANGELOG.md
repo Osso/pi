@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed Claude Code subscription limit errors (for example the 5-hour window) being retried although the reset was hours away: the bridge now passes the reset delay so the retry cap stops retries
 - Fixed durable foreground and restored Pyrun results dropping streamed console lines that the runner history cap or error result omitted
 - Desktop notifications name the session that needs attention in their title (its current display name, or the cwd name and short session ID when unnamed)
 - Fixed escalated `ask_questions` questions disappearing when the Supervisor session restarted: they now stay `escalated` in the store and their panels reopen on start.
