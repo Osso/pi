@@ -39,6 +39,7 @@
 
 ### Changed
 
+- The generic goal continuation (`/goal` reminder and Supervisor `continue`) now tells the agent to ask questions and report blockers with `ask_questions` instead of plain text
 - `pi questions` refreshes the unanswered list every two seconds while visible, without replacing the list component or interrupting detail/answer flows; remote names are queried only for newly seen IDs between manual refreshes.
 - A finished `wait_agent` row is no longer shown in the interactive transcript, because it carries only a timestamp. Failed waits and the expanded view (ctrl+o) still show it.
 - The Supervisor TUI shows a `supervisor_response` question answer as `→ <answer>` only; the question text and the Supervisor's reason stay in the transcript.
