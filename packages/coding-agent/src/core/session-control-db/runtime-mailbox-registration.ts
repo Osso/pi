@@ -69,21 +69,23 @@ export type RuntimeMailboxRegistrationPlan = {
 	snapshot: RuntimeMailboxRegistrationSnapshot;
 };
 
-export function registerTemporaryRuntimeMailboxWaiter(controlDbPath: string, sessionId: string): () => void {
-	const recipient = { sessionId, agentId: null };
+export function registerTemporaryRuntimeMailboxWaiter(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress & { agentId: string },
+): () => void {
 	const pid = process.pid;
 	const runtimeInstanceId = RUNTIME_PROCESS_INSTANCE_ID;
 	withControlDb(controlDbPath, (db) => {
 		if (readRuntimeMailboxListenerRow(db, recipient)) {
-			throw new Error(`Temporary mailbox route already exists for ${sessionId}`);
+			throw new Error(`Temporary mailbox route already exists for ${recipient.sessionId}`);
 		}
 		upsertRuntimeMailboxListenerRow(db, recipient, pid, undefined, runtimeInstanceId, new Date().toISOString());
 	});
 	return () => {
 		withControlDb(controlDbPath, (db) => {
 			db.prepare(
-				"DELETE FROM runtime_mailbox_listeners WHERE recipient_session_id = ? AND recipient_agent_id_key = '' AND pid = ? AND runtime_instance_id = ?",
-			).run(sessionId, pid, runtimeInstanceId);
+				"DELETE FROM runtime_mailbox_listeners WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ? AND runtime_instance_id = ?",
+			).run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid, runtimeInstanceId);
 		});
 	};
 }

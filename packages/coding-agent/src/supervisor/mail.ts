@@ -375,7 +375,9 @@ function readReply(message: RuntimeMailboxMessage, waiter: ReplyWaiter): Supervi
 		message.storeRef.messageId.startsWith(INSPECT_NAMES_REPLY_PREFIX)
 	) {
 		const reply = parseBody(message) as unknown as SupervisorReply;
-		return message.senderHost ? { ...reply, senderHost: message.senderHost } : reply;
+		return message.storeRef.messageId.startsWith(INSPECT_NAMES_REPLY_PREFIX)
+			? { ...reply, senderHost: message.senderHost }
+			: reply;
 	}
 	return {
 		type: "supervisor_response",

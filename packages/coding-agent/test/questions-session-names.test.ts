@@ -8,6 +8,7 @@ import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { QuestionListComponent } from "../src/cli/questions-list.ts";
 import { QuestionsApp } from "../src/cli/questions-tui.ts";
 import { runHostRelay } from "../src/core/host-relay.ts";
+import { importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
 	listRuntimeMailboxListeners,
@@ -17,6 +18,7 @@ import {
 	takeRuntimeMailboxMessagesForDelivery,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
+import { listSessions } from "../src/core/session-directory.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import {
 	lookupQuestionSessionNames,
@@ -137,6 +139,28 @@ describe("question session names over the host relay", () => {
 		expect(lines.join("\n")).toContain("Billing worker");
 	});
 
+	it("does not use a name reply imported from a different host", async () => {
+		const now = new Date().toISOString();
+		writeSessionMetadata(targetDb, {
+			sessionPath: join(root, "remote.jsonl"),
+			id: REMOTE,
+			cwd: "/srv/worker",
+			name: "Billing worker",
+			createdAt: now,
+			modifiedAt: now,
+			messageCount: 0,
+			firstMessage: "",
+		});
+		const names = lookupQuestionSessionNames({ controlDbPath: sourceDb }, [createEntry("remote-host")]);
+		const request = nextRelayMailbox(sourceDb, "remote-host");
+		if (!request) throw new Error("Expected name request");
+		importRelayMailbox(targetDb, "store-host", request, "remote-host");
+		const reply = nextRelayMailbox(targetDb, "store-host");
+		if (!reply) throw new Error("Expected name reply");
+		importRelayMailbox(sourceDb, "other-host", reply, "store-host");
+		expect(await names).toEqual(new Map());
+	});
+
 	it("keeps an honest host and short-ID fallback when the relay does not return a name", () => {
 		const entry = createEntry("remote-host");
 		const component = new QuestionListComponent({
@@ -209,26 +233,30 @@ describe("question session names over the host relay", () => {
 		ui.stop();
 	});
 
-	it("removes the temporary reply listener when the user quits during lookup", async () => {
-		postSupervisorRequest(sourceDb, {
-			deadlineAt: "9999-12-31T23:59:59.999Z",
-			kind: "question",
-			payload: { blocking: true, questions: [{ question: "What changed?" }] },
-			projectId: "pi",
-			replyTo: { sessionId: REMOTE, agentId: null, requestId: "question-call", host: "remote-host" },
-			senderSessionId: REMOTE,
-		});
+	it("keeps simultaneous name lookups out of session reconciliation and removes them on quit", async () => {
+		for (const host of ["remote-host", "other-host"]) {
+			postSupervisorRequest(sourceDb, {
+				deadlineAt: "9999-12-31T23:59:59.999Z",
+				kind: "question",
+				payload: { blocking: true, questions: [{ question: "What changed?" }] },
+				projectId: "pi",
+				replyTo: { sessionId: REMOTE, agentId: null, requestId: `question-call-${host}`, host },
+				senderSessionId: REMOTE,
+			});
+		}
 		const ui = new TUI(new VirtualTerminal(140, 40));
 		let finished = false;
 		const app = new QuestionsApp(ui, { controlDbPath: sourceDb, supervisorSessionId: SUPERVISOR }, () => {
 			finished = true;
 		});
 		app.showList();
-		const temporaryRoute = listRuntimeMailboxListeners(sourceDb).find((listener) =>
+		const temporaryRoutes = listRuntimeMailboxListeners(sourceDb).filter((listener) =>
 			listener.sessionId.startsWith("pi-questions-"),
 		);
-		expect(temporaryRoute).toBeDefined();
-		if (!temporaryRoute) throw new Error("Expected the temporary name-lookup route");
+		expect(temporaryRoutes).toHaveLength(2);
+		listSessions(sourceDb);
+		expect(listRuntimeMailboxListeners(sourceDb)).toEqual(temporaryRoutes);
+		for (const route of temporaryRoutes) expect(readSessionHealth(sourceDb, route.sessionId)).toBeUndefined();
 		const focusedBeforeQuit = ui.getFocusedComponent();
 		focusedBeforeQuit?.handleInput?.("\x1b");
 		await Promise.resolve();
@@ -237,7 +265,7 @@ describe("question session names over the host relay", () => {
 		expect(
 			listRuntimeMailboxListeners(sourceDb).some((listener) => listener.sessionId.startsWith("pi-questions-")),
 		).toBe(false);
-		expect(readSessionHealth(sourceDb, temporaryRoute.sessionId)).toBeUndefined();
+		for (const route of temporaryRoutes) expect(readSessionHealth(sourceDb, route.sessionId)).toBeUndefined();
 		expect(ui.getFocusedComponent()).toBe(focusedBeforeQuit);
 		ui.stop();
 	});

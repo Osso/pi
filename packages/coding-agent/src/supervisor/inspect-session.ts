@@ -122,8 +122,9 @@ export function lookupRemoteSessionNames(
 	signal?: AbortSignal,
 ): Promise<Record<string, string>> {
 	if (target.sessionIds.length === 0) return Promise.resolve({});
-	const route = { sessionId: `pi-questions-${randomUUID()}`, agentId: null, requestId: randomUUID() };
-	const unregister = registerTemporaryRuntimeMailboxWaiter(controlDbPath, route.sessionId);
+	// Non-main addresses stay out of session-directory lifecycle reconciliation.
+	const route = { sessionId: `pi-questions-${randomUUID()}`, agentId: "name-lookup", requestId: randomUUID() };
+	const unregister = registerTemporaryRuntimeMailboxWaiter(controlDbPath, route);
 	return new Promise((resolve) => {
 		let stopWatching = () => {};
 		const finish = (names: Record<string, string>) => {
