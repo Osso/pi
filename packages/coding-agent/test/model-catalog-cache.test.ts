@@ -258,7 +258,7 @@ describe("OpenRouter model catalog cache reads", () => {
 describe("OpenRouter model catalog retry policy", () => {
 	useCatalogCache();
 
-	it.each([429, 500, 503, "network", "body"])(
+	it.each([408, 429, 500, 503, "network", "body"])(
 		"retries transient %s and persists recovered models",
 		async (failure) => {
 			let attempts = 0;

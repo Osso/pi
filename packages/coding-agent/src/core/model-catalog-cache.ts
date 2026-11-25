@@ -174,7 +174,7 @@ async function fetchOpenRouterCatalogWith(fetchImpl: typeof fetch, abortSignal?:
 	if (!response.ok) {
 		throw new CatalogRequestError(
 			`OpenRouter model catalog request failed with HTTP ${response.status}`,
-			response.status === 429 || response.status >= 500,
+			response.status === 408 || response.status === 429 || response.status >= 500,
 			parseRetryAfter(response.headers.get("retry-after")),
 		);
 	}

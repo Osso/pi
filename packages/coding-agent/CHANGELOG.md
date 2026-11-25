@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `pi --refresh-models` retries an HTTP 408 Request Timeout from the model catalog instead of failing at once
 - `--mode json`, `-p`, and RPC startup route legacy migration notices to stderr again, so the session header is the first stdout line
 - `/approvals` and the sandbox selector report a refused save (for example project scope in an untrusted project) instead of crashing Pi
 - `pi debug attach` evaluates non-ASCII input correctly when a UTF-8 character is split across socket reads
