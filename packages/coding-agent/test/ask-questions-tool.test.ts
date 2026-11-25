@@ -297,6 +297,53 @@ describe("ask_questions tool", () => {
 		expect((await pending).details).toMatchObject({ cancelled: true, answers: {} });
 	});
 
+	it("cancels an aborted request queued behind another open panel without waiting for it", async () => {
+		const keybindings = new KeybindingsManager();
+		setKeybindings(keybindings);
+		const openedPanels: string[] = [];
+		let firstPanelOpened: () => void = () => {};
+		const firstOpened = new Promise<void>((resolve) => {
+			firstPanelOpened = resolve;
+		});
+		const custom = <T>(
+			factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: T) => void) => Component,
+		): Promise<T> =>
+			new Promise<T>(() => {
+				const panel = factory({ requestRender: () => {} } as unknown as TUI, theme, keybindings, () => {});
+				openedPanels.push(stripAnsi(panel.render(80).join("\n")));
+				firstPanelOpened();
+			});
+		const ctx = { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+		const tool = createAskQuestionsToolDefinition();
+		const yesNo = [{ label: "Yes" }, { label: "No" }];
+
+		void tool.execute(
+			"call-open",
+			{ blocking: true, questions: [{ question: "Deploy now?", options: yesNo }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+		await firstOpened;
+		const abort = new AbortController();
+		const queued = tool.execute(
+			"call-queued",
+			{ blocking: true, questions: [{ question: "Delete the branch?", options: yesNo }] },
+			abort.signal,
+			undefined,
+			ctx,
+		);
+		abort.abort();
+
+		const outcome = await Promise.race([
+			queued.then((result) => result.details),
+			new Promise<string>((resolve) => setTimeout(() => resolve("still waiting"), 1_000)),
+		]);
+		expect(outcome).toMatchObject({ cancelled: true, answers: {} });
+		expect(openedPanels).toHaveLength(1);
+		expect(openedPanels[0]).toContain("Deploy now?");
+	});
+
 	it("returns partial answers when cancelled after earlier questions", async () => {
 		const tool = createAskQuestionsToolDefinition();
 		const { ctx } = setup([KEY.enter, KEY.escape]);

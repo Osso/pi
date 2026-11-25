@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed an aborted or Supervisor-answered `ask_questions` request waiting until an earlier open question panel closed
 - Fixed compaction summary retries ignoring the provider-requested retry delay after a transient failure
 - Fixed the working status showing `Thinking...` after returning from a child view although the main session was already streaming
 - Fixed durable Pyrun results showing older streamed console instead of the latest lines when the output artifact cap dropped progress records

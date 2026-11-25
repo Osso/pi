@@ -132,12 +132,15 @@ export type AskQuestionsAnswer = AskQuestionsPanelResult & { answeredBy?: Answer
 interface QuestionPanelRace {
 	result?: AskQuestionsAnswer;
 	close?: (result: AskQuestionsAnswer) => void;
+	/** Resolves a request still waiting behind another panel. */
+	settleQueued?: (result: AskQuestionsAnswer) => void;
 }
 
 function settleQuestionRace(race: QuestionPanelRace, result: AskQuestionsAnswer): void {
 	if (race.result) return;
 	race.result = result;
 	race.close?.(result);
+	race.settleQueued?.(result);
 }
 
 /** An aborted turn closes its open or queued panel as cancelled. */
@@ -183,6 +186,10 @@ function queueQuestions(
 ): Promise<AskQuestionsAnswer> {
 	const previous = questionQueues.get(ui) ?? Promise.resolve();
 	const result = previous.then(() => showQuestions(ui, questions, race));
+	// A cancellation or Supervisor answer settles the request without waiting for earlier panels.
+	const settledEarly = new Promise<AskQuestionsAnswer>((resolve) => {
+		race.settleQueued = resolve;
+	});
 	// Each caller handles its own failure; a failed panel must not strand later requests.
 	const settled = result.then(
 		() => undefined,
@@ -192,7 +199,7 @@ function queueQuestions(
 	void settled.then(() => {
 		if (questionQueues.get(ui) === settled) questionQueues.delete(ui);
 	});
-	return result;
+	return race.result ? Promise.resolve(race.result) : Promise.race([result, settledEarly]);
 }
 
 /** Opens the questions panel in this UI's question queue; used for questions the Supervisor escalated. */
