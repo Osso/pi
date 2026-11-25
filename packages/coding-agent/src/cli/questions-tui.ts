@@ -236,17 +236,10 @@ export class QuestionsApp {
 
 	private newRemoteEntries(entries: QuestionEntry[]): QuestionEntry[] {
 		const localHost = hostname();
-		const newEntries = entries.filter(({ session: { host, sessionId } }) => {
-			return (
-				Boolean(host) && host !== localHost && !this.remoteNamesAttempted.has(sessionNameKey({ host, sessionId }))
-			);
-		});
-		for (const {
-			session: { host, sessionId },
-		} of newEntries) {
-			if (host) this.remoteNamesAttempted.add(sessionNameKey({ host, sessionId }));
-		}
-		return newEntries;
+		return entries.filter(
+			({ session: { host, sessionId } }) =>
+				Boolean(host) && host !== localHost && !this.remoteNamesAttempted.has(sessionNameKey({ host, sessionId })),
+		);
 	}
 
 	private loadRemoteNames(entries: QuestionEntry[], refresh: boolean): void {
@@ -269,6 +262,7 @@ export class QuestionsApp {
 				if (this.current === this.currentList && this.currentList) {
 					this.currentList.updateSessionNames(this.sessionNames());
 					this.ui.requestRender();
+					this.loadRemoteNames(listQuestionEntries(this.center), false);
 				}
 			},
 			() => {

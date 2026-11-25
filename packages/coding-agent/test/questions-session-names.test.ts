@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { setKeybindings, TUI, visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { QuestionListComponent } from "../src/cli/questions-list.ts";
 import { QuestionsApp } from "../src/cli/questions-tui.ts";
 import { runHostRelay } from "../src/core/host-relay.ts";
-import { importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
+import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
 	listRuntimeMailboxListeners,
@@ -179,6 +179,63 @@ describe("question session names over the host relay", () => {
 			onToggleAll: () => {},
 		});
 		expect(component.render(120).map(stripAnsi).join("\n")).toContain(`remote-host:${REMOTE.slice(0, 8)}`);
+	});
+
+	it("resolves names that arrive during a lookup after switching to all questions", async () => {
+		const now = new Date().toISOString();
+		const addQuestion = (sessionId: string, name: string) => {
+			writeSessionMetadata(targetDb, {
+				sessionPath: join(root, `${sessionId}.jsonl`),
+				id: sessionId,
+				cwd: "/srv/worker",
+				name,
+				createdAt: now,
+				modifiedAt: now,
+				messageCount: 0,
+				firstMessage: "",
+			});
+			postSupervisorRequest(sourceDb, {
+				deadlineAt: "9999-12-31T23:59:59.999Z",
+				kind: "question",
+				projectId: "pi",
+				payload: { questions: [{ question: name }] },
+				senderSessionId: sessionId,
+				replyTo: { sessionId, agentId: null, requestId: sessionId, host: "remote-host" },
+			});
+		};
+		const exchangeNameRequest = () => {
+			const request = nextRelayMailbox(sourceDb, "remote-host");
+			if (!request) throw new Error("Expected pending name request");
+			importRelayMailbox(targetDb, "store-host", request, "remote-host");
+			ackRelayMailbox(sourceDb, "remote-host", request);
+			const reply = nextRelayMailbox(targetDb, "store-host");
+			if (!reply) throw new Error("Expected name reply");
+			importRelayMailbox(sourceDb, "remote-host", reply, "store-host");
+			ackRelayMailbox(targetDb, "store-host", reply);
+		};
+		addQuestion(REMOTE, "Billing worker");
+		const ui = new TUI(new VirtualTerminal(140, 40));
+		new QuestionsApp(ui, { controlDbPath: sourceDb }, () => {}).showList();
+		try {
+			addQuestion("second-worker", "Second worker");
+			ui.getFocusedComponent()?.handleInput?.("\t");
+			exchangeNameRequest();
+			await vi.waitFor(() => expect(nextRelayMailbox(sourceDb, "remote-host")).toBeDefined(), { timeout: 2500 });
+			exchangeNameRequest();
+			await vi.waitFor(
+				() => {
+					const text = ui.render(140).map(stripAnsi).join("\n");
+					expect(text).toMatch(/session\s+question/);
+					const rows = text.split("\n").filter((line) => /^\s+a\d+\s/.test(line));
+					expect(rows.some((line) => /Billing worker\s+Billing worker/.test(line))).toBe(true);
+					expect(rows.some((line) => /Second worker\s+Second worker/.test(line))).toBe(true);
+				},
+				{ timeout: 2500 },
+			);
+		} finally {
+			ui.getFocusedComponent()?.handleInput?.("\x1b");
+			ui.stop();
+		}
 	});
 
 	it("keeps a question detail open when a name lookup finishes", async () => {
