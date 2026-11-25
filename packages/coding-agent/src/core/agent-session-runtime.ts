@@ -3,6 +3,9 @@ import { basename, join, parse, resolve } from "node:path";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
 import type { AgentSessionRuntimeDiagnostic, AgentSessionServices } from "./agent-session-services.ts";
+import { setDesktopNotificationSessionProvider } from "./desktop-notification.ts";
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
+import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
 import type {
 	ProjectTrustContext,
 	ReplacedSessionContext,
@@ -10,13 +13,8 @@ import type {
 	SessionStartEvent,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
-import type { CreateAgentSessionResult } from "./sdk.ts";
-
-export { SessionImportFileNotFoundError } from "./session-errors.ts";
-
-import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
-import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
 import { runIdleSessionArchive } from "./idle-session-archive.ts";
+import type { CreateAgentSessionResult } from "./sdk.ts";
 import {
 	appendRestartNotice,
 	type ProcessRestarter,
@@ -236,6 +234,7 @@ export class AgentSessionRuntime {
 			beforeRun: () => this.recoverWorkingDirectoryBeforeRun(),
 			afterTurn: () => this.prepareWorkingDirectoryRecovery(),
 		});
+		setDesktopNotificationSessionProvider(() => this.session);
 		this.session.extensionRunner.setRelocateHandler((targetCwd) => this.relocate(targetCwd));
 		this.session.extensionRunner.setToolResultRelocationHandlers({
 			prepare: (targetCwd) => this.prepareToolResultRelocation(targetCwd),
@@ -738,6 +737,7 @@ export {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "./agent-session-services.ts";
+export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 /** Keeps a stored session that has the imported file's name: the import gets the next free numbered name. */
 function importDestinationPath(sourcePath: string, sessionDir: string): string {

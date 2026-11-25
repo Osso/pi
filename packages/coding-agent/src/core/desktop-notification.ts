@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 
 export const DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS = -1;
 export const NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS = 0;
@@ -15,7 +16,21 @@ export interface DesktopNotificationHandle {
 	close(): void;
 }
 
+export interface DesktopNotificationSession {
+	sessionName: string | undefined;
+	sessionManager: {
+		getCwd(): string;
+		getSessionId(): string;
+	};
+}
+
 export type DesktopNotifier = (notification: DesktopNotification) => undefined | DesktopNotificationHandle;
+
+let desktopNotificationSessionProvider: (() => DesktopNotificationSession) | undefined;
+
+export function setDesktopNotificationSessionProvider(provider: (() => DesktopNotificationSession) | undefined): void {
+	desktopNotificationSessionProvider = provider;
+}
 
 export function toDesktopNotificationHandle(
 	value: undefined | DesktopNotificationHandle,
@@ -34,6 +49,7 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 	const pendingNotification = createPendingDesktopNotification();
 	const expireTimeMs = notification.expireTimeMs ?? DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS;
 	const urgency = notification.urgency ?? "critical";
+	const title = getDesktopNotificationTitle(notification.title);
 	const child = spawn(
 		"notify-send",
 		[
@@ -41,7 +57,7 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 			"--app-name=Pi",
 			`--expire-time=${expireTimeMs}`,
 			`--urgency=${urgency}`,
-			notification.title,
+			title,
 			notification.body,
 		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
@@ -59,6 +75,18 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 		}
 	});
 	return pendingNotification.handle;
+}
+
+function getDesktopNotificationTitle(title: string): string {
+	const session = desktopNotificationSessionProvider?.();
+	if (!session) return title;
+
+	const sessionName = session.sessionName?.trim();
+	const cwd = session.sessionManager.getCwd();
+	const cwdName = basename(cwd) || cwd;
+	const sessionId = session.sessionManager.getSessionId();
+	const sessionLabel = sessionName || `${cwdName} (${sessionId.slice(0, 8)})`;
+	return `${sessionLabel}: ${title}`;
 }
 
 function createPendingDesktopNotification(): {

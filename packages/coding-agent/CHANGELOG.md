@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Desktop notifications name the session that needs attention in their title (its current display name, or the cwd name and short session ID when unnamed)
 - Fixed escalated `ask_questions` questions disappearing when the Supervisor session restarted: they now stay `escalated` in the store and their panels reopen on start.
 
 - The Supervisor resolves a repository without remotes or a project mapping to its repository directory name from any subdirectory, instead of the subdirectory name
