@@ -133,6 +133,7 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import { takeUnreportedDiagnostics } from "../runtime-diagnostics.ts";
 import { deliverCompactionQueuePrompts } from "./compaction-queue-delivery.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
+import { reportAsyncFailure, reportSyncFailure } from "./report-failure.ts";
 
 const MAX_AGENT_LOG_VIEW_BYTES = 64 * 1024;
 const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
@@ -152,17 +153,6 @@ function isCompleteJsonlFile(filePath: string): boolean {
 const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES = 3;
 const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>(["running", "steering_pending", "cancelling"]);
 const CHILD_STEERABLE_LIFECYCLES = new Set<AgentLifecycleState>(["running", "waiting_for_input", "steering_pending"]);
-
-/**
- * The editor drops the promises returned by submit and keybinding handlers, so a rejection would end
- * the process as an unhandled rejection. Report it in the chat instead.
- */
-function reportAsyncFailure(task: Promise<unknown>, showError: (message: string) => void): Promise<void> {
-	return task.then(
-		() => undefined,
-		(error: unknown) => showError(error instanceof Error ? error.message : String(error)),
-	);
-}
 
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
@@ -5363,8 +5353,9 @@ export class InteractiveMode {
 			const selector = new ApprovalSelectorComponent({
 				currentPreset: this.settingsManager.getApprovalPreset(),
 				onSelect: (selection) => {
-					this.settingsManager.setApprovalPreset(selection.preset, selection.scope);
 					done();
+					const save = () => this.settingsManager.setApprovalPreset(selection.preset, selection.scope);
+					if (!reportSyncFailure(save, (message) => this.showError(message))) return;
 					this.showStatus(
 						`Saved approval preset to ${selection.scope} settings. Restart pi for this to take effect.`,
 					);
@@ -5401,8 +5392,9 @@ export class InteractiveMode {
 				currentProfile: this.settingsManager.getConfiguredSandboxProfile(),
 				sessionProfile: this.settingsManager.getSessionSandboxProfile(),
 				onSelect: (selection) => {
-					this.session.extensionRunner.setSandboxProfile(selection.profile, selection.scope);
 					done();
+					const save = () => this.session.extensionRunner.setSandboxProfile(selection.profile, selection.scope);
+					if (!reportSyncFailure(save, (message) => this.showError(message))) return;
 					this.updateBwrapStatusForSandboxProfile();
 					const savedProfile = selection.profile ?? "inherit";
 					this.showStatus(`Saved sandbox profile ${savedProfile} to ${selection.scope} scope.`);

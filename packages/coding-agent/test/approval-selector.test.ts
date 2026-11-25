@@ -4,6 +4,7 @@ import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ApprovalSelectorComponent } from "../src/modes/interactive/components/approval-selector.ts";
 import { SandboxSelectorComponent } from "../src/modes/interactive/components/sandbox-selector.ts";
+import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -49,6 +50,30 @@ describe("approval and sandbox selectors", () => {
 		selector.handleInput("\n");
 
 		expect(onSelect).toHaveBeenCalledWith({ preset: "llm-approved-deny", scope: "project" });
+	});
+
+	it("reports a refused project save in an untrusted project instead of throwing", () => {
+		const settingsManager = SettingsManager.inMemory({}, { projectTrusted: false });
+		let selector: ApprovalSelectorComponent | undefined;
+		const showError = vi.fn();
+		const showStatus = vi.fn();
+		const view = Object.assign(Object.create(InteractiveMode.prototype), {
+			runtimeHost: { session: { settingsManager } },
+			showError,
+			showStatus,
+			showSelector: (create: (done: () => void) => { component: ApprovalSelectorComponent }) => {
+				selector = create(() => {}).component;
+			},
+		}) as { showApprovalSelector(): void };
+
+		view.showApprovalSelector();
+		selector?.handleInput("j");
+		selector?.handleInput("\t");
+		selector?.handleInput("\n");
+
+		expect(showError).toHaveBeenCalledWith("Project is not trusted; refusing to write project settings");
+		expect(showStatus).not.toHaveBeenCalled();
+		expect(settingsManager.getApprovalPreset()).not.toBe("llm-approved-deny");
 	});
 
 	it("renders sandbox profiles without approval-policy labels", () => {

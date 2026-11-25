@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- `/approvals` and the sandbox selector report a refused save (for example project scope in an untrusted project) instead of crashing Pi
 - `pi debug attach` evaluates non-ASCII input correctly when a UTF-8 character is split across socket reads
 - The main status row shows `Waiting for command...` with elapsed time for a tool that started while a child transcript was selected, instead of `Thinking... 0s` after returning
 - `RpcClient.start()` now rejects when the agent process is killed by a signal during startup, instead of resolving and failing on the first command
