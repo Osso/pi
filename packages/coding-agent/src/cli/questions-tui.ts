@@ -158,7 +158,10 @@ class QuestionsApp {
 	}
 
 	private showAgentQuestion(entry: AgentQuestionEntry): void {
-		if (entry.state === "open") return this.answerAgentQuestion(entry);
+		if (entry.state === "open") {
+			this.answerAgentQuestion(entry);
+			return;
+		}
 		// An answered question shows its chosen answers first; revising is an explicit choice.
 		const options = entry.state === "answered" ? [REVISE, BACK] : [BACK];
 		this.select(
