@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { getAgentDir } from "../config.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
@@ -20,6 +21,7 @@ import {
 	type QuestionCenter,
 	type QuestionEntry,
 	type SessionAddress,
+	sessionNameKey,
 	type UserQuestionEntry,
 } from "../questions/question-center.ts";
 import { runQuestionsControl } from "./questions-control.ts";
@@ -112,9 +114,10 @@ export class QuestionsApp {
 	private notice = "";
 	private showAll = false;
 	private remoteNames = new Map<string, string>();
-	private remoteNamesLoaded = false;
+	private readonly remoteNamesAttempted = new Set<string>();
 	private remoteNamesLoading = false;
 	private remoteNamesController: AbortController | undefined;
+	private refreshTimer: ReturnType<typeof setInterval> | undefined;
 	private closed = false;
 
 	constructor(ui: TUI, center: QuestionCenter, finish: () => void) {
@@ -126,11 +129,19 @@ export class QuestionsApp {
 	private close(): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.stopRefreshTimer();
 		this.remoteNamesController?.abort();
 		this.finish();
 	}
 
+	private stopRefreshTimer(): void {
+		if (this.refreshTimer === undefined) return;
+		clearInterval(this.refreshTimer);
+		this.refreshTimer = undefined;
+	}
+
 	private show(component: Component): void {
+		this.stopRefreshTimer();
 		if (this.current) this.ui.removeChild(this.current);
 		this.current = component;
 		this.ui.addChild(component);
@@ -175,8 +186,7 @@ export class QuestionsApp {
 		this.loadRemoteNames(allEntries, refreshNames);
 		const notice = this.notice;
 		this.notice = "";
-		const sessionNames = listSessionNames(this.center);
-		for (const [key, name] of this.remoteNames) sessionNames.set(key, name);
+		const sessionNames = this.sessionNames();
 		const list = new QuestionListComponent({
 			heading: this.showAll ? "All questions, last three days, newest first" : "Unanswered questions, newest first",
 			notice,
@@ -204,29 +214,64 @@ export class QuestionsApp {
 		});
 		this.currentList = list;
 		this.show(list);
+		if (!this.showAll) {
+			this.refreshTimer = setInterval(() => this.refreshVisibleList(), 2_000);
+			this.refreshTimer.unref?.();
+		}
+	}
+
+	private sessionNames(): Map<string, string> {
+		const names = listSessionNames(this.center);
+		for (const [key, name] of this.remoteNames) names.set(key, name);
+		return names;
+	}
+
+	private refreshVisibleList(): void {
+		if (this.closed || this.showAll || this.current !== this.currentList || !this.currentList) return;
+		const allEntries = listQuestionEntries(this.center);
+		this.loadRemoteNames(allEntries, false);
+		this.currentList.update(allEntries.filter(isUnanswered), this.sessionNames(), Date.now());
+		this.ui.requestRender();
+	}
+
+	private newRemoteEntries(entries: QuestionEntry[]): QuestionEntry[] {
+		const localHost = hostname();
+		const newEntries = entries.filter(({ session: { host, sessionId } }) => {
+			return (
+				Boolean(host) && host !== localHost && !this.remoteNamesAttempted.has(sessionNameKey({ host, sessionId }))
+			);
+		});
+		for (const {
+			session: { host, sessionId },
+		} of newEntries) {
+			if (host) this.remoteNamesAttempted.add(sessionNameKey({ host, sessionId }));
+		}
+		return newEntries;
 	}
 
 	private loadRemoteNames(entries: QuestionEntry[], refresh: boolean): void {
-		if (this.closed || this.remoteNamesLoading || (this.remoteNamesLoaded && !refresh)) return;
+		if (this.closed || this.remoteNamesLoading) return;
+		const requestedEntries = refresh ? entries : this.newRemoteEntries(entries);
+		if (requestedEntries.length === 0) return;
+		for (const entry of requestedEntries) {
+			const { host, sessionId } = entry.session;
+			if (host && host !== hostname()) this.remoteNamesAttempted.add(sessionNameKey({ host, sessionId }));
+		}
 		this.remoteNamesLoading = true;
 		const controller = new AbortController();
 		this.remoteNamesController = controller;
-		void lookupQuestionSessionNames(this.center, entries, controller.signal).then(
+		void lookupQuestionSessionNames(this.center, requestedEntries, controller.signal).then(
 			(names) => {
-				this.remoteNamesLoaded = true;
 				this.remoteNamesLoading = false;
 				this.remoteNamesController = undefined;
 				if (this.closed) return;
-				this.remoteNames = names;
+				this.remoteNames = refresh ? names : new Map([...this.remoteNames, ...names]);
 				if (this.current === this.currentList && this.currentList) {
-					const sessionNames = listSessionNames(this.center);
-					for (const [key, name] of this.remoteNames) sessionNames.set(key, name);
-					this.currentList.updateSessionNames(sessionNames);
+					this.currentList.updateSessionNames(this.sessionNames());
 					this.ui.requestRender();
 				}
 			},
 			() => {
-				this.remoteNamesLoaded = true;
 				this.remoteNamesLoading = false;
 				this.remoteNamesController = undefined;
 			},

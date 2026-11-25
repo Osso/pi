@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings, TUI, visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { QuestionsApp } from "../src/cli/questions-tui.ts";
 import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
@@ -75,6 +75,7 @@ describe("pi questions list", () => {
 	let root: string;
 	let center: QuestionCenter;
 	const savedEnv = { agent: process.env[ENV_AGENT_DIR], state: process.env[ENV_STATE_DIR] };
+	const cleanups: Array<() => void> = [];
 
 	beforeAll(() => {
 		initTheme("dark");
@@ -92,6 +93,8 @@ describe("pi questions list", () => {
 	});
 
 	afterEach(() => {
+		for (const cleanup of cleanups.splice(0)) cleanup();
+		vi.useRealTimers();
 		for (const [key, value] of [
 			[ENV_AGENT_DIR, savedEnv.agent],
 			[ENV_STATE_DIR, savedEnv.state],
@@ -137,6 +140,10 @@ describe("pi questions list", () => {
 		new QuestionsApp(ui, center, () => {
 			done = true;
 		}).showList();
+		cleanups.push(() => {
+			for (let attempt = 0; attempt < 4 && !done; attempt++) press(ui, "\x1b");
+			ui.stop();
+		});
 		return { ui, finished: () => done };
 	}
 
@@ -196,6 +203,71 @@ describe("pi questions list", () => {
 			expectAlignedRows(lines, ["a2", "u2"]);
 		});
 	}
+
+	it("refreshes stored rows in place, preserves selection, and moves safely when the selected row is answered", async () => {
+		vi.useFakeTimers();
+		const { ui, finished } = start(140);
+		for (let step = 0; step < 8; step++) {
+			if (/^ \u2192 a2 /.test(screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "")) break;
+			press(ui, "j");
+		}
+		expect(screen(ui, 140).find((line) => line.startsWith(" \u2192 "))).toMatch(/^ \u2192 a2 /);
+
+		escalate("A new question arrived while the list was open.", "call-3");
+		await vi.advanceTimersByTimeAsync(2_000);
+		let lines = screen(ui, 140);
+		expect(lines.some((line) => line.startsWith(" \u2192 a2 "))).toBe(true);
+		expect(lines.some((line) => line.startsWith("   a3 "))).toBe(true);
+
+		answerAgentQuestion(center, readQuestionEntry(center, "a2") as AgentQuestionEntry, { [LONG]: "Use Node 24." });
+		await vi.advanceTimersByTimeAsync(2_000);
+		lines = screen(ui, 140);
+		expect(lines.some((line) => line.startsWith(" a2 "))).toBe(false);
+		expect(lines.find((line) => line.startsWith(" \u2192 "))).toContain("+ Ask a session a question");
+		press(ui, "\r");
+		expect(screen(ui, 140).join("\n")).toContain("Ask which session?");
+		press(ui, "\x1b");
+		const timersBeforeQuit = vi.getTimerCount();
+		press(ui, "\x1b");
+
+		expect(finished()).toBe(true);
+		expect(vi.getTimerCount()).toBeLessThan(timersBeforeQuit);
+	});
+
+	it("does not auto-refresh all-history mode and keeps manual Refresh", async () => {
+		vi.useFakeTimers();
+		const { ui, finished } = start(140);
+		press(ui, "\t");
+		escalate("An all-history update.", "call-3");
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(screen(ui, 140).join("\n")).not.toContain("An all-history update.");
+
+		press(ui, "j", "\r");
+		expect(screen(ui, 140).join("\n")).toContain("An all-history update.");
+		press(ui, "\x1b");
+		expect(finished()).toBe(true);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("does not refresh behind a detail view and stops the timer on quit", async () => {
+		vi.useFakeTimers();
+		const { ui, finished } = start(140);
+		for (let step = 0; step < 8; step++) {
+			if (/^ \u2192 a2 /.test(screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "")) break;
+			press(ui, "j");
+		}
+		press(ui, "\r");
+		expect(screen(ui, 140).join("\n")).toContain(LONG);
+		escalate("A hidden list update.", "call-3");
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(screen(ui, 140).join("\n")).toContain(LONG);
+		expect(screen(ui, 140).join("\n")).not.toContain("A hidden list update.");
+		press(ui, "\x1b");
+		expect(screen(ui, 140).join("\n")).toContain("A hidden list update.");
+		press(ui, "\x1b");
+		expect(finished()).toBe(true);
+		expect(vi.getTimerCount()).toBe(0);
+	});
 
 	it("shows recorded Supervisor and local-user sources without attributing historical answers", () => {
 		for (const answeredBy of ["supervisor", "local", undefined] as const) {

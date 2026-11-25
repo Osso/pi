@@ -145,6 +145,31 @@ export class QuestionListComponent implements Component {
 		this.rows = this.buildRows();
 	}
 
+	update(entries: QuestionEntry[], sessionNames: ReadonlyMap<string, string>, now: number): void {
+		const oldRow = this.selectedIndex - this.options.actions.length;
+		const selectedAction =
+			this.selectedIndex < this.options.actions.length
+				? this.options.actions[this.selectedIndex]
+				: this.options.closingActions[oldRow - this.options.entries.length];
+		const selectedEntry = this.options.entries[oldRow];
+		this.options.entries = entries;
+		this.options.sessionNames = sessionNames;
+		this.options.now = now;
+		this.rows = this.buildRows();
+
+		const selectedActionIndex = selectedAction === undefined ? -1 : this.options.actions.indexOf(selectedAction);
+		const closingActionIndex =
+			selectedAction === undefined ? -1 : this.options.closingActions.indexOf(selectedAction);
+		const selectedEntryIndex = selectedEntry ? entries.findIndex((entry) => entry.ref === selectedEntry.ref) : -1;
+		if (selectedActionIndex >= 0) this.selectedIndex = selectedActionIndex;
+		else if (selectedEntryIndex >= 0) this.selectedIndex = this.options.actions.length + selectedEntryIndex;
+		else if (closingActionIndex >= 0)
+			this.selectedIndex = this.options.actions.length + entries.length + closingActionIndex;
+		else this.selectedIndex = 0;
+		this.scrollTop = Math.min(this.scrollTop, Math.max(0, this.rows.length - MAX_VISIBLE_ROWS));
+		this.keepSelectedVisible();
+	}
+
 	private buildRows(): string[][] {
 		return this.options.entries.map((entry) => questionCells(entry, this.options.sessionNames, this.options.now));
 	}
@@ -155,6 +180,10 @@ export class QuestionListComponent implements Component {
 
 	private move(delta: number): void {
 		this.selectedIndex = Math.max(0, Math.min(this.itemCount - 1, this.selectedIndex + delta));
+		this.keepSelectedVisible();
+	}
+
+	private keepSelectedVisible(): void {
 		const row = this.selectedIndex - this.options.actions.length;
 		if (row < 0 || row >= this.rows.length) return;
 		if (row < this.scrollTop) this.scrollTop = row;
