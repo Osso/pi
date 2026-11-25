@@ -21,11 +21,10 @@ describe("model request extension events", () => {
 					pi.on("message_start", (event) => {
 						if (event.message.role === "assistant") events.push("message_start:assistant");
 					});
-					pi.on("message_update", (event) => {
-						if (event.message.role === "assistant") events.push("message_update:assistant");
-					});
 					pi.on("message_end", (event) => {
-						if (event.message.role === "assistant") events.push("message_end:assistant");
+						if (event.message.role === "assistant") {
+							events.push(`message_end:assistant:${event.message.stopReason}`);
+						}
 					});
 					pi.on("model_request_end", () => {
 						events.push("model_request_end");
@@ -38,11 +37,12 @@ describe("model request extension events", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(events[0]).toBe("model_request_start");
-		expect(events.at(-1)).toBe("model_request_end");
-		expect(events.slice(1, -1)[0]).toBe("message_start:assistant");
-		expect(events.slice(1, -1).at(-1)).toBe("message_end:assistant");
-		expect(events.slice(1, -1)).toContain("message_update:assistant");
+		expect(events).toEqual([
+			"model_request_start",
+			"message_start:assistant",
+			"message_end:assistant:stop",
+			"model_request_end",
+		]);
 	});
 
 	it("emits the end event for failed model requests", async () => {
@@ -53,6 +53,14 @@ describe("model request extension events", () => {
 				(pi) => {
 					pi.on("model_request_start", () => {
 						events.push("model_request_start");
+					});
+					pi.on("message_start", (event) => {
+						if (event.message.role === "assistant") events.push("message_start:assistant");
+					});
+					pi.on("message_end", (event) => {
+						if (event.message.role === "assistant") {
+							events.push(`message_end:assistant:${event.message.stopReason}`);
+						}
 					});
 					pi.on("model_request_end", () => {
 						events.push("model_request_end");
@@ -65,7 +73,12 @@ describe("model request extension events", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(events).toEqual(["model_request_start", "model_request_end"]);
+		expect(events).toEqual([
+			"model_request_start",
+			"message_start:assistant",
+			"message_end:assistant:error",
+			"model_request_end",
+		]);
 	});
 
 	it("emits the end event for aborted model requests", async () => {
@@ -75,6 +88,14 @@ describe("model request extension events", () => {
 				(pi) => {
 					pi.on("model_request_start", () => {
 						events.push("model_request_start");
+					});
+					pi.on("message_start", (event) => {
+						if (event.message.role === "assistant") events.push("message_start:assistant");
+					});
+					pi.on("message_end", (event) => {
+						if (event.message.role === "assistant") {
+							events.push(`message_end:assistant:${event.message.stopReason}`);
+						}
 					});
 					pi.on("model_request_end", () => {
 						events.push("model_request_end");
@@ -98,6 +119,11 @@ describe("model request extension events", () => {
 		await session.abort();
 		await promptPromise;
 
-		expect(events).toEqual(["model_request_start", "model_request_end"]);
+		expect(events).toEqual([
+			"model_request_start",
+			"message_start:assistant",
+			"message_end:assistant:aborted",
+			"model_request_end",
+		]);
 	});
 });

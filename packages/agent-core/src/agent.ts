@@ -196,6 +196,7 @@ export class Agent {
 	private interruptAfterBlock = false;
 	/** The active model request already delivered its assistant message; steering waits for the next poll. */
 	private responseEnded = false;
+	private pendingModelRequestEnd?: Extract<AgentEvent, { type: "model_request_end" }>;
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -568,6 +569,27 @@ export class Agent {
 		this.activeRun = undefined;
 	}
 
+	/** Delay an aborted request end until Agent emits its failure message. */
+	private async processEvents(event: AgentEvent): Promise<void> {
+		const signal = this.activeRun?.abortController.signal;
+		if (event.type === "model_request_end" && signal?.aborted && !this.responseEnded) {
+			this.pendingModelRequestEnd = event;
+			return;
+		}
+
+		await this.dispatchEvent(event);
+		if (
+			event.type === "message_end" &&
+			event.message.role === "assistant" &&
+			event.message.stopReason === "aborted" &&
+			this.pendingModelRequestEnd
+		) {
+			const pendingEvent = this.pendingModelRequestEnd;
+			this.pendingModelRequestEnd = undefined;
+			await this.dispatchEvent(pendingEvent);
+		}
+	}
+
 	/**
 	 * Reduce internal state for a loop event, then await listeners.
 	 *
@@ -575,7 +597,7 @@ export class Agent {
 	 * considered idle later, after all awaited listeners for `agent_end` finish
 	 * and `finishRun()` clears runtime-owned state.
 	 */
-	private async processEvents(event: AgentEvent): Promise<void> {
+	private async dispatchEvent(event: AgentEvent): Promise<void> {
 		switch (event.type) {
 			case "model_request_start":
 				this._state.isModelRequestActive = true;
