@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { type Component, setKeybindings } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import supervisorSessionExtension from "../../extensions/supervisor-session/src/index.ts";
+import type * as DesktopNotificationModule from "../../src/core/desktop-notification.ts";
 import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
 import type { ExtensionUIContext } from "../../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../../src/core/keybindings.ts";
@@ -20,6 +21,12 @@ import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { sendSupervisorReply } from "../../src/supervisor/mail.ts";
 import { answerQuestionAsUser, reviseQuestionAsUser } from "../../src/supervisor/question-answers.ts";
 import { createHarness, type Harness } from "./harness.ts";
+
+// The question workflow test drives a simulated UI; it must not notify the real desktop.
+vi.mock("../../src/core/desktop-notification.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof DesktopNotificationModule>()),
+	sendDesktopNotification: () => undefined,
+}));
 
 const harnesses: Harness[] = [];
 const directories: string[] = [];
