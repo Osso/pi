@@ -26,10 +26,8 @@ function endingOf(line: string | undefined): string {
 	return line?.match(/\r\n$|\n$|\r$/)?.[0] ?? "";
 }
 
-/**
- * Ending for the lines a hunk adds: the first replaced line's own ending (the line before when it is unterminated),
- * or for a pure insertion the line before (else after) it, else the file's first ending. A lone CR is used only in
- * files without LF; elsewhere it is more likely a control character inside a line.
+/** Use the first replaced line's ending, then the previous line; insertions use adjacent lines.
+ * Fall back to the file's first ending. Use lone CR only without LF; otherwise it may be a control character.
  */
 function hunkEnding(original: string, originalLines: string[], removedStart: number | undefined, baseIndex: number) {
 	const neighbours = removedStart === undefined ? [baseIndex - 1, baseIndex] : [removedStart, removedStart - 1];
@@ -64,7 +62,7 @@ function joinLinePieces(pieces: string[]): string {
 	return joined.join("");
 }
 
-type AffectedLineGroup = { startLine: number; endLine: number; editedContent: string };
+type AffectedLineGroup = { startLine: number; endLine: number; editedContent: string; preservesFinalEnding: boolean };
 
 /** Restore endings within matched line groups and copy the original bytes between them. */
 export function restoreOriginalLineEndings(
@@ -78,7 +76,7 @@ export function restoreOriginalLineEndings(
 	let originalLineIndex = 0;
 	for (const group of affectedLineGroups) {
 		chunks.push(originalLines.slice(originalLineIndex, group.startLine));
-		for (const chunk of restoreEditedGroup(original, originalLines, baseLines, group)) chunks.push(chunk);
+		chunks.push([restoreEditedGroup(original, originalLines, baseLines, group)]);
 		originalLineIndex = group.endLine;
 	}
 	chunks.push(originalLines.slice(originalLineIndex));
@@ -90,7 +88,7 @@ function restoreEditedGroup(
 	originalLines: string[],
 	baseLines: string[],
 	group: AffectedLineGroup,
-): string[][] {
+): string {
 	const editedLines = splitLinesWithEndings(group.editedContent);
 	const { prefix, suffix } = countUnchangedEdges(baseLines.slice(group.startLine, group.endLine), editedLines);
 	const firstChanged = group.startLine + prefix;
@@ -112,7 +110,10 @@ function restoreEditedGroup(
 		if (!part.removed) removedStart = undefined;
 	}
 	chunks.push(originalLines.slice(endChanged, group.endLine));
-	return chunks;
+	const restored = joinLinePieces(chunks.flat());
+	const ending = endingOf(restored);
+	const originalEnding = group.preservesFinalEnding ? endingOf(originalLines[group.endLine - 1]) : "";
+	return ending && originalEnding ? `${restored.slice(0, -ending.length)}${originalEnding}` : restored;
 }
 
 /**
@@ -269,18 +270,20 @@ function applyReplacementsPreservingUnchangedLines(
 	let originalLineIndex = 0;
 	const affectedLineGroups: AffectedLineGroup[] = [];
 	for (const group of groups) {
+		const { startLine, endLine } = group;
 		const inOriginal = group.replacements[0]?.inOriginal ?? true;
 		const [content, lines] = inOriginal ? [originalContent, originalLines] : [baseContent, baseLines];
-		const groupStart = lines[group.startLine]?.start ?? 0;
-		const groupEnd = lines[group.endLine - 1]?.end ?? 0;
+		const groupStart = lines[startLine]?.start ?? 0;
+		const groupEnd = lines[endLine - 1]?.end ?? 0;
 		result += originalContent.slice(
 			originalLines[originalLineIndex]?.start ?? 0,
-			originalLines[group.startLine]?.start ?? 0,
+			originalLines[startLine]?.start ?? 0,
 		);
 		const editedContent = applyReplacements(content.slice(groupStart, groupEnd), group.replacements, groupStart);
+		const preservesFinalEnding = group.replacements.every((edit) => edit.matchIndex + edit.matchLength < groupEnd);
 		result += editedContent;
-		affectedLineGroups.push({ startLine: group.startLine, endLine: group.endLine, editedContent });
-		originalLineIndex = group.endLine;
+		affectedLineGroups.push({ startLine, endLine, editedContent, preservesFinalEnding });
+		originalLineIndex = endLine;
 	}
 	const remainingStart = originalLines[originalLineIndex]?.start ?? originalContent.length;
 	return { content: result + originalContent.slice(remainingStart), affectedLineGroups };
