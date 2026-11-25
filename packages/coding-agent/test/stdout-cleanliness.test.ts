@@ -21,12 +21,16 @@ function createTempDir(): string {
 	return dir;
 }
 
-async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
+async function runCli(
+	args: string[],
+	options: { legacyCommandsDir?: boolean } = {},
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
 	const tempRoot = createTempDir();
 	const agentDir = join(tempRoot, "agent");
 	const projectDir = join(tempRoot, "project");
 	const projectConfigDir = join(projectDir, ".pi");
 	mkdirSync(agentDir, { recursive: true });
+	if (options.legacyCommandsDir) mkdirSync(join(agentDir, "commands"));
 	mkdirSync(projectConfigDir, { recursive: true });
 
 	const fakeNpmPath = join(tempRoot, "fake-npm.mjs");
@@ -104,6 +108,14 @@ describe("stdout cleanliness in non-interactive modes", () => {
 		expect(result.stderr).toContain("changed 1 package in 471ms");
 		expect(result.stderr).toContain("found 0 vulnerabilities");
 		expect(result.stderr).toContain("Usage:");
+	});
+
+	it("routes legacy commands/ migration notices to stderr in json mode", async () => {
+		const result = await runCli(["--mode", "json", "--help", "--approve"], { legacyCommandsDir: true });
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("Migrated Global commands/");
 	});
 
 	it("keeps stdout empty for -p --help while routing trusted startup chatter to stderr", async () => {

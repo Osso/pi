@@ -1009,6 +1009,10 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 	}
 
+	if (shouldTakeOverStdout) {
+		takeOverStdout();
+	}
+
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
 	time("runMigrations");
@@ -1066,9 +1070,6 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 		if (!selfRestartHandoff) sessionManager.setSessionName(name);
-	}
-	if (shouldTakeOverStdout) {
-		takeOverStdout();
 	}
 	time("createSessionManager");
 	const controlMessage = readStartupControlMessage(
