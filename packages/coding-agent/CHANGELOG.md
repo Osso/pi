@@ -124,6 +124,10 @@
 
 ### Added
 
+- Added `pi questions`, an interactive view of stored questions on the Supervisor host: answer or revise questions agents asked you, read agent answers to your questions, and ask a session a new question or a follow-up. `pi control questions list|answer|ask|follow-up` gives the same operations for scripts. Run it over SSH or as a remote-agent managed session.
+- Added user questions: `askUserQuestion` delivers a question to a running main session (through the relay for another host), the agent answers with the new `answer_user_question` tool, and the answer is stored on the Supervisor host for three days.
+- Supervisor `question` requests keep their answer and its source (`supervisor`, `user`, `local`) for three days. A revised answer reaches the asking session as a separate `User revised answers (request <id>):` inbox message.
+
 - Regular spawned and attached subagents can use `spawn_agent` for one read-only `explore` consultation at a time. The call waits for completion, and persisted results go only to the requesting child, including after restart. Consultations cannot delegate; other child delegation and main-session behavior remain unchanged.
 - Added the `agent_settled` extension event, fired once a run has settled with no automatic retry, auto-compaction retry, or queued continuation left (port of upstream e9fa5a68a, [#6363](https://github.com/earendil-works/pi-mono/issues/6363)).
 - Added `compaction.backgroundStartTokens`: an absolute context token count that starts speculative background compaction instead of 70% of the context window. It takes effect only below the normal compaction trigger.
@@ -274,6 +278,8 @@
 - Added `providers.<provider>.disabledModels` in `models.json`. Model IDs that match its globs are excluded from `/model`, `--list-models`, and pools. Explicit `--model` selection reports them as not found.
 
 ### Fixed
+
+- Fixed escalated `ask_questions` questions disappearing when the Supervisor session restarted: they now stay `escalated` in the store and their panels reopen on start.
 
 - The Supervisor resolves a repository without remotes or a project mapping to its repository directory name from any subdirectory, instead of the subdirectory name
 - `pi --refresh-models` retries an HTTP 408 Request Timeout from the model catalog instead of failing at once
