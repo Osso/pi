@@ -1,4 +1,4 @@
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { type Component, getKeybindings, type TUI } from "@earendil-works/pi-tui";
 import { getAgentDir } from "../config.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
@@ -34,6 +34,7 @@ const QUIT = "Quit";
 const ASK_FOLLOW_UP = "Ask a follow-up";
 const BACK = "Back";
 const REVISE = "Revise the answer";
+const ANSWER_LATE = "Answer it now (the asker gets your answer as a message)";
 const MANUAL_TARGET = "Enter host:session-id";
 const SUMMARY_WIDTH = 70;
 
@@ -77,6 +78,33 @@ function describeAgentQuestion(entry: AgentQuestionEntry): string {
 	return `${head}\n\n${lines.join("\n")}`;
 }
 
+/** Unanswered: waiting for you, for the Supervisor, or for the asked agent. */
+function isUnanswered(entry: QuestionEntry): boolean {
+	return entry.state === "open" || entry.state === "supervisor";
+}
+
+/** The question list; `app.questions.toggleAll` switches between unanswered and all questions. */
+class QuestionListComponent extends ExtensionSelectorComponent {
+	private readonly onToggleAll: () => void;
+
+	constructor(
+		title: string,
+		options: string[],
+		onSelect: (option: string) => void,
+		onCancel: () => void,
+		onToggleAll: () => void,
+		ui: TUI,
+	) {
+		super(title, options, onSelect, onCancel, { tui: ui });
+		this.onToggleAll = onToggleAll;
+	}
+
+	override handleInput(keyData: string): void {
+		if (getKeybindings().matches(keyData, "app.questions.toggleAll")) this.onToggleAll();
+		else super.handleInput(keyData);
+	}
+}
+
 function parseManualTarget(value: string): SessionAddress {
 	const trimmed = value.trim();
 	const separator = trimmed.lastIndexOf(":");
@@ -91,6 +119,7 @@ class QuestionsApp {
 	private readonly finish: () => void;
 	private current: Component | undefined;
 	private notice = "";
+	private showAll = false;
 
 	constructor(ui: TUI, center: QuestionCenter, finish: () => void) {
 		this.ui = ui;
@@ -138,11 +167,14 @@ class QuestionsApp {
 	}
 
 	showList(): void {
-		const entries = listQuestionEntries(this.center);
+		const entries = listQuestionEntries(this.center).filter((entry) => this.showAll || isUnanswered(entry));
 		const byLabel = new Map(entries.map((entry) => [summarize(entry), entry]));
-		const title = ["Questions, last three days (newest first)", this.notice].filter(Boolean).join("\n");
+		const heading = this.showAll
+			? "All questions, last three days, newest first (tab: unanswered only)"
+			: `Unanswered questions, newest first (tab: all questions)${entries.length === 0 ? "\n\nNothing is waiting." : ""}`;
+		const title = [heading, this.notice].filter(Boolean).join("\n");
 		this.notice = "";
-		this.select(
+		const list = new QuestionListComponent(
 			title,
 			[ASK_NEW, REFRESH, ...byLabel.keys(), QUIT],
 			(option) => {
@@ -154,7 +186,13 @@ class QuestionsApp {
 				this.showAgentQuestion(entry);
 			},
 			this.finish,
+			() => {
+				this.showAll = !this.showAll;
+				this.showList();
+			},
+			this.ui,
 		);
+		this.show(list);
 	}
 
 	private showAgentQuestion(entry: AgentQuestionEntry): void {
@@ -163,11 +201,13 @@ class QuestionsApp {
 			return;
 		}
 		// An answered question shows its chosen answers first; revising is an explicit choice.
-		const options = entry.state === "answered" ? [REVISE, BACK] : [BACK];
+		const answerAction = { open: undefined, answered: REVISE, cancelled: ANSWER_LATE, supervisor: undefined }[
+			entry.state
+		];
 		this.select(
 			describeAgentQuestion(entry),
-			options,
-			(option) => (option === REVISE ? this.answerAgentQuestion(entry) : this.showList()),
+			answerAction ? [answerAction, BACK] : [BACK],
+			(option) => (option === BACK ? this.showList() : this.answerAgentQuestion(entry)),
 			() => this.showList(),
 		);
 	}

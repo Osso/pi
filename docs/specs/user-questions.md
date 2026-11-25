@@ -27,10 +27,10 @@ User questions let a person send a durable question to a running main Pi session
 
 One view of both directions on the store host: these user questions and the agent questions stored by the Supervisor ([Supervisor question answering](supervisor-service.md#question-answering)). References are `u<id>` for user questions and `a<id>` for agent questions.
 
-- [x] `pi questions` is an interactive terminal view, usable over SSH and as a remote-agent managed session (`pi_args: ["questions"]`). It lists the last three days newest first with state, shows each answered agent question with its chosen answers and their source (and revision time) in the list and a detail view before an explicit "Revise the answer", answers or revises an agent question in the `ask_questions` panel, shows an agent's full answer to a user question with an "Ask a follow-up" action, and asks a new question of a running local session, a remote session seen in stored questions, or a typed `host:session-id`.
+- [x] `pi questions` is an interactive terminal view, usable over SSH and as a remote-agent managed session (`pi_args: ["questions"]`). It lists unanswered questions (waiting for the user, the Supervisor, or the asked agent) newest first; `app.questions.toggleAll` (default tab) switches to all questions of the last three days and back. It shows each answered agent question with its chosen answers and their source (and revision time) in the list and a detail view before an explicit "Revise the answer", offers an answer for a question cancelled without one, answers or revises an agent question in the `ask_questions` panel, shows an agent's full answer to a user question with an "Ask a follow-up" action, and asks a new question of a running local session, a remote session seen in stored questions, or a typed `host:session-id`.
 - [x] `pi control questions list [--json]`, `answer <a-ref> <answer>` / `answer <a-ref> --json <answers>`, `ask <session-id> [--host <host>] <question>`, and `follow-up <u-ref> <question>` give the same operations without a terminal UI, for scripts and a future mobile service. Errors exit with status 1 and a message.
 - [x] `/ask <session-id-prefix> <question>` in an interactive session on the store host asks the one session whose ID starts with the prefix; bare `/ask` picks the session from the same targets as `pi questions` (except the current session) and then reads the question. It reports the new `u<ref>`; the answer shows in `pi questions`. An unknown or ambiguous prefix, a missing question, or a session off the store host is reported and stores nothing.
-- [x] `answer` on an agent question waiting for the user answers it; on an answered question it revises it. Answers must cover exactly the asked questions.
+- [x] `answer` on an agent question waiting for the user answers it; on an answered question it revises it; on a question cancelled without an answer it answers it and sends the answer to the asker as a message. Answers must cover exactly the asked questions.
 
 ## Implementation inventory
 
@@ -48,7 +48,7 @@ One view of both directions on the store host: these user questions and the agen
 
 - `packages/coding-agent/test/user-questions.test.ts` — storage, answer updates, retention, and relay import.
 - `packages/coding-agent/test/suite/user-questions.test.ts` — live session delivery, answer tool execution, and follow-up delivery with earlier context.
-- `packages/coding-agent/test/questions-control.test.ts` — `pi control questions`: answer and revise an agent question (reply and correction addressed to the asker's host), ask and follow up (delivery addressed to the target host with earlier context), rejected answers, refusal off the store host.
+- `packages/coding-agent/test/questions-control.test.ts` — `pi control questions`: answer and revise an agent question, answer a cancelled one (reply and correction addressed to the asker's host), ask and follow up (delivery addressed to the target host with earlier context), rejected answers, refusal off the store host.
 - `packages/coding-agent/test/ask-command-extension.test.ts` — `/ask`: prefix and picker asks stored for the target host, ambiguous prefix and missing question rejected, refusal off the store host.
 
 ## Known gaps (current cycle)

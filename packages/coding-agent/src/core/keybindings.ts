@@ -67,6 +67,7 @@ export interface AppKeybindings {
 	"app.tree.filter.cycleBackward": true;
 	"app.questions.next": true;
 	"app.questions.previous": true;
+	"app.questions.toggleAll": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -270,6 +271,10 @@ export const KEYBINDINGS = {
 	"app.questions.previous": {
 		defaultKeys: ["left", "shift+tab"],
 		description: "Previous question in ask_questions",
+	},
+	"app.questions.toggleAll": {
+		defaultKeys: "tab",
+		description: "pi questions: switch between unanswered and all questions",
 	},
 } as const satisfies KeybindingDefinitions;
 
