@@ -282,6 +282,7 @@
 
 ### Fixed
 
+- Fixed unhighlighted parts of syntax-highlighted code (identifiers, operators, spaces) using the terminal foreground instead of the theme text color, which made tool previews hard to read when Pi and the terminal used contrasting themes
 - Fixed compaction summarizing the current generic goal continuation reminder instead of omitting it like other goal reminders
 - Fixed sessions with about 120k or more entries after the last compaction failing to build context with `RangeError: Maximum call stack size exceeded`
 - Fixed removed scoped models and pools remaining selectable in `/model` autocomplete after registry refresh
