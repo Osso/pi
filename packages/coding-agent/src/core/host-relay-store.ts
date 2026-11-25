@@ -1,4 +1,4 @@
-import { describeSession } from "../supervisor/inspect-session.ts";
+import { describeSession, lookupSessionNames } from "../supervisor/inspect-session.ts";
 import { answerSessionInspectionRequest, isSessionInspectionRequest } from "../supervisor/mail.ts";
 import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
 import { recordUserQuestionAnswer } from "./session-control-db/user-questions.ts";
@@ -164,7 +164,13 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 	if (!applied) return;
 	if (inspection) {
 		// The relay answers on the session's host, so a busy or stopped session can still be inspected.
-		answerSessionInspectionRequest(path, peer, data, (sessionId) => describeSession(path, sessionId));
+		answerSessionInspectionRequest(
+			path,
+			peer,
+			data,
+			(sessionId) => describeSession(path, sessionId),
+			(sessionIds) => lookupSessionNames(path, sessionIds),
+		);
 		return;
 	}
 	notifyRuntimeMailboxRecipient(path, recipient);

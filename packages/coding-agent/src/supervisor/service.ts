@@ -235,7 +235,7 @@ function parseQuestionResponse(
 		answers[question] = { answer: entry.answer, reason: entry.reason };
 	}
 	const coversExactly = questions.length > 0 && Object.keys(response.answers).length === questions.length;
-	return coversExactly ? { kind: "answer", answers } : undefined;
+	return coversExactly ? { kind: "answer", answers, answeredBy: "supervisor" } : undefined;
 }
 
 function parseAdvisoryResponse(response: Record<string, unknown>): SupervisorResponse | undefined {

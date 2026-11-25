@@ -121,6 +121,7 @@
 - Periodic checks now arm outside Git repositories: the checklist is read from the session's working directory when it has no Git root. Inside a repository the Git root is still used.
 - `/delete` with running child agents now closes them after confirmation, then deletes the session; before, it refused until each child was closed by hand. It keeps the session when a child cannot be closed.
 - Steering (and terminal runtime notifications) sent while the model is thinking or writing now waits for the current thinking or text block to end, and the model keeps that block in the next request instead of losing it to an immediate abort. A steer during a response with a tool call still aborts it at once, so that tool does not run.
+- The questions list shows recorded answer sources, keeps unknown historical sources unknown, and resolves available remote session display names through name-only relay requests.
 
 ### Added
 

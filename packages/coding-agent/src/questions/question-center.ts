@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import {
-	listActiveSessionMetadata,
 	listQuestionRequests,
+	listSessionMetadata,
 	listUserQuestions,
 	type QuestionAnswerSource,
 	readSupervisorRequest,
@@ -13,6 +13,7 @@ import { listSessions } from "../core/session-directory.ts";
 import type { SettingsManager } from "../core/settings-manager.ts";
 import type { AskQuestionsToolInput } from "../core/tools/ask-questions.ts";
 import { validateQuestions } from "../core/tools/ask-questions.ts";
+import { lookupRemoteSessionNames } from "../supervisor/inspect-session.ts";
 import { answerQuestionAsUser, reviseQuestionAsUser } from "../supervisor/question-answers.ts";
 import { askUserQuestion } from "../user-questions/ask.ts";
 
@@ -30,6 +31,10 @@ export interface QuestionCenter {
 export interface SessionAddress {
 	sessionId: string;
 	host?: string;
+}
+
+export function sessionNameKey(address: SessionAddress): string {
+	return JSON.stringify([address.host ?? "", address.sessionId]);
 }
 
 /** A question an agent asked the user; `ref` is `a<id>`. */
@@ -92,7 +97,7 @@ function toAgentEntry(request: SupervisorRequest): AgentQuestionEntry {
 		...(response
 			? {
 					answers: Object.fromEntries(Object.entries(response.answers).map(([q, entry]) => [q, entry.answer])),
-					answeredBy: response.answeredBy ?? "supervisor",
+					...(response.answeredBy === undefined ? {} : { answeredBy: response.answeredBy }),
 					revisedAt: response.revisedAt,
 				}
 			: {}),
@@ -209,11 +214,40 @@ export function listAskTargets(center: QuestionCenter): AskTarget[] {
 	return [...targets.values()];
 }
 
+/** Looks up names only for remote sessions present in the stored question list. */
+export async function lookupQuestionSessionNames(
+	center: QuestionCenter,
+	entries: QuestionEntry[],
+	signal?: AbortSignal,
+): Promise<Map<string, string>> {
+	const names = new Map<string, string>();
+	const byHost = new Map<string, string[]>();
+	for (const entry of entries) {
+		const { host, sessionId } = entry.session;
+		if (!host || host === hostname()) continue;
+		const sessionIds = byHost.get(host) ?? [];
+		if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId);
+		byHost.set(host, sessionIds);
+	}
+	const results = await Promise.all(
+		[...byHost].map(
+			async ([host, sessionIds]) =>
+				[host, await lookupRemoteSessionNames(center.controlDbPath, { host, sessionIds }, signal)] as const,
+		),
+	);
+	for (const [host, remoteNames] of results) {
+		for (const [sessionId, name] of Object.entries(remoteNames)) {
+			names.set(sessionNameKey({ host, sessionId }), name);
+		}
+	}
+	return names;
+}
+
 /** Names of the named sessions on this host, by session ID. */
 export function listSessionNames(center: QuestionCenter): Map<string, string> {
 	const names = new Map<string, string>();
-	for (const session of listActiveSessionMetadata(center.controlDbPath)) {
-		if (session.name) names.set(session.id, session.name);
+	for (const session of listSessionMetadata(center.controlDbPath)) {
+		if (session.name) names.set(sessionNameKey({ sessionId: session.id }), session.name);
 	}
 	return names;
 }

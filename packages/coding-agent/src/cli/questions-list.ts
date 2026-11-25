@@ -3,7 +3,12 @@ import { type Component, getKeybindings, Text, truncateToWidth, visibleWidth } f
 import { DynamicBorder } from "../modes/interactive/components/dynamic-border.ts";
 import { keyHint, rawKeyHint } from "../modes/interactive/components/keybinding-hints.ts";
 import { type ThemeColor, theme } from "../modes/interactive/theme/theme.ts";
-import type { AgentQuestionEntry, QuestionEntry, SessionAddress } from "../questions/question-center.ts";
+import {
+	type AgentQuestionEntry,
+	type QuestionEntry,
+	type SessionAddress,
+	sessionNameKey,
+} from "../questions/question-center.ts";
 
 /**
  * The `pi questions` list: action rows, then a table of questions in aligned columns that fit the
@@ -14,10 +19,11 @@ const MAX_VISIBLE_ROWS = 10;
 const GAP = "  ";
 /** Left padding plus the selection marker. */
 const ROW_PREFIX_WIDTH = 3;
-const HEADERS = ["ref", "dir", "state", "age", "session", "question", "answer"] as const;
+const HEADERS = ["ref", "dir", "state", "age", "session", "question", "source", "answer"] as const;
 const SESSION_COLUMN = 4;
 const QUESTION_COLUMN = 5;
-const ANSWER_COLUMN = 6;
+const SOURCE_COLUMN = 6;
+const ANSWER_COLUMN = 7;
 const SHORT_ID_LENGTH = 8;
 
 const STATE_COLORS: Record<QuestionEntry["state"], ThemeColor> = {
@@ -40,10 +46,12 @@ export function formatAge(iso: string, now: number): string {
 	return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
-/** The session name for a named session on this host, else `host:short-id` or the short ID. */
+/** A local or resolved remote session name, else `host:short-id` or the short ID. */
 function sessionLabel(session: SessionAddress, names: ReadonlyMap<string, string>): string {
 	const remote = session.host !== undefined && session.host !== hostname();
-	const name = remote ? undefined : names.get(session.sessionId);
+	const name = remote
+		? names.get(sessionNameKey(session))
+		: names.get(sessionNameKey({ sessionId: session.sessionId }));
 	if (name) return name;
 	const shortId = session.sessionId.slice(0, SHORT_ID_LENGTH);
 	return remote ? `${session.host}:${shortId}` : shortId;
@@ -51,6 +59,20 @@ function sessionLabel(session: SessionAddress, names: ReadonlyMap<string, string
 
 function chosenAnswers(entry: AgentQuestionEntry): string {
 	return entry.questions.map((q) => entry.answers?.[q.question] ?? "?").join(" / ");
+}
+
+function answerSource(entry: QuestionEntry): string {
+	if (entry.state !== "answered") return "";
+	if (entry.direction === "user") return "Agent";
+	switch (entry.answeredBy) {
+		case "user":
+		case "local":
+			return "you";
+		case "supervisor":
+			return "Supervisor";
+		default:
+			return "unknown";
+	}
 }
 
 function questionCells(entry: QuestionEntry, names: ReadonlyMap<string, string>, now: number): string[] {
@@ -64,6 +86,7 @@ function questionCells(entry: QuestionEntry, names: ReadonlyMap<string, string>,
 		formatAge(entry.createdAt, now),
 		sessionLabel(entry.session, names),
 		oneLine(question),
+		answerSource(entry),
 		oneLine(answer),
 	];
 }
@@ -77,6 +100,7 @@ function columnWidths(rows: string[][], width: number): number[] {
 	const content = width - ROW_PREFIX_WIDTH;
 	const widths = HEADERS.map((_, column) => widest(rows, column));
 	widths[SESSION_COLUMN] = Math.min(widths[SESSION_COLUMN] ?? 0, Math.max(8, Math.floor(content * 0.2)));
+	widths[SOURCE_COLUMN] = Math.min(widths[SOURCE_COLUMN] ?? 0, Math.max(10, Math.floor(content * 0.12)));
 	widths[ANSWER_COLUMN] = Math.min(widths[ANSWER_COLUMN] ?? 0, Math.max(8, Math.floor(content * 0.2)));
 	const others = widths.reduce((sum, value, column) => (column === QUESTION_COLUMN ? sum : sum + value), 0);
 	widths[QUESTION_COLUMN] = Math.max(1, content - others - GAP.length * (HEADERS.length - 1));
@@ -105,7 +129,7 @@ export interface QuestionListOptions {
 
 export class QuestionListComponent implements Component {
 	private readonly options: QuestionListOptions;
-	private readonly rows: string[][];
+	private rows: string[][];
 	private readonly border = new DynamicBorder();
 	/** Index over actions, then entries, then closing actions. */
 	private selectedIndex = 0;
@@ -113,7 +137,16 @@ export class QuestionListComponent implements Component {
 
 	constructor(options: QuestionListOptions) {
 		this.options = options;
-		this.rows = options.entries.map((entry) => questionCells(entry, options.sessionNames, options.now));
+		this.rows = this.buildRows();
+	}
+
+	updateSessionNames(names: ReadonlyMap<string, string>): void {
+		this.options.sessionNames = names;
+		this.rows = this.buildRows();
+	}
+
+	private buildRows(): string[][] {
+		return this.options.entries.map((entry) => questionCells(entry, this.options.sessionNames, this.options.now));
 	}
 
 	private get itemCount(): number {
@@ -165,7 +198,7 @@ export class QuestionListComponent implements Component {
 		const state = this.options.entries[index]?.state ?? "open";
 		const selected = index + this.options.actions.length === this.selectedIndex;
 		const main: ThemeColor = selected ? "accent" : "text";
-		return [main, "muted", STATE_COLORS[state], "muted", "muted", main, selected ? "accent" : "success"];
+		return [main, "muted", STATE_COLORS[state], "muted", "muted", main, "muted", selected ? "accent" : "success"];
 	}
 
 	private renderTable(width: number): string[] {

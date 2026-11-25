@@ -28,7 +28,7 @@ const SUPERVISOR = "supervisor-session";
 const RUNNER = "Which test runner should this project use?";
 const LONG =
 	"Should the release pipeline publish the Bun binaries before or after the npm packages, given that the smoke tests need both?";
-const HEADERS = ["ref", "dir", "state", "age", "session", "question", "answer"];
+const HEADERS = ["ref", "dir", "state", "age", "session", "question", "source", "answer"];
 
 interface Row {
 	ref: string;
@@ -45,6 +45,7 @@ const ROWS: Row[] = [
 			age: "now",
 			session: "laptop:asker-00",
 			question: "Which",
+			source: "you",
 			answer: "vitest",
 		},
 	},
@@ -60,6 +61,7 @@ const ROWS: Row[] = [
 			age: "now",
 			session: "laptop:worker-0",
 			question: "Why",
+			source: "Agent",
 			answer: "A missing",
 		},
 	},
@@ -150,7 +152,9 @@ describe("pi questions list", () => {
 
 	/** Asserts the header and each listed row start every column at the same offset. */
 	function expectAlignedRows(lines: string[], refs: string[]): void {
-		const header = lines.find((line) => /^\s+ref\s+dir\s+state\s+age\s+session\s+question\s+answer\s*$/.test(line));
+		const header = lines.find((line) =>
+			/^\s+ref\s+dir\s+state\s+age\s+session\s+question\s+source\s+answer\s*$/.test(line),
+		);
 		expect(header).toBeDefined();
 		const offsets = Object.fromEntries(HEADERS.map((name) => [name, header?.indexOf(name) ?? -1]));
 		for (const row of ROWS.filter((candidate) => refs.includes(candidate.ref))) {
@@ -180,7 +184,11 @@ describe("pi questions list", () => {
 			expect(lines.join("\n")).toContain("All questions, last three days, newest first");
 			expectAlignedRows(lines, ["a1", "a2", "u1", "u2"]);
 			const answered = lines.find((line) => line.includes("a1 "));
+			expect(answered).toContain("you");
 			expect(answered).toContain("vitest");
+			const agentAnswer = lines.find((line) => line.includes("u1 "));
+			expect(agentAnswer).toContain("Agent");
+			expect(agentAnswer).toContain("A missing");
 
 			press(ui, "\t");
 			lines = screen(ui, width);
@@ -188,6 +196,38 @@ describe("pi questions list", () => {
 			expectAlignedRows(lines, ["a2", "u2"]);
 		});
 	}
+
+	it("shows recorded Supervisor and local-user sources without attributing historical answers", () => {
+		for (const answeredBy of ["supervisor", "local", undefined] as const) {
+			const question = `Source example ${answeredBy ?? "historical"}`;
+			const id = postSupervisorRequest(center.controlDbPath, {
+				deadlineAt: "9999-12-31T23:59:59.999Z",
+				kind: "question",
+				payload: { questions: [{ question }] },
+				projectId: "pi",
+				senderSessionId: "asker-0011223344",
+			});
+			const claimed = claimNextSupervisorRequest(center.controlDbPath, "source-test");
+			completeSupervisorRequest(center.controlDbPath, id, claimed?.claimToken ?? "", {
+				kind: "answer",
+				answers: { [question]: { answer: "yes", reason: "test" } },
+				...(answeredBy ? { answeredBy } : {}),
+			});
+		}
+		const { ui } = start(80);
+		press(ui, "\t");
+		for (const width of [80, 140]) {
+			const lines = screen(ui, width);
+			for (const [ref, source] of [
+				["a3", "Supervisor"],
+				["a4", "you"],
+				["a5", "unknown"],
+			]) {
+				const line = lines.find((candidate) => candidate.trimStart().startsWith(`${ref} `));
+				expect(line).toMatch(new RegExp(`\\s${source}\\s+yes\\s*$`));
+			}
+		}
+	});
 
 	it("clips the question and answer columns to the width and keeps the full text at a wide width", () => {
 		const { ui } = start(140);
@@ -222,6 +262,16 @@ describe("pi questions list", () => {
 		press(ui, "\x1b");
 		expect(finished()).toBe(false);
 		expect(screen(ui, 140).join("\n")).toContain("All questions, last three days, newest first");
+		for (let step = 0; step < 8; step++) {
+			const selectedRow = screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "";
+			if (/^ \u2192 u1 /.test(selectedRow)) break;
+			press(ui, "j");
+		}
+		press(ui, "\r");
+		const userQuestionDetail = screen(ui, 140).join("\n");
+		expect(userQuestionDetail).toContain("Answer    A missing lockfile entry");
+		expect(userQuestionDetail).toContain("Source    Agent");
+		press(ui, "\x1b");
 		press(ui, "\x1b");
 		expect(finished()).toBe(true);
 	});

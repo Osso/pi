@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { listSessionMetadata } from "../core/session-control-db.ts";
-import { sendSessionInspectionRequest, watchSupervisorReplies } from "./mail.ts";
+import { listSessionMetadata, registerTemporaryRuntimeMailboxWaiter } from "../core/session-control-db.ts";
+import { sendSessionInspectionRequest, sendSessionNamesRequest, watchSupervisorReplies } from "./mail.ts";
 
 const TAIL_ENTRIES = 30;
 const TEXT_LIMIT = 600;
@@ -50,6 +50,16 @@ function readTranscriptTail(sessionPath: string): string[] {
 			return isRecord(entry) && entry.type === "message" && isRecord(entry.message) ? [entry.message] : [];
 		});
 	return messages.slice(-TAIL_ENTRIES).flatMap(describeMessage);
+}
+
+/** Returns only named rows whose IDs were requested; this does not read session transcripts or other metadata. */
+export function lookupSessionNames(controlDbPath: string, sessionIds: string[]): Record<string, string> {
+	const requested = new Set(sessionIds);
+	return Object.fromEntries(
+		listSessionMetadata(controlDbPath).flatMap((session) =>
+			requested.has(session.id) && session.name ? [[session.id, session.name]] : [],
+		),
+	);
 }
 
 /**
@@ -102,5 +112,56 @@ export function inspectRemoteSession(
 		);
 		signal?.addEventListener("abort", onAbort, { once: true });
 		sendSessionInspectionRequest(controlDbPath, target, route);
+	});
+}
+
+/** Looks up only requested remote session names; relay failures return no names for honest ID fallback. */
+export function lookupRemoteSessionNames(
+	controlDbPath: string,
+	target: { host: string; sessionIds: string[] },
+	signal?: AbortSignal,
+): Promise<Record<string, string>> {
+	if (target.sessionIds.length === 0) return Promise.resolve({});
+	const route = { sessionId: `pi-questions-${randomUUID()}`, agentId: null, requestId: randomUUID() };
+	const unregister = registerTemporaryRuntimeMailboxWaiter(controlDbPath, route.sessionId);
+	return new Promise((resolve) => {
+		let stopWatching = () => {};
+		const finish = (names: Record<string, string>) => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			stopWatching();
+			unregister();
+			resolve(names);
+		};
+		const onAbort = () => finish({});
+		const timer = setTimeout(() => finish({}), REMOTE_INSPECTION_TIMEOUT_MS);
+		if (signal?.aborted) {
+			finish({});
+			return;
+		}
+		try {
+			stopWatching = watchSupervisorReplies(controlDbPath, route, (reply) => {
+				if (reply.senderHost !== target.host || reply.response.kind !== "inspection") {
+					finish({});
+					return;
+				}
+				const requested = new Set(target.sessionIds);
+				const returned = reply.response.sessionNames;
+				if (!isRecord(returned)) {
+					finish({});
+					return;
+				}
+				const names = Object.fromEntries(
+					Object.entries(returned).filter(
+						([sessionId, name]) => requested.has(sessionId) && typeof name === "string" && name.trim().length > 0,
+					),
+				);
+				finish(names);
+			});
+			signal?.addEventListener("abort", onAbort, { once: true });
+			sendSessionNamesRequest(controlDbPath, { host: target.host }, target.sessionIds, route);
+		} catch {
+			finish({});
+		}
 	});
 }

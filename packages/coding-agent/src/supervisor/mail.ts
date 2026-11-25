@@ -23,6 +23,8 @@ const REPLY_PREFIX = "supervisor_response:";
 const REQUEST_PREFIX = "supervisor_request:";
 const CANCEL_PREFIX = "supervisor_cancel:";
 const INSPECT_PREFIX = "supervisor_inspect:";
+const INSPECT_NAMES_PREFIX = "supervisor_inspect_names:";
+const INSPECT_NAMES_REPLY_PREFIX = "supervisor_inspect_names_reply:";
 const CORRECTION_PREFIX = "supervisor_correction:";
 const NOT_RUNNING_SUFFIX = "-not-running";
 const STORE_PATH = "supervisor-mail";
@@ -32,6 +34,7 @@ const MAIL_CHECK_INTERVAL_MS = 1_000;
 export interface SessionInspection {
 	kind: "inspection";
 	text: string;
+	sessionNames?: Record<string, string>;
 }
 
 export interface SupervisorReply {
@@ -43,6 +46,7 @@ export interface SupervisorReply {
 	answeredBy?: "user";
 	/** Set on the relay's notice that the Supervisor session is not running; the request stays queued for it. */
 	notRunning?: true;
+	senderHost?: string;
 }
 
 export interface SupervisorRequestEnvelope {
@@ -111,9 +115,10 @@ export function sendSupervisorReply(
 	reply: Omit<SupervisorReply, "type" | "requestId">,
 ): void {
 	const body: SupervisorReply = { type: "supervisor_response", requestId: route.requestId, ...reply };
+	const sessionNamesOnly = reply.response.kind === "inspection" && reply.response.sessionNames !== undefined;
 	enqueueMail(controlDbPath, {
-		kind: "reply",
-		messageId: `${REPLY_PREFIX}${routeKey(route)}:${reply.response.kind}`,
+		kind: sessionNamesOnly ? "system" : "reply",
+		messageId: `${sessionNamesOnly ? INSPECT_NAMES_REPLY_PREFIX : REPLY_PREFIX}${routeKey(route)}:${reply.response.kind}`,
 		body,
 		from: { sessionId: supervisorSessionId, agentId: null },
 		to: route,
@@ -243,8 +248,25 @@ export function sendSessionInspectionRequest(
 	});
 }
 
+/** Asks a remote relay for names of only the sessions already present in a question list. */
+export function sendSessionNamesRequest(
+	controlDbPath: string,
+	target: { host: string },
+	sessionIds: string[],
+	route: SupervisorReplyRoute,
+): void {
+	if (sessionIds.length === 0) return;
+	enqueueMail(controlDbPath, {
+		kind: "system",
+		messageId: `${INSPECT_NAMES_PREFIX}${routeKey(route)}`,
+		body: { type: "supervisor_inspect_names", replyTo: route, sessionIds },
+		from: { sessionId: route.sessionId, agentId: route.agentId },
+		to: { sessionId: `name-lookup-${route.requestId}`, agentId: null, host: target.host },
+	});
+}
+
 export function isSessionInspectionRequest(messageId: string): boolean {
-	return messageId.startsWith(INSPECT_PREFIX);
+	return messageId.startsWith(INSPECT_PREFIX) || messageId.startsWith(INSPECT_NAMES_PREFIX);
 }
 
 /** Answers a relayed inspection request on the host that owns the session, without waking that session. */
@@ -253,16 +275,29 @@ export function answerSessionInspectionRequest(
 	peer: string,
 	data: Record<string, unknown>,
 	describe: (sessionId: string) => string,
+	lookupNames: (sessionIds: string[]) => Record<string, string>,
 ): void {
-	const sessionId = String(data.recipientSessionId);
-	const body = JSON.parse(String(data.body)) as { replyTo: SupervisorReplyRoute };
+	const body = JSON.parse(String(data.body)) as {
+		type?: string;
+		replyTo: SupervisorReplyRoute;
+		sessionIds?: unknown;
+	};
+	const sessionNamesOnly = body.type === "supervisor_inspect_names";
+	const sessionId = sessionNamesOnly ? "pi-session-name-lookup" : String(data.recipientSessionId);
+	const sessionIds = sessionNamesOnly
+		? Array.isArray(body.sessionIds) && body.sessionIds.every((id): id is string => typeof id === "string")
+			? body.sessionIds
+			: []
+		: [];
 	sendSupervisorReply(
 		controlDbPath,
 		sessionId,
 		{ ...body.replyTo, host: peer },
 		{
 			requestKind: "supervisor_advisory",
-			response: { kind: "inspection", text: describe(sessionId) },
+			response: sessionNamesOnly
+				? { kind: "inspection", text: "", sessionNames: lookupNames(sessionIds) }
+				: { kind: "inspection", text: describe(String(data.recipientSessionId)) },
 		},
 	);
 }
@@ -324,6 +359,9 @@ export function markSupervisorQuestionAnsweredLocally(route: SupervisorReplyRout
 /** The waited-for route key of a reply or of a relay "not running" notice for a request. */
 function readMailKey(message: RuntimeMailboxMessage): string | undefined {
 	const messageId = message.storeRef.messageId;
+	if (messageId.startsWith(INSPECT_NAMES_REPLY_PREFIX)) {
+		return messageId.slice(INSPECT_NAMES_REPLY_PREFIX.length).replace(/:[a-z]+$/, "");
+	}
 	if (messageId.startsWith(REPLY_PREFIX)) return messageId.slice(REPLY_PREFIX.length).replace(/:[a-z]+$/, "");
 	if (messageId.startsWith(REQUEST_PREFIX) && messageId.endsWith(NOT_RUNNING_SUFFIX)) {
 		return messageId.slice(REQUEST_PREFIX.length, -NOT_RUNNING_SUFFIX.length);
@@ -332,7 +370,13 @@ function readMailKey(message: RuntimeMailboxMessage): string | undefined {
 }
 
 function readReply(message: RuntimeMailboxMessage, waiter: ReplyWaiter): SupervisorReply {
-	if (message.storeRef.messageId.startsWith(REPLY_PREFIX)) return parseBody(message) as unknown as SupervisorReply;
+	if (
+		message.storeRef.messageId.startsWith(REPLY_PREFIX) ||
+		message.storeRef.messageId.startsWith(INSPECT_NAMES_REPLY_PREFIX)
+	) {
+		const reply = parseBody(message) as unknown as SupervisorReply;
+		return message.senderHost ? { ...reply, senderHost: message.senderHost } : reply;
+	}
 	return {
 		type: "supervisor_response",
 		requestId: waiter.route.requestId,
@@ -356,6 +400,7 @@ export function deliverSupervisorMail(message: RuntimeMailboxMessage): boolean {
 		waiter.onReply(readReply(message, waiter));
 		return true;
 	}
+	if (message.storeRef.messageId.startsWith(INSPECT_NAMES_REPLY_PREFIX)) return true;
 	if (!message.storeRef.messageId.startsWith(REPLY_PREFIX)) return true;
 	const reply = parseBody(message) as unknown as SupervisorReply;
 	if (reply.requestKind !== "question") return true;

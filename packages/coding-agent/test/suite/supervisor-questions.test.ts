@@ -171,6 +171,10 @@ describe("Supervisor question answering", () => {
 		expect(askResult(asker).details).toMatchObject({ answeredBy: "supervisor", cancelled: false });
 		expect(askerUi.closed).toBe(1);
 		expect(requestStatuses(controlDbPath)).toEqual(["completed"]);
+		expect(readSupervisorRequest(controlDbPath, 1)?.response).toMatchObject({
+			kind: "answer",
+			answeredBy: "supervisor",
+		});
 	});
 
 	it("returns the answer the Supervisor gives after an automatic retry", async () => {

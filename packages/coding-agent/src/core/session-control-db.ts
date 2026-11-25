@@ -120,6 +120,7 @@ export {
 } from "./session-control-db/runtime-mailbox-listeners.ts";
 export {
 	registerRuntimeMailboxListener,
+	registerTemporaryRuntimeMailboxWaiter,
 	SessionOpenElsewhereError,
 } from "./session-control-db/runtime-mailbox-registration.ts";
 export {

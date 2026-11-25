@@ -14,6 +14,7 @@ import {
 	listAskTargets,
 	listQuestionEntries,
 	listSessionNames,
+	lookupQuestionSessionNames,
 	openQuestionCenter,
 	panelQuestions,
 	type QuestionCenter,
@@ -60,6 +61,7 @@ function describeUserQuestion(entry: UserQuestionEntry): string {
 		"",
 		field("Question", entry.question),
 		field("Answer", entry.answer ?? "(no answer yet)"),
+		...(entry.state === "answered" ? [field("Source", "Agent")] : []),
 		field("Session", describeAddress(entry.session)),
 		...parent,
 		askedField(entry),
@@ -67,9 +69,10 @@ function describeUserQuestion(entry: UserQuestionEntry): string {
 }
 
 function describeAnswerSource(entry: AgentQuestionEntry): string[] {
-	if (!entry.answeredBy) return [];
+	if (entry.state !== "answered") return [];
+	const source = entry.answeredBy ?? "unknown";
 	const revised = entry.revisedAt ? `, revised ${entry.revisedAt}` : "";
-	return [field("Source", `${entry.answeredBy}${revised}`)];
+	return [field("Source", `${source}${revised}`)];
 }
 
 function describeAgentQuestion(entry: AgentQuestionEntry): string {
@@ -105,13 +108,26 @@ export class QuestionsApp {
 	private readonly keybindings = KeybindingsManager.create();
 	private readonly finish: () => void;
 	private current: Component | undefined;
+	private currentList: QuestionListComponent | undefined;
 	private notice = "";
 	private showAll = false;
+	private remoteNames = new Map<string, string>();
+	private remoteNamesLoaded = false;
+	private remoteNamesLoading = false;
+	private remoteNamesController: AbortController | undefined;
+	private closed = false;
 
 	constructor(ui: TUI, center: QuestionCenter, finish: () => void) {
 		this.ui = ui;
 		this.center = center;
 		this.finish = finish;
+	}
+
+	private close(): void {
+		if (this.closed) return;
+		this.closed = true;
+		this.remoteNamesController?.abort();
+		this.finish();
 	}
 
 	private show(component: Component): void {
@@ -153,36 +169,68 @@ export class QuestionsApp {
 		this.show(input);
 	}
 
-	showList(): void {
-		const entries = listQuestionEntries(this.center).filter((entry) => this.showAll || isUnanswered(entry));
+	showList(refreshNames = false): void {
+		const allEntries = listQuestionEntries(this.center);
+		const entries = allEntries.filter((entry) => this.showAll || isUnanswered(entry));
+		this.loadRemoteNames(allEntries, refreshNames);
 		const notice = this.notice;
 		this.notice = "";
+		const sessionNames = listSessionNames(this.center);
+		for (const [key, name] of this.remoteNames) sessionNames.set(key, name);
 		const list = new QuestionListComponent({
 			heading: this.showAll ? "All questions, last three days, newest first" : "Unanswered questions, newest first",
 			notice,
 			emptyText: this.showAll ? "No questions in the last three days." : "Nothing is waiting.",
 			toggleLabel: this.showAll ? "unanswered only" : "all questions",
 			entries,
-			sessionNames: listSessionNames(this.center),
+			sessionNames,
 			now: Date.now(),
 			actions: [ASK_NEW, REFRESH],
 			closingActions: [QUIT],
 			onAction: (action) => {
 				if (action === ASK_NEW) return this.chooseTarget();
-				if (action === QUIT) return this.finish();
-				this.showList();
+				if (action === QUIT) return this.close();
+				this.showList(true);
 			},
 			onEntry: (entry) => {
 				if (entry.direction === "user") return this.showUserQuestion(entry);
 				this.showAgentQuestion(entry);
 			},
-			onCancel: this.finish,
+			onCancel: () => this.close(),
 			onToggleAll: () => {
 				this.showAll = !this.showAll;
 				this.showList();
 			},
 		});
+		this.currentList = list;
 		this.show(list);
+	}
+
+	private loadRemoteNames(entries: QuestionEntry[], refresh: boolean): void {
+		if (this.closed || this.remoteNamesLoading || (this.remoteNamesLoaded && !refresh)) return;
+		this.remoteNamesLoading = true;
+		const controller = new AbortController();
+		this.remoteNamesController = controller;
+		void lookupQuestionSessionNames(this.center, entries, controller.signal).then(
+			(names) => {
+				this.remoteNamesLoaded = true;
+				this.remoteNamesLoading = false;
+				this.remoteNamesController = undefined;
+				if (this.closed) return;
+				this.remoteNames = names;
+				if (this.current === this.currentList && this.currentList) {
+					const sessionNames = listSessionNames(this.center);
+					for (const [key, name] of this.remoteNames) sessionNames.set(key, name);
+					this.currentList.updateSessionNames(sessionNames);
+					this.ui.requestRender();
+				}
+			},
+			() => {
+				this.remoteNamesLoaded = true;
+				this.remoteNamesLoading = false;
+				this.remoteNamesController = undefined;
+			},
+		);
 	}
 
 	private showAgentQuestion(entry: AgentQuestionEntry): void {

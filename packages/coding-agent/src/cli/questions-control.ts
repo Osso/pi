@@ -32,10 +32,11 @@ function describeEntry(entry: QuestionEntry): string {
 	const head = `${entry.ref} ${entry.state} ${entry.createdAt} ${where}`;
 	if (entry.direction === "user") {
 		const parent = entry.parentId === undefined ? "" : ` (follow-up to u${entry.parentId})`;
-		const answer = entry.answer === undefined ? [] : [`  → ${entry.answer}`];
+		const answer = entry.answer === undefined ? [] : [`  answer source: Agent`, `  → ${entry.answer}`];
 		return [`${head}${parent}`, `  you asked: ${entry.question}`, ...answer].join("\n");
 	}
-	const source = entry.answeredBy ? ` by ${entry.answeredBy}${entry.revisedAt ? " (revised)" : ""}` : "";
+	const source =
+		entry.state === "answered" ? ` by ${entry.answeredBy ?? "unknown"}${entry.revisedAt ? " (revised)" : ""}` : "";
 	const lines = entry.questions.map((question) => {
 		const answer = entry.answers?.[question.question];
 		return `  ${question.question}${answer === undefined ? "" : ` → ${answer}`}`;

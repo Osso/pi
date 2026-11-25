@@ -123,6 +123,30 @@ describe("pi control questions", () => {
 		expect(run("list").out).toContain("by user (revised)");
 	});
 
+	it("labels user-question answers as Agent and historical answers without a source as unknown", () => {
+		run("ask", "worker", "Why did the build fail?");
+		recordUserQuestionAnswer(controlDbPath, 1, "A missing lockfile entry.");
+		expect(run("list").out).toContain("answer source: Agent");
+		expect(run("list").out).toContain("→ A missing lockfile entry.");
+
+		escalatedQuestion();
+		run("answer", "a1", "vitest");
+		const db = new DatabaseSync(controlDbPath);
+		try {
+			db.prepare(
+				"UPDATE supervisor_requests SET response_json = json_remove(response_json, '$.answeredBy') WHERE id = 1",
+			).run();
+		} finally {
+			db.close();
+		}
+
+		const output = run("list").out;
+		expect(output).toContain("a1 answered");
+		expect(output).toContain("by unknown");
+		expect(output).toContain(`${QUESTION} → vitest`);
+		expect(output).not.toContain("by supervisor");
+	});
+
 	it("answers a question that ended without an answer and sends the answer to the asker", () => {
 		escalatedQuestion();
 		cancelSupervisorRequest(

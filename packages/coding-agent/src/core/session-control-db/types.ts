@@ -114,8 +114,8 @@ export type SupervisorResponse =
 	| {
 			kind: "answer";
 			answers: Record<string, SupervisorQuestionAnswer>;
-			/** Absent for a Supervisor answer. */
-			answeredBy?: Exclude<QuestionAnswerSource, "supervisor">;
+			/** Absent in historical records that did not store an answer source. */
+			answeredBy?: QuestionAnswerSource;
 			/** Set when the user revised an earlier answer. */
 			revisedAt?: string;
 	  }
