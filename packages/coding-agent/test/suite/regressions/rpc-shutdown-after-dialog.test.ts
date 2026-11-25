@@ -90,7 +90,9 @@ it("shuts down RPC mode when a turn started by an extension requests it", async 
 		);
 		agent.respondToLlmRequest(
 			request.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Done" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "Done" })], {
+				stopReason: "toolUse",
+			}),
 		);
 
 		await vi.waitFor(() => expect(existsSync(marker)).toBe(true), { timeout: 10_000, interval: 50 });

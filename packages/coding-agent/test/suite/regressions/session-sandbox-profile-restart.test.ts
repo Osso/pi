@@ -70,9 +70,13 @@ async function finishToolTurn(agent: HeadlessPi, request: HeadlessLlmRequest): P
 	const toolCallId = `end-${request.id}`;
 	agent.respondToLlmRequest(
 		request.id,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Tool result observed" }, { id: toolCallId }), {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "Tool result observed." },
+				fauxToolCall("end_turn", { reason: "Tool result observed" }, { id: toolCallId }),
+			],
+			{ stopReason: "toolUse" },
+		),
 	);
 	await agent.waitForSessionEntry(
 		null,

@@ -79,7 +79,9 @@ function respond(fixture: Fixture, request: ProviderRequest, tool: string): void
 			type: "response",
 			requestId: request.id,
 			message: fauxAssistantMessage(
-				fauxToolCall(tool, tool === "end_turn" ? { reason: "Usage all test complete" } : {}),
+				tool === "end_turn"
+					? [{ type: "text", text: "Done." }, fauxToolCall(tool, { reason: "Usage all test complete" })]
+					: fauxToolCall(tool, {}),
 				{ stopReason: "toolUse" },
 			),
 		})}\n`,
