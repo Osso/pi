@@ -35,9 +35,10 @@ import {
 import {
 	createCanonicalPyrunEvalParams,
 	createPyrunProgressReporter,
-	formatCanonicalPyrunEvalResult,
+	formatStreamedPyrunEvalResult,
 	type PyrunEvalParams,
 	type PyrunPiRequestDispatcher,
+	type PyrunProgressReporter,
 	withStreamedConsole,
 } from "./eval-tool.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
@@ -68,7 +69,7 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const controller = createPyrunLifecycleController(input, persistence);
 	const restored = await restoreForegroundPyrunRunner(input, persistence);
 	if (restored?.kind === "aborted") return formatTerminalAgentError(input.params, restored.agent);
-	if (restored?.kind === "terminal") return formatCanonicalPyrunEvalResult(input.params, restored.result);
+	if (restored?.kind === "terminal") return formatPyrunArtifactResult(input.params, restored.result, restored.records);
 	if (restored?.kind === "lost_runtime") {
 		return formatLostPyrunRuntime(input.params, restored.records, restored.outputPath);
 	}
@@ -125,7 +126,7 @@ type PyrunLaunchManifest = ReturnType<typeof readDetachedPyrunLaunchManifest>;
 type PyrunResumeDecision =
 	| { kind: "resume"; runner: RestoredPyrunRunner }
 	| { kind: "aborted"; agent: AgentSnapshot }
-	| { kind: "terminal"; result: CanonicalPyrunEvalResult }
+	| { kind: "terminal"; records: PyrunArtifactRecord[]; result: CanonicalPyrunEvalResult }
 	| { kind: "lost_runtime"; outputPath: string; records: PyrunArtifactRecord[] };
 
 const EMPTY_PYRUN_RUNNER_ERROR = "Pyrun runner failed without diagnostic output.";
@@ -169,7 +170,7 @@ function restorePyrunCandidate(
 	}
 	const records = readCompletePyrunArtifactRecords(manifest.artifacts.outputPath);
 	const terminalResult = restoreTerminalPyrunResult(records);
-	if (terminalResult) return { kind: "terminal", result: terminalResult };
+	if (terminalResult) return { kind: "terminal", records, result: terminalResult };
 	const runnerError = readForegroundPyrunRunnerError(candidate.manifestPath, manifest.activationPath);
 	if (runnerError !== undefined) {
 		failForegroundPyrunRunner(runnerError, manifest.foregroundCompletionPath, manifest.runnerProcessIdentity);
@@ -273,13 +274,16 @@ function readCompletePyrunArtifactRecords(path: string): PyrunArtifactRecord[] {
 		.map((line) => JSON.parse(line) as PyrunArtifactRecord);
 }
 
-function pyrunConsoleRecords(records: PyrunArtifactRecord[]): string[] {
-	return records.flatMap((record) => {
-		if (record.kind !== "progress" || record.update.type !== "console" || typeof record.update.text !== "string") {
-			return [];
-		}
-		return [record.update.text];
-	});
+function formatPyrunArtifactResult(
+	params: PyrunEvalParams,
+	result: CanonicalPyrunEvalResult,
+	records: PyrunArtifactRecord[],
+): AgentToolResult<CanonicalPyrunEvalResult> {
+	const reporter = createPyrunProgressReporter(undefined);
+	for (const record of records) {
+		if (record.kind === "progress") reporter(record.update);
+	}
+	return formatStreamedPyrunEvalResult(params, result, reporter);
 }
 
 function restoreTerminalPyrunResult(records: PyrunArtifactRecord[]): CanonicalPyrunEvalResult | undefined {
@@ -287,10 +291,7 @@ function restoreTerminalPyrunResult(records: PyrunArtifactRecord[]): CanonicalPy
 	for (const record of records) {
 		if (record.kind === "progress" || record.kind === "truncation") continue;
 		if (terminalResult) throw new Error("Pyrun output artifact contains multiple terminal records");
-		terminalResult =
-			record.kind === "result"
-				? record.result
-				: { console: pyrunConsoleRecords(records), error: record.error, type: "error" };
+		terminalResult = record.kind === "result" ? record.result : { error: record.error, type: "error" };
 	}
 	return terminalResult;
 }
@@ -301,12 +302,15 @@ function formatLostPyrunRuntime(
 	outputPath: string,
 ): AgentToolResult<unknown> {
 	const error = "Pyrun runner exited before producing a result.";
-	const formatted = formatCanonicalPyrunEvalResult(params, {
-		console: pyrunConsoleRecords(records),
-		error,
-		executed: params.code,
-		type: "error",
-	});
+	const formatted = formatPyrunArtifactResult(
+		params,
+		{
+			error,
+			executed: params.code,
+			type: "error",
+		},
+		records,
+	);
 	return {
 		...formatted,
 		content: formatted.content.map((item) =>
@@ -426,6 +430,7 @@ function settleForegroundEvaluation(
 	artifactRead: JsonLineReadResult<PyrunArtifactRecord>,
 	result: CanonicalPyrunEvalResult | undefined,
 	ownership: PyrunOwnership | undefined,
+	reporter: PyrunProgressReporter,
 ): AgentToolResult<unknown> | undefined {
 	if (ownership) return undefined;
 	const foregroundError = artifactRead.values.find((record) => record.kind === "error");
@@ -435,7 +440,7 @@ function settleForegroundEvaluation(
 	}
 	if (result) {
 		writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
-		return formatCanonicalPyrunEvalResult(input.params, result);
+		return formatStreamedPyrunEvalResult(input.params, result, reporter);
 	}
 	if (artifactRead.hasUnreadBytes) return undefined;
 	const runnerError = readForegroundPyrunRunnerError(input.runner.manifestPath, input.runner.activationPath);
@@ -482,8 +487,9 @@ function formatCompletedPyrunObservation(
 	params: PyrunEvalParams,
 	result: CanonicalPyrunEvalResult | undefined,
 	terminalAgent: AgentSnapshot | undefined,
+	reporter: PyrunProgressReporter,
 ): AgentToolResult<unknown> {
-	if (result) return formatCanonicalPyrunEvalResult(params, result);
+	if (result) return formatStreamedPyrunEvalResult(params, result, reporter);
 	if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
 	return formatTerminalAgentError(params, terminalAgent);
 }
@@ -515,7 +521,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
 			result = progressAccumulator.consume(artifactRead.values) ?? result;
 			const ownership = control.getOwnership();
-			const foregroundResult = settleForegroundEvaluation(input, artifactRead, result, ownership);
+			const foregroundResult = settleForegroundEvaluation(input, artifactRead, result, ownership, reportProgress);
 			if (foregroundResult) return foregroundResult;
 			nextLivenessCheckAt = checkForegroundLiveness(
 				input,
@@ -530,7 +536,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			}
 			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
 		}
-		return formatCompletedPyrunObservation(input.params, result, terminalAgent);
+		return formatCompletedPyrunObservation(input.params, result, terminalAgent, reportProgress);
 	} catch (error) {
 		throw withStreamedConsole(error, reportProgress);
 	} finally {

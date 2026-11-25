@@ -256,6 +256,16 @@ export function withStreamedConsole(error: unknown, reporter: PyrunProgressRepor
 	return new Error(`${consoleText}\n\n${error instanceof Error ? error.message : String(error)}`, { cause: error });
 }
 
+/** The runner caps its returned history by entry and drops it on error results; the streamed text is complete. */
+export function formatStreamedPyrunEvalResult(
+	params: PyrunEvalParams,
+	result: CanonicalPyrunEvalResult,
+	reporter: PyrunProgressReporter,
+): AgentToolResult<CanonicalPyrunEvalResult> {
+	const streamed = reporter.consoleText().replace(/\n$/, "");
+	return formatCanonicalPyrunEvalResult(params, streamed ? { ...result, console: streamed.split("\n") } : result);
+}
+
 export function createPyrunEvalExecutor(
 	runner: PyrunRunnerClient,
 	dispatchPiRequest?: PyrunPiRequestDispatcher,
@@ -283,8 +293,6 @@ export function createPyrunEvalExecutor(
 			.catch((error: unknown) => {
 				throw withStreamedConsole(error, reporter);
 			});
-		// The runner caps its returned history by entry and drops it on error results; the streamed text is complete.
-		const streamed = reporter.consoleText().replace(/\n$/, "");
-		return formatCanonicalPyrunEvalResult(params, streamed ? { ...result, console: streamed.split("\n") } : result);
+		return formatStreamedPyrunEvalResult(params, result, reporter);
 	};
 }

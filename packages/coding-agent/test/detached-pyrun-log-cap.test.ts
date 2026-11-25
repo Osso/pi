@@ -105,7 +105,11 @@ describe("detached Pyrun log cap", () => {
 		expect(prefix.length).toBeLessThanOrEqual(CAP);
 		release(fixture.root);
 		const final = await fixture.evaluation;
-		expect(final.details).toMatchObject({ type: "completed", value: "", console: ["terminal console"] });
+		// A foreground result shows the tail-capped streamed console, so every line is flooded output.
+		expect(final.details).toMatchObject({ type: "completed", value: "" });
+		const finalConsole = (final.details as { console: string[] }).console;
+		expect(finalConsole.length).toBeGreaterThan(0);
+		expect(finalConsole.every((line) => /^(\d+:é)?x+$/u.test(line))).toBe(true);
 		const bytes = readFileSync(fixture.outputPath);
 		expect(bytes.length).toBeLessThanOrEqual(CAP);
 		expect(bytes.subarray(0, prefix.length).equals(prefix)).toBe(true);
@@ -177,7 +181,10 @@ describe("detached Pyrun log cap", () => {
 			result: { type: "completed", value: "" },
 		});
 		const resumed = await runDurableDetachablePyrunEvaluation(fixture.input);
-		expect(resumed.details).toMatchObject({ type: "completed", value: "", console: ["terminal console"] });
+		expect(resumed.details).toMatchObject({ type: "completed", value: "" });
+		const resumedConsole = (resumed.details as { console: string[] }).console;
+		expect(resumedConsole.length).toBeGreaterThan(0);
+		expect(resumedConsole.every((line) => /^x+$/u.test(line))).toBe(true);
 	}, 30_000);
 
 	it("resumes observation from a live manifest while the tail is buffered", async () => {

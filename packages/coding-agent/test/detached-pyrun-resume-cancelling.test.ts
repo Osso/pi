@@ -408,7 +408,7 @@ describe("resuming durable Pyrun artifacts", () => {
 		const resumed = await replayInterruptedCall(fixture, {});
 
 		expect(resumed).toMatchObject({ details: { type: "completed", value: 42 }, isError: false });
-		expect(JSON.stringify(resumed.content)).toContain("terminal output");
+		expect(resumed.content).toEqual([{ type: "text", text: "original code\n\nstreamed output\n42" }]);
 		expect(readFileSync(fixture.outputPath, "utf8")).toBe(output);
 		expect(existsSync(fixture.manifestPath)).toBe(true);
 		expect(existsSync(fixture.scriptPath)).toBe(true);

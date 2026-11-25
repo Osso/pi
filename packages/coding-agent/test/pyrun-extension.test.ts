@@ -1530,6 +1530,22 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(readToolText(result)).toContain("old-199\nnew-199");
 	});
 
+	it("retains flushed fragments and console before serialization errors in durable foreground evaluations", async () => {
+		const harness = createPyrunHarness({
+			backgroundJobs: { store: new MultiAgentStore() },
+			detachRegistry: new ToolDetachRegistry(),
+		});
+		const flushed = await harness.evaluate({ code: "print.flush_fragments()" });
+
+		expect.soft(readToolText(flushed)).toBe(`print.flush_fragments()\n\nSTART${"x".repeat(300)}\ndone`);
+
+		const code = 'a = []; a.append(a)\nprint("CHECKPOINT")\na';
+		const failed = await harness.evaluate({ code });
+
+		expect.soft(readToolText(failed)).toBe(`${code}\n\nCHECKPOINT\nError: maximum recursion depth exceeded`);
+		expect.soft(failed.isError).toBe(true);
+	});
+
 	it("uses the same visible progress formatting for durable foreground evaluations", async () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new ToolDetachRegistry();
