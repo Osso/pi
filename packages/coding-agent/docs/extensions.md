@@ -2176,6 +2176,8 @@ pi.registerTool({
 
 **Operations interfaces:** `ReadOperations`, `WriteOperations`, `EditOperations`, `BashOperations`, `LsOperations`, `GrepOperations`, `FindOperations`
 
+For `read`, custom operations can implement `stat` and `createReadStream` to support bounded pagination of large text files. `createReadStream(absolutePath, { signal })` returns an `AsyncIterable<Uint8Array>`. Without these optional operations, the tool can fall back to reading the entire file with `readFile`.
+
 For `user_bash`, extensions can reuse pi's local shell backend via `createLocalBashOperations()` instead of reimplementing local process spawning, shell resolution, and process-tree termination.
 
 The bash tool also supports a spawn hook to adjust the command, cwd, or env before execution:
