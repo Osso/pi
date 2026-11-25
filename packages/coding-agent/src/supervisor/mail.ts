@@ -23,6 +23,7 @@ const REPLY_PREFIX = "supervisor_response:";
 const REQUEST_PREFIX = "supervisor_request:";
 const CANCEL_PREFIX = "supervisor_cancel:";
 const INSPECT_PREFIX = "supervisor_inspect:";
+const CORRECTION_PREFIX = "supervisor_correction:";
 const NOT_RUNNING_SUFFIX = "-not-running";
 const STORE_PATH = "supervisor-mail";
 const MAIL_CHECK_INTERVAL_MS = 1_000;
@@ -57,6 +58,8 @@ interface SupervisorCancelEnvelope {
 	type: "supervisor_cancel";
 	replyTo: SupervisorReplyRoute;
 	reason: string;
+	/** The answers the user gave in the asker's own panel, stored with the question. */
+	localAnswers?: Record<string, string>;
 }
 
 /** Where the Supervisor session runs; `host` is set only when it is another machine. */
@@ -117,6 +120,36 @@ export function sendSupervisorReply(
 	});
 }
 
+/**
+ * Sends the user's revised answers to the session that asked. It is a new inbox message, not a reply:
+ * the original question already has its answer, and the asking turn may be long over.
+ */
+export function sendQuestionCorrection(
+	controlDbPath: string,
+	supervisorSessionId: string,
+	route: SupervisorReplyRoute,
+	answers: Record<string, string>,
+	revisedAt: string,
+): void {
+	const lines = Object.entries(answers).map(([question, answer]) => `- ${question} → ${answer}`);
+	const messageId = `${CORRECTION_PREFIX}${routeKey(route)}:${revisedAt}`;
+	enqueueStoredRuntimeMailboxMessage(controlDbPath, {
+		kind: "message",
+		message: {
+			body: [`User revised answers (request ${route.requestId}):`, ...lines].join("\n"),
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			fromAgentId: "main",
+			toAgentId: route.agentId ?? "main",
+		},
+		recipient: { sessionId: route.sessionId, agentId: route.agentId },
+		...(route.host ? { recipientHost: route.host } : {}),
+		sender: { sessionId: supervisorSessionId, agentId: null },
+		storeRef: { messageId, sessionPath: STORE_PATH },
+	});
+}
+
 /** Queues a request for the Supervisor session on another host. */
 export function sendRemoteSupervisorRequest(
 	controlDbPath: string,
@@ -138,8 +171,14 @@ export function sendRemoteSupervisorCancel(
 	supervisor: SupervisorAddress,
 	route: SupervisorReplyRoute,
 	reason: string,
+	localAnswers?: Record<string, string>,
 ): void {
-	const body: SupervisorCancelEnvelope = { type: "supervisor_cancel", replyTo: route, reason };
+	const body: SupervisorCancelEnvelope = {
+		type: "supervisor_cancel",
+		replyTo: route,
+		reason,
+		...(localAnswers ? { localAnswers } : {}),
+	};
 	enqueueMail(controlDbPath, {
 		kind: "message",
 		messageId: `${CANCEL_PREFIX}${routeKey(route)}`,
@@ -170,18 +209,19 @@ export function submitSupervisorRequest(
 	notifySupervisorRequest(controlDbPath);
 }
 
-/** Cancels a submitted request that is still pending or being evaluated. */
+/** Cancels a submitted request that is still pending, being evaluated, or escalated. */
 export function cancelSubmittedSupervisorRequest(
 	controlDbPath: string,
 	supervisor: SupervisorAddress,
 	route: SupervisorReplyRoute,
 	reason: string,
+	localAnswers?: Record<string, string>,
 ): void {
 	if (isRemoteHost(supervisor.host)) {
-		sendRemoteSupervisorCancel(controlDbPath, supervisor, route, reason);
+		sendRemoteSupervisorCancel(controlDbPath, supervisor, route, reason, localAnswers);
 		return;
 	}
-	if (cancelSupervisorRequest(controlDbPath, route, reason)) notifySupervisorRequest(controlDbPath);
+	if (cancelSupervisorRequest(controlDbPath, route, reason, localAnswers)) notifySupervisorRequest(controlDbPath);
 }
 
 /** Asks the relay on `target.host` to describe a session there; the answer arrives as a reply to `route`. */
@@ -239,7 +279,9 @@ export function ingestSupervisorRequestMail(controlDbPath: string, message: Runt
 	const messageId = message.storeRef.messageId;
 	if (messageId.startsWith(CANCEL_PREFIX)) {
 		const cancel = parseBody(message) as unknown as SupervisorCancelEnvelope;
-		if (cancelSupervisorRequest(controlDbPath, cancel.replyTo, cancel.reason)) notifySupervisorRequest(controlDbPath);
+		if (cancelSupervisorRequest(controlDbPath, cancel.replyTo, cancel.reason, cancel.localAnswers)) {
+			notifySupervisorRequest(controlDbPath);
+		}
 		return true;
 	}
 	if (!messageId.startsWith(REQUEST_PREFIX)) return false;

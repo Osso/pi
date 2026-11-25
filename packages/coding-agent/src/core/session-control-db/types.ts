@@ -14,6 +14,8 @@ export const MAILBOX_CREATED_AT_MS_SQL = `COALESCE(CASE WHEN json_valid(data) TH
 	CAST(ROUND((julianday(json_extract(data, '$.createdAt')) - 2440587.5) * 86400000) AS INTEGER)
 	END END, -8640000000000000)`;
 export const MAILBOX_RETENTION_POLL_MS = 60_000;
+/** How long user-facing question rows (both directions) stay in the store, whatever their status. */
+export const QUESTION_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -95,7 +97,11 @@ export type SupervisorRequestKind =
 	| "question"
 	| "supervisor_advisory";
 
-export type SupervisorRequestStatus = "pending" | "claimed" | "completed" | "cancelled";
+/** `escalated`: a question the Supervisor passed to the user; it stays open until answered or withdrawn. */
+export type SupervisorRequestStatus = "pending" | "claimed" | "escalated" | "completed" | "cancelled";
+
+/** Who gave a stored question answer: the Supervisor, the user through the Supervisor UI or CLI, or the asker's own panel. */
+export type QuestionAnswerSource = "supervisor" | "user" | "local";
 
 export type SupervisorResponse =
 	| { kind: "approve" | "reject"; reason: string }
@@ -105,7 +111,14 @@ export type SupervisorResponse =
 	| { kind: "wait"; reason: string }
 	| { kind: "set"; objective: string; reason: string }
 	| { kind: "advisory"; answer: string }
-	| { kind: "answer"; answers: Record<string, SupervisorQuestionAnswer> }
+	| {
+			kind: "answer";
+			answers: Record<string, SupervisorQuestionAnswer>;
+			/** Absent for a Supervisor answer. */
+			answeredBy?: Exclude<QuestionAnswerSource, "supervisor">;
+			/** Set when the user revised an earlier answer. */
+			revisedAt?: string;
+	  }
 	| { kind: "escalate"; reason: string }
 	| { kind: "error"; reason: string };
 

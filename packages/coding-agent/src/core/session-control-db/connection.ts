@@ -20,6 +20,7 @@ import {
 	LIFECYCLE_PROTOCOL_SCHEMA_VERSION,
 	MAILBOX_CREATED_AT_MS_SQL,
 	MAILBOX_RETENTION_POLL_MS,
+	QUESTION_RETENTION_MS,
 } from "./types.ts";
 
 export function prepareControlDbForSelfRestart(controlDbPath: string, processId: number): void {
@@ -150,7 +151,10 @@ export function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: numb
 	cleanupExpiredMessages(db);
 }
 
-/** Mailbox messages, shared-channel messages, finished Supervisor requests and terminal agents share one 24h retention. */
+/**
+ * Mailbox messages, shared-channel messages, finished Supervisor requests and terminal agents share one 24h
+ * retention. Question requests stay three days from creation, whatever their status.
+ */
 
 export function cleanupExpiredMessages(db: SqliteDatabase): void {
 	const cutoff = Date.now() - MAILBOX_MESSAGE_RETENTION_MS;
@@ -168,9 +172,14 @@ export function cleanupExpiredMessages(db: SqliteDatabase): void {
 		.get(channelCutoff);
 	if (channelDue) db.prepare("DELETE FROM shared_channel_messages WHERE created_at <= ?").run(channelCutoff);
 	const finishedSupervisorRequests =
-		"FROM supervisor_requests WHERE status IN ('completed', 'cancelled') AND completed_at <= ?";
+		"FROM supervisor_requests WHERE kind != 'question' AND status IN ('completed', 'cancelled') AND completed_at <= ?";
 	if (db.prepare(`SELECT 1 ${finishedSupervisorRequests} LIMIT 1`).get(channelCutoff)) {
 		db.prepare(`DELETE ${finishedSupervisorRequests}`).run(channelCutoff);
+	}
+	const questionCutoff = new Date(Date.now() - QUESTION_RETENTION_MS).toISOString();
+	const expiredQuestions = "FROM supervisor_requests WHERE kind = 'question' AND created_at <= ?";
+	if (db.prepare(`SELECT 1 ${expiredQuestions} LIMIT 1`).get(questionCutoff)) {
+		db.prepare(`DELETE ${expiredQuestions}`).run(questionCutoff);
 	}
 	cleanupExpiredTerminalAgents(db, channelCutoff);
 }

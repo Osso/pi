@@ -8,9 +8,17 @@ import supervisorSessionExtension from "../../extensions/supervisor-session/src/
 import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
 import type { ExtensionUIContext } from "../../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../../src/core/keybindings.ts";
-import { getControlDbPath, readSupervisorRequest } from "../../src/core/session-control-db.ts";
+import {
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
+	getControlDbPath,
+	listRuntimeMailboxMessages,
+	postSupervisorRequest,
+	readSupervisorRequest,
+} from "../../src/core/session-control-db.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { sendSupervisorReply } from "../../src/supervisor/mail.ts";
+import { answerQuestionAsUser, reviseQuestionAsUser } from "../../src/supervisor/question-answers.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
@@ -197,6 +205,11 @@ describe("Supervisor question answering", () => {
 		expect(resultText(asker)).toContain("User answered questions:");
 		expect(askResult(asker).details).toMatchObject({ answers: { [QUESTION]: "vitest" }, cancelled: false });
 		expect(requestStatuses(controlDbPath)).toEqual(["cancelled"]);
+		expect(readSupervisorRequest(controlDbPath, 1)?.response).toMatchObject({
+			kind: "answer",
+			answeredBy: "local",
+			answers: { [QUESTION]: { answer: "vitest" } },
+		});
 	});
 
 	it("escalates to a panel in the Supervisor UI and returns the user's answer there", async () => {
@@ -303,4 +316,66 @@ describe("Supervisor question answering", () => {
 		expect(inboxText(asker)).toContain("jest (Supervisor: The repo already uses jest)");
 		expect(askerUi.closed).toBe(1);
 	});
+
+	it("reopens a stored escalated question when the Supervisor session starts", async () => {
+		const controlDbPath = sharedControlDb();
+		// An escalation left open by a Supervisor process that stopped with its panel open.
+		const route = { sessionId: "asker", agentId: null, requestId: "call-1" };
+		const id = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "9999-12-31T23:59:59.999Z",
+			kind: "question",
+			payload: {
+				blocking: true,
+				questions: [{ question: QUESTION, options: [{ label: "vitest" }, { label: "jest" }] }],
+			},
+			projectId: "pi",
+			replyTo: route,
+			senderSessionId: "asker",
+		});
+		const claimed = claimNextSupervisorRequest(controlDbPath, "stopped-supervisor");
+		completeSupervisorRequest(controlDbPath, id, claimed?.claimToken ?? "", {
+			kind: "escalate",
+			reason: "Tradeoff.",
+		});
+
+		const supervisorUi = panelUi();
+		await openSupervisor(controlDbPath, supervisorUi);
+		await waitFor(() => supervisorUi.panels.length === 1);
+		supervisorUi.panels[0]?.handleInput?.(ENTER);
+		await waitFor(() => readSupervisorRequest(controlDbPath, id)?.status === "completed");
+
+		expect(readSupervisorRequest(controlDbPath, id)?.response).toMatchObject({
+			answeredBy: "user",
+			answers: { [QUESTION]: { answer: "vitest" } },
+		});
+		expect(listRuntimeMailboxMessages(controlDbPath).map((message) => message.storeRef.messageId)).toContain(
+			"supervisor_response:asker:main:call-1:answer",
+		);
+	});
+
+	it("closes the Supervisor panel when the CLI answers, then delivers a revision as a correction", async () => {
+		const controlDbPath = sharedControlDb();
+		const supervisorUi = panelUi();
+		const supervisor = await openSupervisor(controlDbPath, supervisorUi);
+		const supervisorSessionId = supervisor.sessionManager.getSessionId();
+		supervisor.setResponses([supervisorResponse({ kind: "escalate", reason: "This is a product tradeoff." })]);
+		const askerUi = panelUi();
+		const asker = await openSession(controlDbPath, askerUi, supervisorSessionId);
+		asker.setResponses([askCall(true), fauxAssistantMessage("Using vitest."), fauxAssistantMessage("Switching.")]);
+		const turn = asker.session.prompt("Pick a runner.");
+		await waitFor(() => supervisorUi.panels.length === 1);
+
+		expect(answerQuestionAsUser(controlDbPath, supervisorSessionId, 1, { [QUESTION]: "vitest" })).toBeDefined();
+		await turn;
+		await waitFor(() => supervisorUi.closed === 1);
+		expect(askResult(asker).details).toMatchObject({ answers: { [QUESTION]: "vitest" }, answeredBy: "user" });
+
+		expect(reviseQuestionAsUser(controlDbPath, supervisorSessionId, 1, { [QUESTION]: "jest" })).toBeDefined();
+		await waitFor(() => inboxText(asker).includes("User revised answers (request"));
+		expect(inboxText(asker)).toContain(`- ${QUESTION} → jest`);
+		expect(readSupervisorRequest(controlDbPath, 1)?.response).toMatchObject({
+			answeredBy: "user",
+			answers: { [QUESTION]: { answer: "jest" } },
+		});
+	}, 45_000);
 });

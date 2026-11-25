@@ -208,7 +208,8 @@ export async function evaluateAndCompleteSupervisorRequest(
 ): Promise<void> {
 	await recordSupervisorRequestOutcome(controlDbPath, request, evaluate);
 	const completed = readSupervisorRequest(controlDbPath, request.id);
-	if (completed?.status !== "completed" || !completed.response || !completed.replyTo) return;
+	if (!completed?.response || !completed.replyTo) return;
+	if (completed.status !== "completed" && completed.status !== "escalated") return;
 	sendSupervisorReply(controlDbPath, supervisorSessionId, completed.replyTo, {
 		requestKind: completed.kind,
 		response: completed.response,

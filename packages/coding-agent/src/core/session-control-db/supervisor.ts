@@ -2,13 +2,15 @@ import type { SqliteDatabase } from "../sqlite.ts";
 import { parseStoredJsonObject, requireStringField } from "./codecs.ts";
 import { withControlDb } from "./connection.ts";
 import { withImmediateTransaction } from "./helpers.ts";
-import type {
-	PostSupervisorRequestInput,
-	SupervisorReplyRoute,
-	SupervisorRequest,
-	SupervisorRequestKind,
-	SupervisorRequestStatus,
-	SupervisorResponse,
+import {
+	type PostSupervisorRequestInput,
+	QUESTION_RETENTION_MS,
+	type SupervisorQuestionAnswer,
+	type SupervisorReplyRoute,
+	type SupervisorRequest,
+	type SupervisorRequestKind,
+	type SupervisorRequestStatus,
+	type SupervisorResponse,
 } from "./types.ts";
 
 export type SupervisorRequestRow = {
@@ -90,17 +92,27 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 	});
 }
 
-/** Cancels the pending or claimed request that replies to `route`; true when one was cancelled. */
-export function cancelSupervisorRequest(controlDbPath: string, route: SupervisorReplyRoute, reason: string): boolean {
+/**
+ * Cancels the pending, claimed, or escalated request that replies to `route`; true when one was cancelled.
+ * `localAnswers` are the answers the asker gave in its own panel; they stay in the row as a `local` answer.
+ */
+export function cancelSupervisorRequest(
+	controlDbPath: string,
+	route: SupervisorReplyRoute,
+	reason: string,
+	localAnswers?: Record<string, string>,
+): boolean {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const response: SupervisorResponse = { kind: "error", reason };
+			const response: SupervisorResponse = localAnswers
+				? { kind: "answer", answers: toStoredAnswers(localAnswers), answeredBy: "local" }
+				: { kind: "error", reason };
 			const result = db
 				.prepare(
 					`UPDATE supervisor_requests
 					 SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
 					 WHERE sender_session_id = ? AND json_extract(reply_to_json, '$.requestId') = ?
-					   AND (status IN ('pending', 'claimed') OR (kind = 'question' AND status = 'completed'))`,
+					   AND status IN ('pending', 'claimed', 'escalated')`,
 				)
 				.run(new Date().toISOString(), JSON.stringify(response), route.sessionId, route.requestId);
 			return result.changes === 1;
@@ -238,13 +250,90 @@ export function completeSupervisorRequest(
 		if (!isSupervisorResponseValidForRequest(request.kind, response.kind)) {
 			throw new Error(`Invalid Supervisor response kind ${response.kind} for ${request.kind}`);
 		}
+		// A question the Supervisor did not answer waits for the user; it is not finished yet.
+		const escalated = request.kind === "question" && response.kind !== "answer";
 		const result = db
 			.prepare(
 				`UPDATE supervisor_requests
-				 SET status = 'completed', completed_at = ?, response_json = ?
+				 SET status = ?, completed_at = ?, response_json = ?
 				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
 			)
-			.run(new Date().toISOString(), JSON.stringify(response), requestId, claimToken);
+			.run(
+				escalated ? "escalated" : "completed",
+				escalated ? null : new Date().toISOString(),
+				JSON.stringify(response),
+				requestId,
+				claimToken,
+			);
 		if (result.changes !== 1) throw new Error(`Supervisor request claim lost: ${requestId}`);
+	});
+}
+
+function toStoredAnswers(answers: Record<string, string>): Record<string, SupervisorQuestionAnswer> {
+	return Object.fromEntries(Object.entries(answers).map(([question, answer]) => [question, { answer, reason: "" }]));
+}
+
+/** Question rows of the last three days, newest first. */
+export function listQuestionRequests(controlDbPath: string): SupervisorRequest[] {
+	const cutoff = new Date(Date.now() - QUESTION_RETENTION_MS).toISOString();
+	return withControlDb(controlDbPath, (db) =>
+		(
+			db
+				.prepare(
+					`SELECT ${SUPERVISOR_REQUEST_COLUMNS} FROM supervisor_requests
+					 WHERE kind = 'question' AND created_at > ? ORDER BY id DESC`,
+				)
+				.all(cutoff) as SupervisorRequestRow[]
+		).map(supervisorRequestFromRow),
+	);
+}
+
+/**
+ * Stores the user's answer to an escalated question. Returns the answered request, or undefined when the
+ * question is no longer escalated (already answered, withdrawn, or expired): the first answer wins.
+ */
+export function answerEscalatedQuestion(
+	controlDbPath: string,
+	requestId: number,
+	answers: Record<string, string>,
+): SupervisorRequest | undefined {
+	const response: SupervisorResponse = { kind: "answer", answers: toStoredAnswers(answers), answeredBy: "user" };
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(
+				`UPDATE supervisor_requests SET status = 'completed', completed_at = ?, response_json = ?
+				 WHERE id = ? AND kind = 'question' AND status = 'escalated'
+				 RETURNING ${SUPERVISOR_REQUEST_COLUMNS}`,
+			)
+			.get(new Date().toISOString(), JSON.stringify(response), requestId) as SupervisorRequestRow | undefined;
+		return row ? supervisorRequestFromRow(row) : undefined;
+	});
+}
+
+/**
+ * Replaces the stored answer of an answered question with the user's revision. Returns the revised
+ * request, or undefined when the question has no answer to revise.
+ */
+export function reviseQuestionAnswer(
+	controlDbPath: string,
+	requestId: number,
+	answers: Record<string, string>,
+): SupervisorRequest | undefined {
+	const revisedAt = new Date().toISOString();
+	const response: SupervisorResponse = {
+		kind: "answer",
+		answers: toStoredAnswers(answers),
+		answeredBy: "user",
+		revisedAt,
+	};
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(
+				`UPDATE supervisor_requests SET response_json = ?
+				 WHERE id = ? AND kind = 'question' AND json_extract(response_json, '$.kind') = 'answer'
+				 RETURNING ${SUPERVISOR_REQUEST_COLUMNS}`,
+			)
+			.get(JSON.stringify(response), requestId) as SupervisorRequestRow | undefined;
+		return row ? supervisorRequestFromRow(row) : undefined;
 	});
 }

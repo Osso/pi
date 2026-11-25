@@ -4,17 +4,15 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEventResult } from "../../
 import {
 	claimNextSupervisorRequest,
 	hasPendingSupervisorApprovalRequest,
+	listQuestionRequests,
 	readSupervisorRequest,
 	recoverSupervisorRequests,
 	type SupervisorRequest,
 } from "../../../src/core/session-control-db.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
 import { askQuestionsInUi, validateQuestions } from "../../../src/core/tools/ask-questions.ts";
-import {
-	deliverSupervisorMail,
-	ingestSupervisorRequestMail,
-	sendSupervisorReply,
-} from "../../../src/supervisor/mail.ts";
+import { deliverSupervisorMail, ingestSupervisorRequestMail } from "../../../src/supervisor/mail.ts";
+import { answerQuestionAsUser } from "../../../src/supervisor/question-answers.ts";
 import {
 	applySupervisorInstructionVeto,
 	createSupervisorInstructionEvaluator,
@@ -157,6 +155,7 @@ class SupervisorSessionServer {
 		signal: AbortSignal,
 	): Promise<void> {
 		recoverSupervisorRequests(controlDbPath);
+		this.reopenEscalations(ctx, controlDbPath);
 		while (!signal.aborted) {
 			const generation = wakeServer.currentGeneration();
 			await this.serveAvailableWork(ctx, controlDbPath);
@@ -194,37 +193,36 @@ class SupervisorSessionServer {
 		}
 	}
 
-	/** A withdrawal arrives as a wake; its panel closes so the user cannot answer it twice. */
+	/**
+	 * A withdrawal or an answer given elsewhere (the asker's panel, the `pi questions` CLI) arrives as a
+	 * wake; its panel closes so the user cannot answer it twice.
+	 */
 	private closeWithdrawnEscalations(controlDbPath: string): void {
 		for (const [requestId, controller] of this.openEscalations) {
-			if (readSupervisorRequest(controlDbPath, requestId)?.status === "cancelled") controller.abort();
+			if (readSupervisorRequest(controlDbPath, requestId)?.status !== "escalated") controller.abort();
+		}
+	}
+
+	/** Escalated questions stay open in the store across restarts; their panels open again here. */
+	private reopenEscalations(ctx: ExtensionContext, controlDbPath: string): void {
+		for (const request of listQuestionRequests(controlDbPath).reverse()) {
+			if (!this.openEscalations.has(request.id)) this.askUserAfterEscalation(ctx, controlDbPath, request);
 		}
 	}
 
 	/** A question the Supervisor escalated, or failed to decide, opens here for the user to answer. */
 	private askUserAfterEscalation(ctx: ExtensionContext, controlDbPath: string, request: SupervisorRequest): void {
-		const completed = readSupervisorRequest(controlDbPath, request.id);
-		if (completed?.status !== "completed" || completed.response?.kind === "answer") return;
-		const replyTo = completed.replyTo;
-		if (!replyTo || !ctx.hasUI || ctx.mode !== "tui") return;
+		const escalated = readSupervisorRequest(controlDbPath, request.id);
+		if (escalated?.status !== "escalated" || !escalated.replyTo) return;
+		if (!ctx.hasUI || ctx.mode !== "tui") return;
 		const questions = request.payload.questions as Parameters<typeof askQuestionsInUi>[1];
 		validateQuestions(questions);
 		const withdrawn = new AbortController();
 		this.openEscalations.set(request.id, withdrawn);
 		void askQuestionsInUi(ctx.ui, questions, withdrawn.signal)
+			// Cancelling the panel leaves the question open in the store for `pi questions` or a restart.
 			.then(({ answers, cancelled }) => {
-				if (cancelled || readSupervisorRequest(controlDbPath, request.id)?.status === "cancelled") return;
-				const response = {
-					kind: "answer" as const,
-					answers: Object.fromEntries(
-						Object.entries(answers).map(([question, answer]) => [question, { answer, reason: "" }]),
-					),
-				};
-				sendSupervisorReply(controlDbPath, ctx.sessionManager.getSessionId(), replyTo, {
-					requestKind: "question",
-					response,
-					answeredBy: "user",
-				});
+				if (!cancelled) answerQuestionAsUser(controlDbPath, ctx.sessionManager.getSessionId(), request.id, answers);
 			})
 			.catch((error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);

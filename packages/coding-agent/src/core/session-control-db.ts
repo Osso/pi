@@ -176,14 +176,17 @@ export {
 	readSharedChannelTail,
 } from "./session-control-db/shared-channel.ts";
 export {
+	answerEscalatedQuestion,
 	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	hasPendingSupervisorApprovalRequest,
+	listQuestionRequests,
 	postSupervisorRequest,
 	readSupervisorRequest,
 	recoverSupervisorRequests,
 	requeueSupervisorRequest,
+	reviseQuestionAnswer,
 } from "./session-control-db/supervisor.ts";
 export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
 export {
@@ -192,7 +195,6 @@ export {
 	deliverMultiAgentTerminalOutbox,
 	failMultiAgentTerminalOutbox,
 } from "./session-control-db/terminal-outbox.ts";
-
 export type {
 	ArchitectRequest,
 	ArchitectRequestStatus,

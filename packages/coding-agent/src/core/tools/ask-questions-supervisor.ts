@@ -25,8 +25,11 @@ export type SupervisorQuestionReply =
 export interface SupervisorQuestionHandle {
 	/** Stops waiting for replies. */
 	stop(): void;
-	/** Cancels the submitted question because the user answered or cancelled it locally, then stops waiting. */
-	withdraw(answered: boolean): void;
+	/**
+	 * Cancels the submitted question because the user answered (`localAnswers`, stored with the question)
+	 * or cancelled it locally, then stops waiting.
+	 */
+	withdraw(localAnswers?: Record<string, string>): void;
 }
 
 function toQuestionReply(reply: SupervisorReply): SupervisorQuestionReply {
@@ -72,10 +75,10 @@ export function askSupervisorQuestions(
 	});
 	return {
 		stop,
-		withdraw(answered) {
+		withdraw(localAnswers) {
 			stop();
-			if (answered) markSupervisorQuestionAnsweredLocally(route);
-			cancelSubmittedSupervisorRequest(controlDbPath, supervisor, route, WITHDRAWN_REASON);
+			if (localAnswers) markSupervisorQuestionAnsweredLocally(route);
+			cancelSubmittedSupervisorRequest(controlDbPath, supervisor, route, WITHDRAWN_REASON, localAnswers);
 		},
 	};
 }
