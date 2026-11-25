@@ -3100,6 +3100,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: Array<{ model: TestModel }>;
 				modelRegistry: {
 					getAvailable: () => TestModel[];
+					find: (provider: string, id: string) => TestModel | undefined;
 					isModelDisabled: (provider: string, id: string) => boolean;
 				};
 				promptTemplates: [];
@@ -3127,6 +3128,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: models.map((model) => ({ model })),
 				modelRegistry: {
 					getAvailable: () => models,
+					find: (provider, id) => models.find((model) => model.provider === provider && model.id === id),
 					isModelDisabled: (provider, id) => provider === "openai-codex" && id === "gpt-5.4",
 				},
 				promptTemplates: [],
