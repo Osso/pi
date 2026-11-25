@@ -33,6 +33,7 @@ const REFRESH = "\u21bb Refresh";
 const QUIT = "Quit";
 const ASK_FOLLOW_UP = "Ask a follow-up";
 const BACK = "Back";
+const REVISE = "Revise the answer";
 const MANUAL_TARGET = "Enter host:session-id";
 const SUMMARY_WIDTH = 70;
 
@@ -41,10 +42,15 @@ function clip(text: string): string {
 	return line.length > SUMMARY_WIDTH ? `${line.slice(0, SUMMARY_WIDTH - 1)}\u2026` : line;
 }
 
+function chosenAnswers(entry: AgentQuestionEntry): string {
+	return entry.questions.map((q) => entry.answers?.[q.question] ?? "?").join(" / ");
+}
+
 function summarize(entry: QuestionEntry): string {
-	const text =
-		entry.direction === "user" ? `you: ${entry.question}` : entry.questions.map((q) => q.question).join(" / ");
-	return `${entry.ref} [${entry.state}] ${clip(text)}`;
+	if (entry.direction === "user") return `${entry.ref} [${entry.state}] ${clip(`you: ${entry.question}`)}`;
+	const text = entry.questions.map((q) => q.question).join(" / ");
+	const state = entry.state === "answered" ? `answered: ${clip(chosenAnswers(entry))}` : entry.state;
+	return `${entry.ref} [${state}] ${clip(text)}`;
 }
 
 function describeAddress(address: SessionAddress): string {
@@ -57,9 +63,18 @@ function describeUserQuestion(entry: UserQuestionEntry): string {
 	return `${entry.ref} to ${describeAddress(entry.session)}${parent}\n\nYou asked: ${entry.question}\n\nAnswer: ${answer}`;
 }
 
+function describeAnswerSource(entry: AgentQuestionEntry): string {
+	if (!entry.answeredBy) return "";
+	const revised = entry.revisedAt ? `, revised ${entry.revisedAt}` : "";
+	return ` by ${entry.answeredBy}${revised}`;
+}
+
 function describeAgentQuestion(entry: AgentQuestionEntry): string {
-	const lines = entry.questions.map((q) => `- ${q.question} \u2192 ${entry.answers?.[q.question] ?? "(no answer)"}`);
-	return `${entry.ref} from ${describeAddress(entry.session)} [${entry.state}]\n\n${lines.join("\n")}`;
+	const lines = entry.questions.map(
+		(q) => `- ${q.question}\n  \u2192 ${entry.answers?.[q.question] ?? "(no answer)"}`,
+	);
+	const head = `${entry.ref} from ${describeAddress(entry.session)} [${entry.state}${describeAnswerSource(entry)}]`;
+	return `${head}\n\n${lines.join("\n")}`;
 }
 
 function parseManualTarget(value: string): SessionAddress {
@@ -143,15 +158,18 @@ class QuestionsApp {
 	}
 
 	private showAgentQuestion(entry: AgentQuestionEntry): void {
-		if (entry.state !== "open" && entry.state !== "answered") {
-			this.select(
-				describeAgentQuestion(entry),
-				[BACK],
-				() => this.showList(),
-				() => this.showList(),
-			);
-			return;
-		}
+		if (entry.state === "open") return this.answerAgentQuestion(entry);
+		// An answered question shows its chosen answers first; revising is an explicit choice.
+		const options = entry.state === "answered" ? [REVISE, BACK] : [BACK];
+		this.select(
+			describeAgentQuestion(entry),
+			options,
+			(option) => (option === REVISE ? this.answerAgentQuestion(entry) : this.showList()),
+			() => this.showList(),
+		);
+	}
+
+	private answerAgentQuestion(entry: AgentQuestionEntry): void {
 		const panel = createAskQuestionsPanel({
 			questions: panelQuestions(entry),
 			theme,
