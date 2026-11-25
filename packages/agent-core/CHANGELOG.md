@@ -26,6 +26,7 @@
 
 ### Fixed
 
+- Fixed `before_agent_start` messages from a restored terminal-tool continuation leaking into the next prompt
 - Fixed an aborted model request emitting `model_request_end` before its aborted assistant `message_end`
 - Fixed the text-only continuation instruction telling the model not to continue, which ended unfinished work after an acknowledgement; it now asks for `end_turn` only when the request is fully handled
 - A resumed tool batch whose earlier results were already saved no longer ends the run just because the remaining calls terminate, for example a saved `read` with a pending `end_turn`

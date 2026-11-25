@@ -166,6 +166,11 @@ class PendingMessageQueue {
 		return this.entries.shift() ?? [];
 	}
 
+	removeBatch(messages: AgentMessage[]): void {
+		const batchIndex = this.entries.indexOf(messages);
+		if (batchIndex !== -1) this.entries.splice(batchIndex, 1);
+	}
+
 	clear(): AgentMessage[] {
 		const cleared = this.entries.flat();
 		this.entries = [];
@@ -410,7 +415,7 @@ export class Agent {
 
 		// Queued messages can start an empty transcript; plain continuation needs a message to continue from.
 		if (!lastMessage) throw new Error("No messages to continue from");
-		await this.runContinuation();
+		await this.runContinuation(startMessages);
 	}
 
 	private normalizePromptInput(
@@ -448,16 +453,21 @@ export class Agent {
 		});
 	}
 
-	private async runContinuation(): Promise<void> {
-		await this.runWithLifecycle(async (signal) => {
-			await runAgentLoopContinue(
-				this.createContextSnapshot(),
-				this.createLoopConfig(),
-				(event) => this.processEvents(event),
-				signal,
-				this.streamFn,
-			);
-		});
+	private async runContinuation(startMessages: AgentMessage[]): Promise<void> {
+		try {
+			await this.runWithLifecycle(async (signal) => {
+				await runAgentLoopContinue(
+					this.createContextSnapshot(),
+					this.createLoopConfig(),
+					(event) => this.processEvents(event),
+					signal,
+					this.streamFn,
+				);
+			});
+		} finally {
+			// A restored terminal tool can return before the continuation polls its start messages.
+			this.steeringQueue.removeBatch(startMessages);
+		}
 	}
 
 	private createContextSnapshot(): AgentContext {
