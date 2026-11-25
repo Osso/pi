@@ -419,6 +419,8 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} debug attach <session-id> Attach to an enabled live-process debug REPL
   ${APP_NAME} sessions archive           Archive sessions older than five days
   ${APP_NAME} sessions truncate-tool-output  Truncate oversized persisted tool results
+  ${APP_NAME} questions                 Answer, revise, and ask stored questions (Supervisor host)
+  ${APP_NAME} control questions ...     Same operations without a terminal UI
   ${APP_NAME} tools                     List tools available to the current session
   ${APP_NAME} extensions                List extensions loaded for the current session
   ${APP_NAME} config                    Open TUI to enable/disable package resources
