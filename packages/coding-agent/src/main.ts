@@ -1009,9 +1009,7 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 	}
 
-	if (shouldTakeOverStdout) {
-		takeOverStdout();
-	}
+	if (shouldTakeOverStdout) takeOverStdout();
 
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
