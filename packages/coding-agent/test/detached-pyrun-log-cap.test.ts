@@ -25,7 +25,7 @@ function progressLine(index: number): string {
 	return `${JSON.stringify({ kind: "progress", update: { type: "console", stream: "stdout", text: `${index}:é${"x".repeat(MIB)}\n` } })}\n`;
 }
 
-async function startFlood(count: number, resultBytes = 0, fail = false) {
+async function startFlood(count: number, resultBytes = 0, fail = false, latestConsole?: string) {
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-log-cap-"));
 	roots.push(root);
 	const program = join(root, "flood.mjs");
@@ -41,11 +41,17 @@ async function startFlood(count: number, resultBytes = 0, fail = false) {
 			` const update = { type: 'console', stream: 'stdout', text: index + ':é' + 'x'.repeat(${MIB}) + '\\n' };`,
 			" if (!process.stdout.write(JSON.stringify(update) + '\\n')) await once(process.stdout, 'drain');",
 			"}",
+			...(latestConsole === undefined
+				? []
+				: [
+						`const update = { type: 'console', stream: 'stdout', text: ${JSON.stringify(`${latestConsole}\n`)} };`,
+						"if (!process.stdout.write(JSON.stringify(update) + '\\n')) await once(process.stdout, 'drain');",
+					]),
 			`writeFileSync(${JSON.stringify(join(root, "ready"))}, 'ready');`,
 			`while (!existsSync(${JSON.stringify(join(root, "release"))})) await new Promise(resolve => setTimeout(resolve, 10));`,
 			fail
 				? "process.exit(7);"
-				: `process.stdout.write(JSON.stringify({ type: 'completed', value: 'v'.repeat(${resultBytes}), console: ['terminal console'] }) + '\\n');`,
+				: `process.stdout.write(JSON.stringify({ type: 'completed', value: 'v'.repeat(${resultBytes}), console: [${JSON.stringify(latestConsole ?? "terminal console")}] }) + '\\n');`,
 		].join("\n"),
 	);
 	const sessionManager = SessionManager.create(root, join(root, "sessions"));
@@ -105,11 +111,10 @@ describe("detached Pyrun log cap", () => {
 		expect(prefix.length).toBeLessThanOrEqual(CAP);
 		release(fixture.root);
 		const final = await fixture.evaluation;
-		// A foreground result shows the tail-capped streamed console, so every line is flooded output.
+		// A truncation marker selects the canonical terminal console over incomplete progress.
 		expect(final.details).toMatchObject({ type: "completed", value: "" });
 		const finalConsole = (final.details as { console: string[] }).console;
-		expect(finalConsole.length).toBeGreaterThan(0);
-		expect(finalConsole.every((line) => /^(\d+:é)?x+$/u.test(line))).toBe(true);
+		expect(finalConsole).toEqual(["terminal console"]);
 		const bytes = readFileSync(fixture.outputPath);
 		expect(bytes.length).toBeLessThanOrEqual(CAP);
 		expect(bytes.subarray(0, prefix.length).equals(prefix)).toBe(true);
@@ -132,6 +137,19 @@ describe("detached Pyrun log cap", () => {
 		expect(records.at(-1)).toMatchObject({ kind: "result", result: { type: "completed", value: "" } });
 		const resumed = await runDurableDetachablePyrunEvaluation(fixture.input);
 		expect(resumed.details).toEqual(final.details);
+	}, 30_000);
+
+	it("uses canonical console after output truncation in foreground and restored results", async () => {
+		const latestConsole = "LATEST-CONSOLE";
+		const fixture = await startFlood(25, 30 * MIB, false, latestConsole);
+		release(fixture.root);
+		const final = await fixture.evaluation;
+
+		expect(readRecords(fixture.outputPath).some((record) => record.kind === "truncation")).toBe(true);
+		expect.soft((final.details as { console?: string[] }).console).toEqual([latestConsole]);
+
+		const resumed = await runDurableDetachablePyrunEvaluation(fixture.input);
+		expect.soft((resumed.details as { console?: string[] }).console).toEqual([latestConsole]);
 	}, 30_000);
 
 	it("leaves an under-cap job byte-identical, including buffered records", async () => {
@@ -183,8 +201,7 @@ describe("detached Pyrun log cap", () => {
 		const resumed = await runDurableDetachablePyrunEvaluation(fixture.input);
 		expect(resumed.details).toMatchObject({ type: "completed", value: "" });
 		const resumedConsole = (resumed.details as { console: string[] }).console;
-		expect(resumedConsole.length).toBeGreaterThan(0);
-		expect(resumedConsole.every((line) => /^x+$/u.test(line))).toBe(true);
+		expect(resumedConsole).toEqual(["terminal console"]);
 	}, 30_000);
 
 	it("resumes observation from a live manifest while the tail is buffered", async () => {

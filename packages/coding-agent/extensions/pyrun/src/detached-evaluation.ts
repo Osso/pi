@@ -35,6 +35,7 @@ import {
 import {
 	createCanonicalPyrunEvalParams,
 	createPyrunProgressReporter,
+	formatCanonicalPyrunEvalResult,
 	formatStreamedPyrunEvalResult,
 	type PyrunEvalParams,
 	type PyrunPiRequestDispatcher,
@@ -283,6 +284,18 @@ function formatPyrunArtifactResult(
 	for (const record of records) {
 		if (record.kind === "progress") reporter(record.update);
 	}
+	const hasTruncationMarker = records.some((record) => record.kind === "truncation");
+	const hasCanonicalResult = records.some((record) => record.kind === "result");
+	return formatDurablePyrunEvalResult(params, result, reporter, hasTruncationMarker && hasCanonicalResult);
+}
+
+function formatDurablePyrunEvalResult(
+	params: PyrunEvalParams,
+	result: CanonicalPyrunEvalResult,
+	reporter: PyrunProgressReporter,
+	hasTruncatedProgress: boolean,
+): AgentToolResult<CanonicalPyrunEvalResult> {
+	if (hasTruncatedProgress) return formatCanonicalPyrunEvalResult(params, result);
 	return formatStreamedPyrunEvalResult(params, result, reporter);
 }
 
@@ -431,6 +444,7 @@ function settleForegroundEvaluation(
 	result: CanonicalPyrunEvalResult | undefined,
 	ownership: PyrunOwnership | undefined,
 	reporter: PyrunProgressReporter,
+	hasTruncatedProgress: boolean,
 ): AgentToolResult<unknown> | undefined {
 	if (ownership) return undefined;
 	const foregroundError = artifactRead.values.find((record) => record.kind === "error");
@@ -440,7 +454,7 @@ function settleForegroundEvaluation(
 	}
 	if (result) {
 		writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
-		return formatStreamedPyrunEvalResult(input.params, result, reporter);
+		return formatDurablePyrunEvalResult(input.params, result, reporter, hasTruncatedProgress);
 	}
 	if (artifactRead.hasUnreadBytes) return undefined;
 	const runnerError = readForegroundPyrunRunnerError(input.runner.manifestPath, input.runner.activationPath);
@@ -488,8 +502,9 @@ function formatCompletedPyrunObservation(
 	result: CanonicalPyrunEvalResult | undefined,
 	terminalAgent: AgentSnapshot | undefined,
 	reporter: PyrunProgressReporter,
+	hasTruncatedProgress: boolean,
 ): AgentToolResult<unknown> {
-	if (result) return formatStreamedPyrunEvalResult(params, result, reporter);
+	if (result) return formatDurablePyrunEvalResult(params, result, reporter, hasTruncatedProgress);
 	if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
 	return formatTerminalAgentError(params, terminalAgent);
 }
@@ -499,6 +514,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	let nextLivenessCheckAt = 0;
 	const outputCursor = createJsonLineReadCursor();
 	let result: CanonicalPyrunEvalResult | undefined;
+	let hasTruncatedProgress = false;
 	let terminalAgent: AgentSnapshot | undefined;
 	const reportProgress = createPyrunProgressReporter(input.onUpdate);
 	const progressAccumulator = createArtifactProgressAccumulator(reportProgress, ARTIFACT_POLL_MS);
@@ -520,8 +536,17 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			if (bridgeRequests.failure !== undefined) throw bridgeRequests.failure;
 			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
 			result = progressAccumulator.consume(artifactRead.values) ?? result;
+			hasTruncatedProgress =
+				hasTruncatedProgress || artifactRead.values.some((record) => record.kind === "truncation");
 			const ownership = control.getOwnership();
-			const foregroundResult = settleForegroundEvaluation(input, artifactRead, result, ownership, reportProgress);
+			const foregroundResult = settleForegroundEvaluation(
+				input,
+				artifactRead,
+				result,
+				ownership,
+				reportProgress,
+				hasTruncatedProgress,
+			);
 			if (foregroundResult) return foregroundResult;
 			nextLivenessCheckAt = checkForegroundLiveness(
 				input,
@@ -536,7 +561,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			}
 			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
 		}
-		return formatCompletedPyrunObservation(input.params, result, terminalAgent, reportProgress);
+		return formatCompletedPyrunObservation(input.params, result, terminalAgent, reportProgress, hasTruncatedProgress);
 	} catch (error) {
 		throw withStreamedConsole(error, reportProgress);
 	} finally {

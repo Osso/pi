@@ -279,6 +279,7 @@
 
 ### Fixed
 
+- Fixed durable Pyrun results showing older streamed console instead of the latest lines when the output artifact cap dropped progress records
 - Main-session `end_turn` is rejected when no visible assistant text answers the latest user prompt, so a thinking-only turn can no longer end silently
 - Fixed Claude Code subscription limit errors (for example the 5-hour window) being retried although the reset was hours away: the bridge now passes the reset delay so the retry cap stops retries
 - Fixed durable foreground and restored Pyrun results dropping streamed console lines that the runner history cap or error result omitted
