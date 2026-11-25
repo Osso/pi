@@ -41,7 +41,10 @@ export function toDesktopNotificationHandle(
 	return typeof value.close === "function" ? value : undefined;
 }
 
-export function sendDesktopNotification(notification: DesktopNotification): DesktopNotificationHandle | undefined {
+export function sendDesktopNotification(
+	notification: DesktopNotification,
+	session?: DesktopNotificationSession,
+): DesktopNotificationHandle | undefined {
 	if (process.platform !== "linux") {
 		return undefined;
 	}
@@ -49,7 +52,7 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 	const pendingNotification = createPendingDesktopNotification();
 	const expireTimeMs = notification.expireTimeMs ?? DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS;
 	const urgency = notification.urgency ?? "critical";
-	const title = getDesktopNotificationTitle(notification.title);
+	const title = getDesktopNotificationTitle(notification.title, session ?? desktopNotificationSessionProvider?.());
 	const child = spawn(
 		"notify-send",
 		[
@@ -77,8 +80,7 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 	return pendingNotification.handle;
 }
 
-function getDesktopNotificationTitle(title: string): string {
-	const session = desktopNotificationSessionProvider?.();
+function getDesktopNotificationTitle(title: string, session: DesktopNotificationSession | undefined): string {
 	if (!session) return title;
 
 	const sessionName = session.sessionName?.trim();

@@ -20,6 +20,12 @@ import { ToolExecutionComponent } from "../src/modes/interactive/components/tool
 import { initTheme, type Theme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
+const sessionManager = {
+	getSessionName: () => "Ask Questions",
+	getCwd: () => process.cwd(),
+	getSessionId: () => "ask-questions-test",
+};
+
 const KEY = {
 	down: "\x1b[B",
 	enter: "\r",
@@ -59,7 +65,7 @@ function setup(keys: string[]) {
 		if (!result) throw new Error(`Panel still open after keys: ${JSON.stringify(keys)}`);
 		return result.value;
 	};
-	const ctx = { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+	const ctx = { hasUI: true, mode: "tui", ui: { custom }, sessionManager } as unknown as ExtensionContext;
 	return { ctx, screens };
 }
 
@@ -190,12 +196,15 @@ describe("ask_questions tool", () => {
 		);
 
 		expect(result.details?.cancelled).toBe(false);
-		expect(desktopNotifier).toHaveBeenCalledWith({
-			body: "Pi is waiting for your answer.",
-			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-			title: "Pi question needs input",
-			urgency: "normal",
-		});
+		expect(desktopNotifier).toHaveBeenCalledWith(
+			{
+				body: "Pi is waiting for your answer.",
+				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
+				title: "Pi question needs input",
+				urgency: "normal",
+			},
+			{ sessionName: "Ask Questions", sessionManager },
+		);
 		expect(close).toHaveBeenCalledOnce();
 	});
 
@@ -281,7 +290,7 @@ describe("ask_questions tool", () => {
 				factory({ requestRender: () => {} } as unknown as TUI, theme, keybindings, resolve);
 				panelOpened();
 			});
-		const ctx = { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+		const ctx = { hasUI: true, mode: "tui", ui: { custom }, sessionManager } as unknown as ExtensionContext;
 		const abort = new AbortController();
 
 		const pending = createAskQuestionsToolDefinition().execute(
@@ -313,7 +322,7 @@ describe("ask_questions tool", () => {
 				openedPanels.push(stripAnsi(panel.render(80).join("\n")));
 				firstPanelOpened();
 			});
-		const ctx = { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+		const ctx = { hasUI: true, mode: "tui", ui: { custom }, sessionManager } as unknown as ExtensionContext;
 		const tool = createAskQuestionsToolDefinition();
 		const yesNo = [{ label: "Yes" }, { label: "No" }];
 

@@ -150,15 +150,17 @@ function cancelQuestionRaceOnAbort(race: QuestionPanelRace, signal: AbortSignal 
 	else signal?.addEventListener("abort", close, { once: true });
 }
 
+type QuestionUiContext = Pick<ExtensionContext, "ui" | "sessionManager">;
+
 async function showQuestions(
-	ui: ExtensionUIContext,
+	ctx: QuestionUiContext,
 	questions: AskQuestionsToolInput["questions"],
 	race: QuestionPanelRace,
 ): Promise<AskQuestionsAnswer> {
 	if (race.result) return race.result;
-	const notification = notifyAskQuestionsWaiting(questions.length);
+	const notification = notifyAskQuestionsWaiting(questions.length, ctx.sessionManager);
 	try {
-		await ui.custom<AskQuestionsAnswer>((tui, theme, keybindings, done) => {
+		await ctx.ui.custom<AskQuestionsAnswer>((tui, theme, keybindings, done) => {
 			const finish = (result: AskQuestionsAnswer) => {
 				race.result ??= result;
 				done(result);
@@ -180,12 +182,13 @@ async function showQuestions(
 }
 
 function queueQuestions(
-	ui: ExtensionUIContext,
+	ctx: QuestionUiContext,
 	questions: AskQuestionsToolInput["questions"],
 	race: QuestionPanelRace = {},
 ): Promise<AskQuestionsAnswer> {
+	const ui = ctx.ui;
 	const previous = questionQueues.get(ui) ?? Promise.resolve();
-	const result = previous.then(() => showQuestions(ui, questions, race));
+	const result = previous.then(() => showQuestions(ctx, questions, race));
 	// A cancellation or Supervisor answer settles the request without waiting for earlier panels.
 	const settledEarly = new Promise<AskQuestionsAnswer>((resolve) => {
 		race.settleQueued = resolve;
@@ -204,13 +207,13 @@ function queueQuestions(
 
 /** Opens the questions panel in this UI's question queue; used for questions the Supervisor escalated. */
 export function askQuestionsInUi(
-	ui: ExtensionUIContext,
+	ctx: QuestionUiContext,
 	questions: AskQuestionsToolInput["questions"],
 	signal?: AbortSignal,
 ): Promise<AskQuestionsPanelResult> {
 	const race: QuestionPanelRace = {};
 	cancelQuestionRaceOnAbort(race, signal);
-	return queueQuestions(ui, questions, race);
+	return queueQuestions(ctx, questions, race);
 }
 
 function supervisorAnswerResult(reply: Extract<SupervisorQuestionReply, { kind: "answer" }>): AskQuestionsAnswer {
@@ -243,7 +246,7 @@ async function askQuestions(
 		settleQuestionRace(race, supervisorAnswerResult(reply));
 	});
 	try {
-		const result = await queueQuestions(ctx.ui, params.questions, race);
+		const result = await queueQuestions(ctx, params.questions, race);
 		if (result.answeredBy) supervisor?.stop();
 		else supervisor?.withdraw(result.cancelled ? undefined : result.answers);
 		return result;
@@ -420,14 +423,20 @@ function formatAskQuestionsNotificationBody(questionCount: number): string {
 	return questionCount === 1 ? "Pi is waiting for your answer." : "Pi is waiting for your answers.";
 }
 
-function notifyAskQuestionsWaiting(questionCount: number): DesktopNotificationHandle | undefined {
+function notifyAskQuestionsWaiting(
+	questionCount: number,
+	sessionManager: ExtensionContext["sessionManager"],
+): DesktopNotificationHandle | undefined {
 	try {
-		return sendDesktopNotification({
-			body: formatAskQuestionsNotificationBody(questionCount),
-			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-			title: ASK_QUESTIONS_NOTIFICATION_TITLE,
-			urgency: "normal",
-		});
+		return sendDesktopNotification(
+			{
+				body: formatAskQuestionsNotificationBody(questionCount),
+				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
+				title: ASK_QUESTIONS_NOTIFICATION_TITLE,
+				urgency: "normal",
+			},
+			{ sessionName: sessionManager.getSessionName(), sessionManager },
+		);
 	} catch (error) {
 		console.error("Failed to send ask_questions desktop notification:", error);
 		return undefined;

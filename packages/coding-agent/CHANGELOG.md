@@ -280,6 +280,7 @@
 
 ### Fixed
 
+- Fixed question notifications omitting the session name when an interactive SDK session has no main runtime provider
 - Fixed bounded read pagination loading oversized text files into memory instead of selecting the requested lines
 - Fixed multiline edits changing a line ending outside the matched text in mixed-ending files
 - Fixed periodic checks rejecting a checklist whose frontmatter delimiter lines have trailing whitespace

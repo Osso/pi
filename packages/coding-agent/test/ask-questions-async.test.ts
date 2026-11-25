@@ -62,7 +62,12 @@ function fixture(agentId?: string) {
 		ui,
 		controlDbPath,
 		multiAgentAgentId: agentId,
-		sessionManager: { getSessionId: () => sessionId, getSessionFile: () => sessionPath },
+		sessionManager: {
+			getSessionId: () => sessionId,
+			getSessionFile: () => sessionPath,
+			getSessionName: () => "Async Questions",
+			getCwd: () => root,
+		},
 	} as unknown as ExtensionContext;
 	return {
 		ctx,
