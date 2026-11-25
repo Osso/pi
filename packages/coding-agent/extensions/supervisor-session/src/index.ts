@@ -23,6 +23,7 @@ import {
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import { SUPERVISOR_REQUEST_POLICY, type SupervisorEvaluator } from "../../../src/supervisor/service.ts";
+import { registerAskCommand } from "./ask-command.ts";
 import { DueTaskDelivery, type DueTaskOptions, readLlmTasksToken } from "./due-tasks.ts";
 import { createInspectSessionTool } from "./inspect-session-tool.ts";
 import { renderSupervisorRequestMessage } from "./request-message.ts";
@@ -291,6 +292,7 @@ export default function supervisorSessionExtension(pi: ExtensionAPI, options: Pa
 		readToken: options.readToken ?? readLlmTasksToken,
 	});
 	pi.registerMessageRenderer(SUPERVISOR_REQUEST_MESSAGE_TYPE, renderSupervisorRequestMessage);
+	registerAskCommand(pi);
 	pi.registerToolGate((event, ctx) => {
 		if (!isSupervisorSession(ctx)) return undefined;
 		if (event.toolName === SUPERVISOR_RESPONSE_TOOL_NAME && !server.servingRequest) {
