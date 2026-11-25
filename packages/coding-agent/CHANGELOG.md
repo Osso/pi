@@ -281,6 +281,7 @@
 
 ### Fixed
 
+- Fixed sessions with about 120k or more entries after the last compaction failing to build context with `RangeError: Maximum call stack size exceeded`
 - Fixed removed scoped models and pools remaining selectable in `/model` autocomplete after registry refresh
 - Fixed question notifications omitting the session name when an interactive SDK session has no main runtime provider
 - Fixed bounded read pagination loading oversized text files into memory instead of selecting the requested lines
