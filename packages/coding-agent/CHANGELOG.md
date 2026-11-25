@@ -275,6 +275,7 @@
 
 ### Fixed
 
+- The main status row shows `Waiting for command...` with elapsed time for a tool that started while a child transcript was selected, instead of `Thinking... 0s` after returning
 - `RpcClient.start()` now rejects when the agent process is killed by a signal during startup, instead of resolving and failing on the first command
 - `/usage deepseek` shows a DeepSeek balance reported only in CNY instead of `-`
 - Model pools now honor the configured `retry.provider.maxRetryDelayMs` for compaction requests, so a rate limit within the cap no longer parks a member for the long quota cooldown

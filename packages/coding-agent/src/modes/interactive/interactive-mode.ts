@@ -3592,6 +3592,8 @@ export class InteractiveMode {
 			case "tool_execution_start":
 				this.executingToolNames.set(event.toolCallId, event.toolName);
 				this.executingToolStartedAt.set(event.toolCallId, event.startedAt);
+				this.startToolWaitingTimer();
+				this.setWorkingMessageForActiveTools();
 				break;
 			case "tool_execution_end":
 				this.completedToolTimings.set(event.toolCallId, {
@@ -3607,9 +3609,7 @@ export class InteractiveMode {
 		if (!this.isViewingAgentSession() || !isMainSessionDisplayEvent(event)) return false;
 
 		this.syncToolExecutionTrackingForHiddenMainEvent(event);
-		if (event.type !== "message_update") {
-			this.ui.requestRender();
-		}
+		if (event.type !== "message_update") this.ui.requestRender();
 		return true;
 	}
 
