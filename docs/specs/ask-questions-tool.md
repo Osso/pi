@@ -17,7 +17,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - [x] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question` Supervisor request while the local panel opens. Posting never blocks or polls; the answer arrives in the session mailbox; see [Supervisor question answering](supervisor-service.md#question-answering).
 - [x] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer cancels the request and is stored with it as a `local` answer.
 - [x] A later revision of the answer (from `pi questions`) arrives through the inbox as `User revised answers (request <id>):`; an answer the user gives after the request was cancelled without one arrives as `User answered after the question ended without an answer (request <id>):`. See [Supervisor question answering](supervisor-service.md#question-answering).
-- [x] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
+- [x] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers. Persist new Supervisor answers with source `supervisor`; historical answers without a stored source remain `unknown` in the questions display.
 - [x] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
 - [x] Nonblocking calls receive a Supervisor answer through the normal inbox, correlated by `requestId`, titled `Supervisor answered questions (request …)`.
 - [x] Supervisor answers are not user evidence for goal reviews; an answer the user gave in the Supervisor session is.
