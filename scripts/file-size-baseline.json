@@ -3,7 +3,7 @@
 	"packages/agent-core/src/harness/agent-harness.ts": 1037,
 	"packages/agent-core/src/harness/compaction/compaction.ts": 787,
 	"packages/agent-core/src/harness/types.ts": 846,
-	"packages/ai/src/api/anthropic-messages.ts": 1186,
+	"packages/ai/src/api/anthropic-messages.ts": 1185,
 	"packages/ai/src/api/bedrock-converse-stream.ts": 1154,
 	"packages/ai/src/api/openai-codex-responses.ts": 1719,
 	"packages/ai/src/api/openai-completions.ts": 1293,

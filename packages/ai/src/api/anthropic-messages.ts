@@ -35,6 +35,7 @@ import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
+import { getErrorRetryAfterMs, getRetryAfterMsFromText } from "../utils/retry-after.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
@@ -487,10 +488,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				let copilotDynamicHeaders: Record<string, string> | undefined;
 				if (model.provider === "github-copilot") {
 					const hasImages = hasCopilotVisionInput(context.messages);
-					copilotDynamicHeaders = buildCopilotDynamicHeaders({
-						messages: context.messages,
-						hasImages,
-					});
+					copilotDynamicHeaders = buildCopilotDynamicHeaders({ messages: context.messages, hasImages });
 				}
 
 				const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
@@ -714,6 +712,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? withCauseDetail(error) : JSON.stringify(error);
+			output.retryAfterMs = getErrorRetryAfterMs(error) ?? getRetryAfterMsFromText(output.errorMessage);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
