@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { inspect } from "node:util";
 import { type Context, createContext, runInContext, Script } from "node:vm";
 
@@ -162,8 +163,9 @@ export class DebugReplServer {
 		let input = "";
 		let source = "";
 		let evaluations = Promise.resolve();
+		const decoder = new StringDecoder("utf8");
 		socket.on("data", (chunk: Buffer) => {
-			input += chunk.toString("utf8");
+			input += decoder.write(chunk);
 			while (true) {
 				const newline = input.indexOf("\n");
 				if (newline < 0) return;

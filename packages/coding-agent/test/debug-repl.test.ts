@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -17,6 +18,41 @@ function createAgentDir(): string {
 	temporaryDirectories.push(directory);
 	return directory;
 }
+
+function readUntil(socket: Socket, marker: string): Promise<string> {
+	return new Promise((resolve) => {
+		let output = "";
+		const onData = (chunk: Buffer) => {
+			output += chunk.toString("utf8");
+			if (!output.includes(marker)) return;
+			socket.off("data", onData);
+			resolve(output);
+		};
+		socket.on("data", onData);
+	});
+}
+
+it("decodes a UTF-8 character split across socket reads", async () => {
+	const agentDir = createAgentDir();
+	const server = new DebugReplServer({ agentDir, getRuntime: () => ({ session: { sessionId: "first" } }) });
+	await server.enable("first");
+	const socket = createConnection(server.socketPath);
+	try {
+		const prompt = readUntil(socket, "pi> ");
+		socket.write(`${JSON.stringify({ pid: process.pid, sessionId: "first" })}\n`);
+		await prompt;
+
+		const result = readUntil(socket, "pi> ");
+		socket.write(Buffer.from([0x27, 0xc3]));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		socket.write(Buffer.concat([Buffer.from([0xa9]), Buffer.from("'.codePointAt(0)\n")]));
+
+		expect(await result).toContain("233");
+	} finally {
+		socket.destroy();
+		await server.disable();
+	}
+});
 
 it("evaluates expressions against the current runtime instead of a captured session", async () => {
 	const agentDir = createAgentDir();
