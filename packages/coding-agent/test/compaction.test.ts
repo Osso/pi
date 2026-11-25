@@ -27,6 +27,7 @@ import {
 	type SessionMessageEntry,
 	type ThinkingLevelChangeEntry,
 } from "../src/core/session-manager.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 
 // ============================================================================
 // Test fixtures
@@ -481,6 +482,8 @@ describe("findCutPoint", () => {
 		const goalContinuation = createMessageEntry(
 			createExtensionUserMessage("Continue working toward this objective until it is achieved: fix compaction"),
 		);
+		const genericContinuation = createMessageEntry(createExtensionUserMessage(GENERIC_GOAL_CONTINUATION));
+		const thirdAssistant = createMessageEntry(createAssistantMessage("continuing"));
 		const latestAssistant = createMessageEntry(createAssistantMessage("latest"));
 		const entries: SessionEntry[] = [
 			goalStart,
@@ -488,6 +491,8 @@ describe("findCutPoint", () => {
 			extensionMessage,
 			secondAssistant,
 			goalContinuation,
+			genericContinuation,
+			thirdAssistant,
 			latestAssistant,
 		];
 
@@ -501,6 +506,8 @@ describe("findCutPoint", () => {
 		expect(compactionText).toContain("Extension context that must remain");
 		expect(compactionText).not.toContain("Work toward this objective until it is achieved:");
 		expect(compactionText).not.toContain("Continue working toward this objective until it is achieved:");
+		expect(compactionText).toContain("continuing");
+		expect(compactionText).not.toContain(GENERIC_GOAL_CONTINUATION);
 	});
 
 	it("should indicate split turn when cutting at assistant message", () => {
