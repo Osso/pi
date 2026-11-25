@@ -41,6 +41,21 @@ export const CONTROL_DB_SCHEMA_SQL = `
 			created_at TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS user_questions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_host TEXT,
+			target_session_id TEXT NOT NULL,
+			question TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('open', 'answered')),
+			answer TEXT,
+			created_at TEXT NOT NULL,
+			answered_at TEXT,
+			parent_id INTEGER
+		);
+
+		CREATE INDEX IF NOT EXISTS user_questions_created_at_idx
+		ON user_questions(created_at DESC, id DESC);
+
 		CREATE INDEX IF NOT EXISTS prompt_history_id_idx
 		ON prompt_history(id DESC);
 

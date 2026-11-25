@@ -1,4 +1,9 @@
 export {
+	type AnswerUserQuestionToolDetails,
+	type AnswerUserQuestionToolInput,
+	createAnswerUserQuestionToolDefinition,
+} from "./answer-user-question.ts";
+export {
 	type AskArchitectToolDetails,
 	type AskArchitectToolInput,
 	createAskArchitectToolDefinition,
@@ -132,6 +137,7 @@ export {
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { isExecutableAvailable } from "../../utils/executable.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
+import { createAnswerUserQuestionToolDefinition } from "./answer-user-question.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { createAskSupervisorToolDefinition } from "./ask-supervisor.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
@@ -178,7 +184,8 @@ export type ToolName =
 	| "list_sessions"
 	| "channel_post"
 	| "ask_questions"
-	| "ask_supervisor";
+	| "ask_supervisor"
+	| "answer_user_question";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -198,6 +205,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"channel_post",
 	"ask_questions",
 	"ask_supervisor",
+	"answer_user_question",
 ]);
 export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"read",
@@ -218,6 +226,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"channel_post",
 	"ask_questions",
 	"ask_supervisor",
+	"answer_user_question",
 ];
 
 interface ReloadToolSession {
@@ -289,6 +298,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createChannelPostToolDefinition();
 		case "ask_questions":
 			return createAskQuestionsToolDefinition();
+		case "answer_user_question":
+			return createAnswerUserQuestionToolDefinition();
 		case "ask_supervisor":
 			return createAskSupervisorToolDefinition();
 		default:
@@ -332,6 +343,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return wrapToolDefinition(createChannelPostToolDefinition());
 		case "ask_questions":
 			return wrapToolDefinition(createAskQuestionsToolDefinition());
+		case "answer_user_question":
+			return wrapToolDefinition(createAnswerUserQuestionToolDefinition());
 		case "ask_supervisor":
 			return wrapToolDefinition(createAskSupervisorToolDefinition());
 		default:
@@ -370,6 +383,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		list_sessions: createListSessionsToolDefinition(),
 		channel_post: createChannelPostToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
+		answer_user_question: createAnswerUserQuestionToolDefinition(),
 		ask_supervisor: createAskSupervisorToolDefinition(),
 	};
 }

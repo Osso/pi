@@ -182,6 +182,9 @@ export function cleanupExpiredMessages(db: SqliteDatabase): void {
 		db.prepare(`DELETE ${expiredQuestions}`).run(questionCutoff);
 	}
 	cleanupExpiredTerminalAgents(db, channelCutoff);
+	db.prepare("DELETE FROM user_questions WHERE created_at <= ?").run(
+		new Date(Date.now() - QUESTION_RETENTION_MS).toISOString(),
+	);
 }
 
 // Terminal agents expire 24h after their terminal update. Rows that own detached job output

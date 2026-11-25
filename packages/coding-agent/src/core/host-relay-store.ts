@@ -1,6 +1,7 @@
 import { describeSession } from "../supervisor/inspect-session.ts";
 import { answerSessionInspectionRequest, isSessionInspectionRequest } from "../supervisor/mail.ts";
 import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
+import { recordUserQuestionAnswer } from "./session-control-db/user-questions.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
 	enqueueStoredRuntimeMailboxMessageInTransaction,
@@ -116,6 +117,26 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		agentId: nullableText(data.senderAgentId, "senderAgentId"),
 	};
 	const inspection = isSessionInspectionRequest(message.messageId);
+	if (message.messageId.startsWith("user_question_answer:")) {
+		const alreadyImported = withControlDb(path, (db) => message.seq <= readCounter(db, `relay-in:${peer}`));
+		if (alreadyImported) return;
+		let answer: unknown;
+		try {
+			answer = JSON.parse(requireText(data.body, "body"));
+		} catch (error) {
+			throw new Error("Invalid relayed user-question answer", { cause: error });
+		}
+		if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+			throw new Error("Invalid relayed user-question answer");
+		}
+		const payload = answer as { id?: unknown; answer?: unknown };
+		if (typeof payload.id !== "number" || typeof payload.answer !== "string" || !payload.answer.trim()) {
+			throw new Error("Invalid relayed user-question answer");
+		}
+		recordUserQuestionAnswer(path, payload.id, payload.answer);
+		withControlDb(path, (db) => writeCounter(db, `relay-in:${peer}`, message.seq));
+		return;
+	}
 	const applied = withControlDb(path, (db) =>
 		withImmediateTransaction(db, () => {
 			if (message.seq <= readCounter(db, `relay-in:${peer}`)) return false;

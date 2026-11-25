@@ -223,3 +223,10 @@ export type {
 	SupervisorResponse,
 	WritableSessionMetadata,
 } from "./session-control-db/types.ts";
+export type { UserQuestion } from "./session-control-db/user-questions.ts";
+export {
+	listUserQuestions,
+	postUserQuestion,
+	readUserQuestion,
+	recordUserQuestionAnswer,
+} from "./session-control-db/user-questions.ts";
