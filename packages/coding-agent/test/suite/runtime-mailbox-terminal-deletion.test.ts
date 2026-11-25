@@ -52,9 +52,13 @@ it("delivers one detached terminal notification after supervisor restart and nev
 			expect(agent.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === job.id)).toEqual([]);
 			agent.respondToLlmRequest(
 				notice.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Terminal notification received" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The terminal notification is received." },
+						fauxToolCall("end_turn", { reason: "Terminal notification received" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(job.id)).toEqual([]));
 			await agent.waitForSessionEntry(

@@ -29,7 +29,13 @@ async function spawnLiveChild(agent: HeadlessPi): Promise<void> {
 	);
 	agent.respondToLlmRequest(
 		mainAfterSpawn.id,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child remains live" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "The child remains live." },
+				fauxToolCall("end_turn", { reason: "Child remains live" }),
+			],
+			{ stopReason: "toolUse" },
+		),
 	);
 	await agent.waitForEvent((event) => event.type === "agent_end");
 }

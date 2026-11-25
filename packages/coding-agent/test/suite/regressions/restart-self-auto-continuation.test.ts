@@ -20,7 +20,9 @@ async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 async function completeParentTurn(pi: HeadlessPi, requestId: string, reason: string): Promise<void> {
 	pi.respondToLlmRequest(
 		requestId,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" }),
+		fauxAssistantMessage([{ type: "text", text: "The turn is complete." }, fauxToolCall("end_turn", { reason })], {
+			stopReason: "toolUse",
+		}),
 	);
 	await pi.waitForSessionEntry(
 		null,
@@ -220,9 +222,13 @@ it("continues a completed running goal after restart while a child remains live"
 		);
 		pi.respondToLlmRequest(
 			mainAfterSpawn.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Main turn completed" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The main turn is complete." },
+					fauxToolCall("end_turn", { reason: "Main turn completed" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await pi.waitForSessionEntry(
 			null,

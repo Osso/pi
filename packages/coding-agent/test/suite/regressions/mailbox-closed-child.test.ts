@@ -24,7 +24,10 @@ it("rejects messages to a completed direct child without queueing them", async (
 		const parentRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 		agent.respondToLlmRequest(
 			parentRequest.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Worker started" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "The worker has started." }, fauxToolCall("end_turn", { reason: "Worker started" })],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForEvent((event) => event.type === "agent_end");
 		agent.respondToLlmRequest(
@@ -71,7 +74,10 @@ it("rejects messages to a completed direct child without queueing them", async (
 		}
 		agent.respondToLlmRequest(
 			requestId,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Done" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "The task is complete." }, fauxToolCall("end_turn", { reason: "Done" })],
+				{ stopReason: "toolUse" },
+			),
 		);
 	});
 }, 60_000);

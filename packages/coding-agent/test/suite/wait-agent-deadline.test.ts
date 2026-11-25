@@ -25,9 +25,15 @@ async function createChildRequestHarness(
 	});
 	await childHarness.session.bindExtensions({});
 	childHarness.setResponses([
-		fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Child request complete" })], {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "Child request done." },
+				fauxToolCall("end_turn", { reason: "Child request complete" }),
+			],
+			{
+				stopReason: "toolUse",
+			},
+		),
 	]);
 	return childHarness;
 }

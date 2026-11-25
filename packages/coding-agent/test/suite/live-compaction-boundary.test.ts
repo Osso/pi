@@ -111,7 +111,10 @@ describe("live compaction boundary cancellation and errors", () => {
 				(context) => {
 					nextContext = { messages: structuredClone(context.messages) };
 					callsAtNextRequest = compactionCalls;
-					return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "complete" }), { stopReason: "toolUse" });
+					return fauxAssistantMessage(
+						[{ type: "text", text: "Effect completed." }, fauxToolCall("end_turn", { reason: "complete" })],
+						{ stopReason: "toolUse" },
+					);
 				},
 			]);
 			await harness.session.prompt("run effect");
@@ -237,7 +240,10 @@ describe("live compaction provider threshold boundary", () => {
 					compactions: harness.sessionManager.getBranch().filter((entry) => entry.type === "compaction").length,
 					ended: harness.eventsOfType("agent_end").length,
 				});
-				return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "completed" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(
+					[{ type: "text", text: "Effects completed." }, fauxToolCall("end_turn", { reason: "completed" })],
+					{ stopReason: "toolUse" },
+				);
 			},
 		]);
 		const prompt = harness.session.prompt("run all three effects");

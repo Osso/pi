@@ -11,7 +11,9 @@ const LOOP_PROMPT = "Inspect the active recovery once.";
 const REAL_PROCESS_TEST_TIMEOUT_MS = 60_000;
 
 function fauxEndTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
-	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
+	return fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason })], {
+		stopReason: "toolUse",
+	});
 }
 
 function entryText(entry: SessionEntry): string {

@@ -149,9 +149,12 @@ it("accepts steering during a post-compaction wait with a live child restored ac
 			agent.respondToLlmRequest(
 				steered.id,
 				fauxAssistantMessage(
-					fauxToolCall("end_turn", {
-						reason: "Steering delivered without terminating the parallel worker",
-					}),
+					[
+						{ type: "text", text: "The steering is delivered; the parallel worker remains active." },
+						fauxToolCall("end_turn", {
+							reason: "Steering delivered without terminating the parallel worker",
+						}),
+					],
 					{ stopReason: "toolUse" },
 				),
 			);

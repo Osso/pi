@@ -109,7 +109,13 @@ export default function (pi) {
 		});
 		runtime.respondToLlmRequest(
 			continued.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "boundary verified" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The compaction boundary is verified." },
+					fauxToolCall("end_turn", { reason: "boundary verified" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await runtime.waitForEvent((event) => event.type === "agent_end");
 		runtime.respondToLlmRequest(

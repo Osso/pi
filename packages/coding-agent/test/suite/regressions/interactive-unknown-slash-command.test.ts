@@ -87,9 +87,10 @@ function respondToRequest(fixture: TestFixture, request: ProviderRequest): void 
 		`${JSON.stringify({
 			type: "response",
 			requestId: request.id,
-			message: fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Test complete" }), {
-				stopReason: "toolUse",
-			}),
+			message: fauxAssistantMessage(
+				[{ type: "text", text: "The test is complete." }, fauxToolCall("end_turn", { reason: "Test complete" })],
+				{ stopReason: "toolUse" },
+			),
 		})}\n`,
 	);
 }

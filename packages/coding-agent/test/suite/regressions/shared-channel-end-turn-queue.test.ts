@@ -8,7 +8,9 @@ import {
 import { createHarness, getMessageText, type Harness } from "../harness.ts";
 
 function fauxEndTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
-	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
+	return fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason })], {
+		stopReason: "toolUse",
+	});
 }
 
 describe("shared-channel follow-up queue", () => {

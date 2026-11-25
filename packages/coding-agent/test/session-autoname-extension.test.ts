@@ -88,7 +88,12 @@ describe("session naming tool extension", () => {
 
 	it("issues no provider request of its own when a user message starts", async () => {
 		const harness = await createSessionNameHarness();
-		harness.setResponses([endTurn()]);
+		harness.setResponses([
+			fauxAssistantMessage(
+				[{ type: "text", text: "The task is complete." }, fauxToolCall("end_turn", { reason: "done" })],
+				{ stopReason: "toolUse" },
+			),
+		]);
 
 		await harness.session.prompt("Rename the footer count logic");
 

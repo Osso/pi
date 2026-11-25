@@ -27,7 +27,13 @@ it("restores disabled delegation across restart without cancelling live child wo
 			const afterSpawn = await agent.waitForLlmRequest((request) => request.agentId === null);
 			agent.respondToLlmRequest(
 				afterSpawn.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child remains live" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The child remains live." },
+						fauxToolCall("end_turn", { reason: "Child remains live" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 			const sessionId = agent.sessionId;
@@ -72,9 +78,13 @@ it("restores disabled delegation across restart without cancelling live child wo
 			expect(disabledRequest.tools?.map((tool) => tool.name)).toContain("read");
 			agent.respondToLlmRequest(
 				disabledRequest.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Disabled settings confirmed" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The disabled settings are confirmed." },
+						fauxToolCall("end_turn", { reason: "Disabled settings confirmed" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
@@ -101,9 +111,13 @@ it("restores disabled delegation across restart without cancelling live child wo
 			);
 			agent.respondToLlmRequest(
 				completionRequest.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child completion received" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The child completion is received." },
+						fauxToolCall("end_turn", { reason: "Child completion received" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
@@ -126,9 +140,13 @@ it("restores disabled delegation across restart without cancelling live child wo
 			expect(enabledRequest.tools?.map((tool) => tool.name)).toContain("spawn_agent");
 			agent.respondToLlmRequest(
 				enabledRequest.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Active settings confirmed" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The active settings are confirmed." },
+						fauxToolCall("end_turn", { reason: "Active settings confirmed" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		},

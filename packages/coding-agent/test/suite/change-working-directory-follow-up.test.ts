@@ -5,7 +5,9 @@ import { expect, it } from "vitest";
 import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
 
 function endTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
-	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
+	return fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason })], {
+		stopReason: "toolUse",
+	});
 }
 
 async function waitForIdle(agent: HeadlessPi): Promise<void> {

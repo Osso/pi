@@ -11,13 +11,14 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - [x] Instruct the model to keep working while actionable task work remains and call `end_turn` only after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - [x] Instruct the model that thinking is never shown to the user, so a reply must be written as assistant text before `end_turn`.
 - [x] Accept otherwise valid `end_turn` calls alongside signed public narration without rejecting the response or requesting model regeneration; presentation follows the [public-narration contract](assistant-narration.md).
+- [x] In a main session, reject `end_turn` when the durable branch has a latest user-role prompt but no nonblank public assistant text after it. Thinking does not count, later custom messages do not reset the prompt anchor, and a branch with no user prompt is not rejected.
 - [x] Return a terminating tool result when execution succeeds.
 
 ### Child report requirement
 
 - [x] Require spawned and attached children to report before successful completion, both when `end_turn` executes and when the current dispatch returns: accept nonblank public assistant text (ordinary text or server-signed public narration), or a successful `contact_parent` result linked to its current tool call with a nonblank `body`, a nonblank message ID, and status `pending`, `claimed`, or `accepted`. A failed transport result does not qualify even when `isError` is false.
 - [x] Use only the durable current branch after the latest user prompt. Exclude inherited parent history, prior-task reports, private thinking, whitespace, and failed contact attempts; reconstruct eligibility after restart without new persistent state.
-- [x] Reject reportless child `end_turn` with an actionable error and no termination so the child can report. Apply the same guard to both child factories, without an opt-out, compatibility path, fallback, or model gate. Normal main-session textless `end_turn` remains unchanged.
+- [x] Reject reportless child `end_turn` with an actionable error and no termination so the child can report. Apply the same guard to both child factories, without an opt-out, compatibility path, fallback, or model gate.
 - [x] Validate the final current-dispatch result with the same report predicate after a normal prompt return, including a terminal provider `length` response that bypasses `end_turn`. Without a report, throw an explicit error so the child becomes `failed` and the parent receives an error notification, never reportless `completed`. Successful `contact_parent` evidence can qualify without assistant text. Preserve original provider errors and cancellation as `aborted`; do not add retries, a length-specific fallback, or a new lifecycle state.
 - [x] Include accepted public narration in parent result extraction through the existing public-text helper. Final validation excludes previous-dispatch reports even when they remain eligible for the current-task tool guard.
 
@@ -43,6 +44,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - `packages/coding-agent/extensions/agents-core/src/child-report.ts` — reconstructs current-task report eligibility from the persisted branch and rejects reportless completion.
 - `packages/coding-agent/extensions/agents-core/src/child-response.ts` — extracts current-dispatch public assistant text, including signed public narration, and is the terminal report-validation boundary; original provider errors remain unchanged.
 - `packages/coding-agent/src/core/assistant-narration.ts` — shared public-text classification for signed narration.
+- `packages/coding-agent/src/core/end-turn-public-text.ts` — scopes messages after the latest user prompt and checks for nonblank public assistant text.
 - `packages/agent-core/src/agent-loop.ts` — continues text-only responses when the end-turn tool is available, unless pending steering takes precedence.
 - `packages/coding-agent/src/core/agent-session.ts` — detects duplicate assistant turns, injects the runtime-only loop guard, and distinguishes completed persisted `end_turn` batches from interrupted turns during resume.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — consume one-shot extension continuation requests before startup or session-switch continuation.

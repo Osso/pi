@@ -28,7 +28,10 @@ describe("before_agent_start for runs that no user prompt started", () => {
 		harness.setResponses(
 			Array.from({ length: 6 }, () => (context: { systemPrompt?: string }) => {
 				blocks.push(context.systemPrompt?.match(/EXTENSION-BLOCK-\d+/)?.[0] ?? "none");
-				return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
+				return fauxAssistantMessage(
+					[{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "done" })],
+					{ stopReason: "toolUse" },
+				);
 			}),
 		);
 		return { harness, blocks, prompts };
@@ -85,7 +88,9 @@ describe("before_agent_start for runs that no user prompt started", () => {
 		const requests: string[][] = [];
 		const recordRequest = (context: { messages: Array<{ role: string; content: unknown }> }) => {
 			requests.push(context.messages.map((message) => JSON.stringify(message.content)));
-			return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
+			return fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "done" })], {
+				stopReason: "toolUse",
+			});
 		};
 		harness.setResponses([recordRequest, recordRequest, recordRequest]);
 		await harness.session.prompt("First request");
@@ -120,7 +125,9 @@ describe("before_agent_start for runs that no user prompt started", () => {
 		const blocks: string[] = [];
 		const recordBlock = (context: { systemPrompt?: string }) => {
 			blocks.push(context.systemPrompt?.match(/EXTENSION-BLOCK-\d+/)?.[0] ?? "none");
-			return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
+			return fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "done" })], {
+				stopReason: "toolUse",
+			});
 		};
 		harness.setResponses([recordBlock, recordBlock]);
 

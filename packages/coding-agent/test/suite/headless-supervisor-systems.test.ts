@@ -376,9 +376,13 @@ describe("headless Supervisor goal system", () => {
 			const afterPause = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
 				afterPause.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Paused for explicit user input" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The goal is paused." },
+						fauxToolCall("end_turn", { reason: "Paused for explicit user input" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 			const pausedGoal = agent.readGoal();

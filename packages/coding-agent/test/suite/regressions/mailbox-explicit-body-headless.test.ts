@@ -38,7 +38,10 @@ it("delivers distinct explicit bodies from successive child responses in one use
 		// The parent was already streaming when contact_parent notified it. Finish that response first.
 		agent.respondToLlmRequest(
 			afterSpawn.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Worker started" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "The worker has started." }, fauxToolCall("end_turn", { reason: "Worker started" })],
+				{ stopReason: "toolUse" },
+			),
 		);
 		const firstEnvelope = [
 			"From:",
@@ -73,7 +76,13 @@ it("delivers distinct explicit bodies from successive child responses in one use
 		// The second notification is queued behind the parent's first notification response.
 		agent.respondToLlmRequest(
 			firstNotification.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "First report received" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The first report is received." },
+					fauxToolCall("end_turn", { reason: "First report received" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		const secondEnvelope = [
 			"From:",
@@ -98,9 +107,13 @@ it("delivers distinct explicit bodies from successive child responses in one use
 		expect(deliveredReports).toEqual([firstEnvelope, secondEnvelope]);
 		agent.respondToLlmRequest(
 			secondNotification.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Second report received" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The second report is received." },
+					fauxToolCall("end_turn", { reason: "Second report received" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForSessionEntry(
 			null,
@@ -122,7 +135,13 @@ it("delivers distinct explicit bodies from successive child responses in one use
 		);
 		agent.respondToLlmRequest(
 			completion.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Completion received" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The completion is received." },
+					fauxToolCall("end_turn", { reason: "Completion received" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForSessionEntry(
 			null,

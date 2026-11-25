@@ -29,9 +29,13 @@ it("restores the compacted mission without replacing a working goal while a chil
 		await pi.send({ type: "prompt", message: "/goal pause" });
 		pi.respondToLlmRequest(
 			afterSpawn.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Initial mission turn recorded" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The initial mission turn is recorded." },
+					fauxToolCall("end_turn", { reason: "Initial mission turn recorded" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await pi.waitForEvent((event) => event.type === "agent_end");
 
@@ -39,9 +43,13 @@ it("restores the compacted mission without replacing a working goal while a chil
 		const laterTurn = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		pi.respondToLlmRequest(
 			laterTurn.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Later mission turn recorded" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "The later mission turn is recorded." },
+					fauxToolCall("end_turn", { reason: "Later mission turn recorded" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await pi.waitForEvent((event) => event.type === "agent_end");
 		await pi.waitForSessionEntry(

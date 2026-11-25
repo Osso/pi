@@ -70,9 +70,13 @@ it.skipIf(process.platform !== "linux")(
 					}
 					agent.respondToLlmRequest(
 						request.id,
-						fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Restart cleanup complete" }), {
-							stopReason: "toolUse",
-						}),
+						fauxAssistantMessage(
+							[
+								{ type: "text", text: "Restart cleanup is complete." },
+								fauxToolCall("end_turn", { reason: "Restart cleanup complete" }),
+							],
+							{ stopReason: "toolUse" },
+						),
 					);
 					await agent.waitForEvent((event) => event.type === "agent_end");
 				},

@@ -17,7 +17,10 @@ function createGate() {
 }
 
 function completedTurn() {
-	return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Done" }), { stopReason: "toolUse" });
+	return fauxAssistantMessage(
+		[{ type: "text", text: "The task is complete." }, fauxToolCall("end_turn", { reason: "Done" })],
+		{ stopReason: "toolUse" },
+	);
 }
 
 function createEditorFixture(harness: Harness, wake: () => void) {

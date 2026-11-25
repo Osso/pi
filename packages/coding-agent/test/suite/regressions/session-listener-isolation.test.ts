@@ -88,8 +88,14 @@ describe("session listener isolation", () => {
 				if (event.type === "agent_end") deliveries.push("recording");
 			});
 			harness.setResponses([
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "first" }), { stopReason: "toolUse" }),
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "second" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					[{ type: "text", text: "The first turn is complete." }, fauxToolCall("end_turn", { reason: "first" })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[{ type: "text", text: "The second turn is complete." }, fauxToolCall("end_turn", { reason: "second" })],
+					{ stopReason: "toolUse" },
+				),
 			]);
 			await harness.session.prompt("one");
 			await harness.session.agent.waitForIdle();

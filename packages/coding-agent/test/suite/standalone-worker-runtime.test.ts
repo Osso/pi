@@ -64,7 +64,13 @@ describe("standalone worker real CLI", () => {
 				expect(JSON.stringify(results[1])).toContain("unavailable in standalone worker mode");
 				agent.respondToLlmRequest(
 					third.id,
-					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "worker complete" }), { stopReason: "toolUse" }),
+					fauxAssistantMessage(
+						[
+							{ type: "text", text: "The standalone worker is complete." },
+							fauxToolCall("end_turn", { reason: "worker complete" }),
+						],
+						{ stopReason: "toolUse" },
+					),
 				);
 				await agent.waitForEvent((event) => event.type === "agent_end");
 				expect(readdirSync(agent.paths.sessionDir)).toEqual([]);

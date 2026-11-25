@@ -13,7 +13,9 @@ function createGate() {
 }
 
 function completedTurn(text: string) {
-	return fauxAssistantMessage([fauxToolCall("end_turn", { reason: text })], { stopReason: "toolUse" });
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
 }
 
 async function startCompactionWithResumedTool() {

@@ -1,5 +1,7 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import { createHarness, getMessageText } from "./harness.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 // Signature envelope as Anthropic returns it: field 2 -> field 1 -> field 8 holds the block kind.
@@ -51,28 +53,86 @@ it("accepts end_turn alongside public signed narration without asking for a rege
 	});
 }, 60_000);
 
-it("keeps end_turn terminal when its response carries ordinary thinking and no text", async () => {
-	await withHeadlessPi(async (agent) => {
-		await agent.send({ type: "prompt", message: "Nothing to say" });
-		const request = await agent.waitForLlmRequest();
-		agent.respondToLlmRequest(
-			request.id,
+it("rejects a thinking-only end_turn, then ends after the model writes a visible reply", async () => {
+	const harness = await createHarness();
+	try {
+		harness.setResponses([
+			fauxAssistantMessage([fauxThinking("Private reasoning."), fauxToolCall("end_turn", { reason: "Done" })], {
+				stopReason: "toolUse",
+			}),
 			fauxAssistantMessage(
-				[
-					{ type: "thinking", thinking: "No reply needed.", thinkingSignature: blockSignature("thinking") },
-					fauxToolCall("end_turn", { reason: "No reply requested" }),
-				],
+				[{ type: "text", text: "Visible answer." }, fauxToolCall("end_turn", { reason: "Answered" })],
 				{ stopReason: "toolUse" },
 			),
+		]);
+
+		await harness.session.prompt("What is the answer?");
+
+		const results = harness.session.messages.filter(
+			(message): message is ToolResultMessage<unknown> =>
+				message.role === "toolResult" && message.toolName === "end_turn",
 		);
-		await agent.waitForEvent((event) => event.type === "agent_end");
-		const results = agent
-			.readSessionEntries(null)
-			.flatMap((entry) =>
-				entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn"
-					? [entry.message]
-					: [],
-			);
+		expect(results.map((result) => result.isError)).toEqual([true, false]);
+		const firstResult = results[0];
+		if (!firstResult || firstResult.role !== "toolResult") throw new Error("Expected rejected end_turn result");
+		expect(getMessageText(firstResult)).toContain("Thinking is never shown");
+		expect(
+			harness.session.messages.some(
+				(message) => message.role === "assistant" && getMessageText(message) === "Visible answer.",
+			),
+		).toBe(true);
+	} finally {
+		harness.cleanup();
+	}
+}, 60_000);
+
+it("accepts end_turn when the branch has no user prompt", async () => {
+	const harness = await createHarness();
+	try {
+		harness.session.agent.state.messages = [fauxAssistantMessage("Assistant-only history.")];
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "No user prompt exists" }), {
+				stopReason: "toolUse",
+			}),
+		]);
+
+		await harness.session.continue();
+
+		const results = harness.session.messages.filter(
+			(message): message is ToolResultMessage<unknown> =>
+				message.role === "toolResult" && message.toolName === "end_turn",
+		);
 		expect(results.map((result) => result.isError)).toEqual([false]);
-	});
+	} finally {
+		harness.cleanup();
+	}
+}, 60_000);
+
+it("accepts textless end_turn on a custom continuation after a visible reply", async () => {
+	const harness = await createHarness();
+	try {
+		harness.setResponses([
+			fauxAssistantMessage(
+				[{ type: "text", text: "Visible answer." }, fauxToolCall("end_turn", { reason: "Answered" })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Supervisor continuation complete" }), {
+				stopReason: "toolUse",
+			}),
+		]);
+
+		await harness.session.prompt("What is the answer?");
+		await harness.session.sendCustomMessage(
+			{ customType: "supervisor-instruction", content: "Continue the prior work.", display: false },
+			{ triggerTurn: true },
+		);
+
+		const results = harness.session.messages.filter(
+			(message): message is ToolResultMessage<unknown> =>
+				message.role === "toolResult" && message.toolName === "end_turn",
+		);
+		expect(results.map((result) => result.isError)).toEqual([false, false]);
+	} finally {
+		harness.cleanup();
+	}
 }, 60_000);

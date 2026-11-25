@@ -28,7 +28,10 @@ it("/delete closes running child agents, then deletes the session and their tran
 		);
 		agent.respondToLlmRequest(
 			mainAfterSpawn.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Spawned" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "The worker is spawned." }, fauxToolCall("end_turn", { reason: "Spawned" })],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForEvent((event) => event.type === "agent_end");
 		const childTranscript = child.transcript?.path;

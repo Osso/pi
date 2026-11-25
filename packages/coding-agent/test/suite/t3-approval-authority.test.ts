@@ -31,7 +31,13 @@ async function requestWrite(agent: HeadlessPi): Promise<string> {
 async function completeTurn(agent: HeadlessPi, requestId: string, confirmEndTurn = false): Promise<void> {
 	agent.respondToLlmRequest(
 		requestId,
-		fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Approval test complete" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "The approval test is complete." },
+				fauxToolCall("end_turn", { reason: "Approval test complete" }),
+			],
+			{ stopReason: "toolUse" },
+		),
 	);
 	if (confirmEndTurn) {
 		const dialog = await agent.waitForExtensionUiRequest(

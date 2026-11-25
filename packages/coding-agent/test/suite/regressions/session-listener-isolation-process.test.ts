@@ -35,9 +35,13 @@ it("isolates queue subscribers after supervisor restart while a child remains li
 				);
 				pi.respondToLlmRequest(
 					afterSpawn.id,
-					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child remains live" }), {
-						stopReason: "toolUse",
-					}),
+					fauxAssistantMessage(
+						[
+							{ type: "text", text: "The child remains live." },
+							fauxToolCall("end_turn", { reason: "Child remains live" }),
+						],
+						{ stopReason: "toolUse" },
+					),
 				);
 				await pi.waitForEvent((event) => event.type === "agent_end");
 
@@ -69,9 +73,13 @@ it("isolates queue subscribers after supervisor restart while a child remains li
 				const continued = await pi.waitForLlmRequest((request) => request.agentId === null);
 				pi.respondToLlmRequest(
 					continued.id,
-					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Session remains usable" }), {
-						stopReason: "toolUse",
-					}),
+					fauxAssistantMessage(
+						[
+							{ type: "text", text: "The session remains usable." },
+							fauxToolCall("end_turn", { reason: "Session remains usable" }),
+						],
+						{ stopReason: "toolUse" },
+					),
 				);
 				await pi.waitForEvent((event) => event.type === "agent_end");
 			},

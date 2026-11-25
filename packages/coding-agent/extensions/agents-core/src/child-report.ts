@@ -1,7 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { getAssistantContentText } from "../../../src/core/assistant-narration.ts";
-import type { SessionEntry } from "../../../src/core/session-manager.ts";
+import { getMessagesAfterLatestUserPrompt, hasPublicAssistantText } from "../../../src/core/end-turn-public-text.ts";
 import { createEndTurnToolDefinition } from "../../../src/core/tools/end-turn.ts";
 
 function isSuccessfulParentReport(details: unknown): boolean {
@@ -31,22 +30,12 @@ function isDeliveredParentReport(message: ToolResultMessage<unknown>, parentRepo
 	return isSuccessfulParentReport(message.details);
 }
 
-function findCurrentPromptIndex(branch: SessionEntry[]): number {
-	for (let index = branch.length - 1; index >= 0; index -= 1) {
-		const entry = branch[index];
-		if (entry?.type === "message" && entry.message.role === "user") return index;
-	}
-	return -1;
-}
-
 /** Checks ordered messages already scoped to the current child task by the caller. */
 export function hasCurrentChildReport(messages: AgentMessage[]): boolean {
+	if (hasPublicAssistantText(messages)) return true;
 	const parentReportCalls = new Set<string>();
 	for (const message of messages) {
-		if (message.role === "assistant") {
-			if (message.content.some((part) => getAssistantContentText(part)?.trim())) return true;
-			recordParentReportCalls(message, parentReportCalls);
-		}
+		if (message.role === "assistant") recordParentReportCalls(message, parentReportCalls);
 		if (message.role === "toolResult" && isDeliveredParentReport(message, parentReportCalls)) {
 			return true;
 		}
@@ -55,7 +44,7 @@ export function hasCurrentChildReport(messages: AgentMessage[]): boolean {
 }
 
 export function createChildEndTurnToolDefinition(): ReturnType<typeof createEndTurnToolDefinition> {
-	const core = createEndTurnToolDefinition();
+	const core = createEndTurnToolDefinition("child");
 	const reportGuideline =
 		"Before end_turn, provide a nonblank public assistant report for the current task or successfully send it with contact_parent. Private thinking and the end_turn reason are not reports.";
 	return {
@@ -63,12 +52,8 @@ export function createChildEndTurnToolDefinition(): ReturnType<typeof createEndT
 		description: `${core.description} ${reportGuideline}`,
 		promptGuidelines: [...(core.promptGuidelines ?? []), reportGuideline],
 		execute: async (toolCallId, params, signal, onUpdate, ctx) => {
-			const branch = ctx.sessionManager.getBranch();
-			const promptIndex = findCurrentPromptIndex(branch);
-			const currentMessages = branch
-				.slice(promptIndex + 1)
-				.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
-			if (promptIndex < 0 || !hasCurrentChildReport(currentMessages)) {
+			const currentMessages = getMessagesAfterLatestUserPrompt(ctx.sessionManager.getBranch()) ?? [];
+			if (!hasCurrentChildReport(currentMessages)) {
 				throw new Error(
 					"Cannot end child turn without a current-task report. Write the report as public assistant text or successfully send a nonblank body with contact_parent, then call end_turn again.",
 				);

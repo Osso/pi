@@ -25,7 +25,10 @@ it("keeps a saved manual compaction when the resumed turn exceeds the thinking d
 			return fauxAssistantMessage("Never delivered");
 		};
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "Earlier work is complete." }, fauxToolCall("end_turn", { reason: "done" })],
+				{ stopReason: "toolUse" },
+			),
 			fauxAssistantMessage("Interrupted", { stopReason: "aborted" }),
 			stalledResponse,
 			stalledResponse,

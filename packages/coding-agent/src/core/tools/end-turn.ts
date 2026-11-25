@@ -1,4 +1,5 @@
 import { type Static, Type } from "typebox";
+import { getMessagesAfterLatestUserPrompt, hasPublicAssistantText } from "../end-turn-public-text.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 
 const endTurnSchema = Type.Object({
@@ -11,7 +12,9 @@ export interface EndTurnToolDetails {
 	reason: string;
 }
 
-export function createEndTurnToolDefinition(): ToolDefinition<typeof endTurnSchema, EndTurnToolDetails> {
+export function createEndTurnToolDefinition(
+	scope: "main" | "child" = "main",
+): ToolDefinition<typeof endTurnSchema, EndTurnToolDetails> {
 	return {
 		name: "end_turn",
 		label: "end_turn",
@@ -24,9 +27,17 @@ export function createEndTurnToolDefinition(): ToolDefinition<typeof endTurnSche
 		],
 		parameters: endTurnSchema,
 		executionMode: "sequential",
-		execute: async (_toolCallId, params) => {
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			if (params.reason.trim() === "") {
 				throw new Error("end_turn reason must be a non-empty string");
+			}
+			if (scope === "main" && ctx?.sessionManager) {
+				const messages = getMessagesAfterLatestUserPrompt(ctx.sessionManager.getBranch());
+				if (messages && !hasPublicAssistantText(messages)) {
+					throw new Error(
+						"Cannot end the main turn without a visible reply to the latest user prompt. Thinking is never shown; write the reply as assistant text, then call end_turn again.",
+					);
+				}
 			}
 			return {
 				content: [{ type: "text", text: `Turn ended: ${params.reason}` }],

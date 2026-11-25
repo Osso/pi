@@ -63,9 +63,10 @@ async function runShutdown(
 	return runWithCleanup(
 		async () => {
 			provider = await createProviderServer(paths.socketPath, (request) => {
-				const message = fauxAssistantMessage(fauxToolCall("end_turn", { reason: "done" }), {
-					stopReason: "toolUse",
-				});
+				const message = fauxAssistantMessage(
+					[{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "done" })],
+					{ stopReason: "toolUse" },
+				);
 				provider?.getSocket()?.write(`${JSON.stringify({ type: "response", requestId: request.id, message })}\n`);
 			});
 			const cliPath = join(import.meta.dirname, "..", "..", "..", "src", "cli.ts");

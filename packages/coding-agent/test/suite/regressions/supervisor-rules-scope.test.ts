@@ -17,7 +17,9 @@ async function promptScopeRules(agent: HeadlessPi, message: string): Promise<str
 	const request = await agent.waitForLlmRequest((candidate) => candidate.userMessages.includes(message));
 	agent.respondToLlmRequest(
 		request.id,
-		fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Done." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([{ type: "text", text: "Done." }, fauxToolCall("end_turn", { reason: "Done." })], {
+			stopReason: "toolUse",
+		}),
 	);
 	await agent.waitForEvent((event) => event.type === "agent_end");
 	return request.systemPrompt?.match(/[A-Z-]+_SCOPE_RULE/g) ?? [];

@@ -81,9 +81,13 @@ it.each(["prompt", "continue"] as const)(
 		session.agent.subscribe(record("agent"));
 		try {
 			harness.setResponses([
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Earlier task complete" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "The earlier task is complete." },
+						fauxToolCall("end_turn", { reason: "Earlier task complete" }),
+					],
+					{ stopReason: "toolUse" },
+				),
 				fauxAssistantMessage(fauxToolCall("wait_for_release", {}), {
 					stopReason: "toolUse",
 				}),

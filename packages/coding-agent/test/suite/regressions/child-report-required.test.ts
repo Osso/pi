@@ -54,7 +54,12 @@ async function spawnInheritedChild(agent: HeadlessPi, savedSessionFile?: string)
 	}
 	const parent = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
 	const parentEnd = fauxToolCall("end_turn", { reason: "Parent awaits current child report" });
-	agent.respondToLlmRequest(parent.id, fauxAssistantMessage(parentEnd, { stopReason: "toolUse" }));
+	agent.respondToLlmRequest(
+		parent.id,
+		fauxAssistantMessage([{ type: "text", text: "The child is working; I will report its result." }, parentEnd], {
+			stopReason: "toolUse",
+		}),
+	);
 	await expectToolResult(agent, null, parentEnd.id, false);
 	await agent.waitForEvent((event) => event.type === "agent_end");
 	return { child, request };

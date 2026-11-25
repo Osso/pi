@@ -27,7 +27,13 @@ it("starts each goal continuation with exactly one prompt, including from the ag
 		expect(afterTools.userMessages).toEqual([CONTINUE_GOAL]);
 		pi.respondToLlmRequest(
 			afterTools.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Mission work recorded" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Mission work is recorded." },
+					fauxToolCall("end_turn", { reason: "Mission work recorded" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 
 		// The run's own review continues it; a Supervisor complete on a mission goal continues inside agent_end.
