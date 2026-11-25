@@ -4,6 +4,7 @@ import { setKeybindings, type TUI } from "@earendil-works/pi-tui";
 import { beforeAll, expect, it } from "vitest";
 import { KeybindingsManager } from "../../src/core/keybindings.ts";
 import { ModelSelectorComponent } from "../../src/modes/interactive/components/model-selector.ts";
+import { listSelectableModels } from "../../src/modes/interactive/model-search.ts";
 import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../src/utils/ansi.ts";
 import { createHarness } from "./harness.ts";
@@ -44,6 +45,35 @@ it("hides a newly disabled model even when it remains in the picker scope", asyn
 
 		expect(render()).toContain("gemini-4-neon");
 		expect(render()).not.toContain("gemini-3.7-flash");
+	} finally {
+		harness.cleanup();
+	}
+});
+
+it("omits a scoped pool that disappears after its only member becomes disabled", async () => {
+	const harness = await createHarness({
+		models: [{ id: "gemini-3.7-flash" }],
+		pools: { "only-old": ["faux/gemini-3.7-flash"] },
+	});
+	try {
+		const member = harness.getModel("gemini-3.7-flash");
+		const pool = harness.session.modelRegistry.find("pool", "only-old");
+		if (!member || !pool) throw new Error("Missing faux model or pool");
+		const scopedModels = [{ model: pool }];
+		const modelRegistry = harness.session.modelRegistry;
+		expect(listSelectableModels(modelRegistry, scopedModels)).toEqual([pool]);
+
+		writeFileSync(
+			join(harness.tempDir, "models.json"),
+			JSON.stringify({
+				providers: { [member.provider]: { disabledModels: ["gemini-3.*"] } },
+				pools: { "only-old": [`${member.provider}/${member.id}`] },
+			}),
+		);
+		modelRegistry.refresh();
+
+		expect(modelRegistry.find("pool", "only-old")).toBeUndefined();
+		expect(listSelectableModels(modelRegistry, scopedModels)).toEqual([]);
 	} finally {
 		harness.cleanup();
 	}

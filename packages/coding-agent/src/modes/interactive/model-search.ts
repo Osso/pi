@@ -7,9 +7,12 @@ export function listSelectableModels(
 	scopedModels: ReadonlyArray<{ model: Model<Api> }>,
 ): Model<Api>[] {
 	if (scopedModels.length === 0) return modelRegistry.getAvailable();
-	return scopedModels
-		.map(({ model }) => model)
-		.filter(({ provider, id }) => !modelRegistry.isModelDisabled(provider, id));
+	return scopedModels.flatMap(({ model }) => {
+		const { provider, id } = model;
+		const refreshed = modelRegistry.find(provider, id);
+		if (!refreshed || modelRegistry.isModelDisabled(provider, id)) return [];
+		return [refreshed];
+	});
 }
 
 export interface ModelSearchItem {

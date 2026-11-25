@@ -58,7 +58,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - [x] Escape cancels and returns the answers given so far as a cancelled result.
 - [x] Return an error outside interactive TUI mode instead of hanging.
 - [x] Send a persistent desktop notification while waiting for answers and close it after the question flow answers or cancels.
-- [x] Include the active session display name in the notification title; for unnamed sessions, use the cwd basename and short session ID.
+- [x] When a question panel opens, include the display name of the session that owns its UI in the notification title; for unnamed sessions, use that session's cwd basename and short session ID. This also applies to queued panels and interactive SDK sessions without a main runtime.
   Persistent actionable notifications use a large non-zero timeout (`PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS`) because the live notification daemon treats `0` as too short; Pi still closes them explicitly by handle.
 
 ### Prompting and rendering

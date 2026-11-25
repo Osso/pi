@@ -220,7 +220,7 @@ class SupervisorSessionServer {
 		validateQuestions(questions);
 		const withdrawn = new AbortController();
 		this.openEscalations.set(request.id, withdrawn);
-		void askQuestionsInUi(ctx.ui, questions, withdrawn.signal)
+		void askQuestionsInUi(ctx, questions, withdrawn.signal)
 			// Cancelling the panel leaves the question open in the store for `pi questions` or a restart.
 			.then(({ answers, cancelled }) => {
 				if (!cancelled) answerQuestionAsUser(controlDbPath, ctx.sessionManager.getSessionId(), request.id, answers);

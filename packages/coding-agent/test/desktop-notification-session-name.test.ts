@@ -5,9 +5,12 @@ import { type Component, setKeybindings, type TUI } from "@earendil-works/pi-tui
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import type { AgentSessionServices } from "../src/core/agent-session-services.ts";
-import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
+import {
+	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
+	setDesktopNotificationSessionProvider,
+} from "../src/core/desktop-notification.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { createAskQuestionsToolDefinition } from "../src/core/tools/ask-questions.ts";
+import { askQuestionsInUi, createAskQuestionsToolDefinition } from "../src/core/tools/ask-questions.ts";
 import type { ExtensionContext } from "../src/index.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme, type Theme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -36,7 +39,10 @@ function createChildProcess() {
 	return child;
 }
 
-function createAskQuestionsContext(keys: string[]): ExtensionContext {
+function createAskQuestionsContext(
+	keys: string[],
+	sessionManager: ExtensionContext["sessionManager"],
+): ExtensionContext {
 	const keybindings = new KeybindingsManager();
 	setKeybindings(keybindings);
 	const custom = async <T>(
@@ -59,7 +65,7 @@ function createAskQuestionsContext(keys: string[]): ExtensionContext {
 		if (!result) throw new Error(`Question panel still open after keys: ${JSON.stringify(keys)}`);
 		return result.value;
 	};
-	return { hasUI: true, mode: "tui", ui: { custom } } as unknown as ExtensionContext;
+	return { hasUI: true, mode: "tui", ui: { custom }, sessionManager } as unknown as ExtensionContext;
 }
 
 function expectNotification(callIndex: number, title: string, body: string): void {
@@ -94,6 +100,30 @@ beforeEach(() => {
 });
 
 describe("desktop notification session names", () => {
+	it("names questions from an SDK session without a global runtime provider", async () => {
+		setDesktopNotificationSessionProvider(undefined);
+		const harness = await createHarness();
+		try {
+			harness.session.setSessionName("Named SDK Session");
+			await createAskQuestionsToolDefinition().execute(
+				"sdk-question",
+				{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+				undefined,
+				undefined,
+				createAskQuestionsContext([KEY.enter], harness.sessionManager),
+			);
+			expectNotification(0, "Named SDK Session: Pi question needs input", "Pi is waiting for your answer.");
+
+			harness.session.setSessionName("Named Supervisor UI");
+			await askQuestionsInUi(createAskQuestionsContext([KEY.enter], harness.sessionManager), [
+				{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] },
+			]);
+			expectNotification(1, "Named Supervisor UI: Pi question needs input", "Pi is waiting for your answer.");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it("uses the live session name and a recognizable fallback across notification paths", async () => {
 		const harness = await createHarness();
 		try {
@@ -113,7 +143,7 @@ describe("desktop notification session names", () => {
 					{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
 					undefined,
 					undefined,
-					createAskQuestionsContext([KEY.enter]),
+					createAskQuestionsContext([KEY.enter], harness.sessionManager),
 				);
 			await askQuestion("named-question");
 			expectNotification(1, "Bug Hunt: Pi question needs input", "Pi is waiting for your answer.");
