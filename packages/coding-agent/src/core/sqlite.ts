@@ -114,6 +114,14 @@ export function isSqliteContentionError(error: unknown): boolean {
 }
 
 /**
+ * Report a failed periodic background SQLite task. Contention is not reported: the task retries on its next tick,
+ * and stderr output would draw over the interactive TUI.
+ */
+export function reportBackgroundSqliteError(message: string, error: unknown): void {
+	if (!isSqliteContentionError(error)) console.error(message, error);
+}
+
+/**
  * Configure a SQLite connection for concurrent multi-process access.
  * Enables WAL so readers do not block writers (and vice versa) and sets a busy timeout.
  */

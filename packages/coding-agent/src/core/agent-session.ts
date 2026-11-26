@@ -219,6 +219,7 @@ import { getLatestCompactionEntry } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
+import { reportBackgroundSqliteError } from "./sqlite.ts";
 import {
 	deliverTerminalOutboxProjections,
 	isTerminalOutboxCleanupDue,
@@ -2697,7 +2698,7 @@ export class AgentSession {
 		try {
 			this._drainTerminalOutboxProjections();
 		} catch (error) {
-			console.error(`Failed to drain terminal outbox projections: ${errorMessage(error)}`);
+			reportBackgroundSqliteError("Failed to drain terminal outbox projections:", error);
 		}
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
 		const channelQueued =
@@ -2991,7 +2992,7 @@ export class AgentSession {
 		this._runtimeMailboxControlDbRelease = retainControlDbConnection(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
 			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
-				console.error("Failed to drain runtime coordination messages:", error);
+				reportBackgroundSqliteError("Failed to drain runtime coordination messages:", error);
 			});
 		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
 	}
@@ -3009,9 +3010,7 @@ export class AgentSession {
 	private _startRuntimeMailboxSignalWake(): void {
 		if (this._disableRuntimeCoordinationInbound) return;
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
-		if (!controlDbPath) {
-			return;
-		}
+		if (!controlDbPath) return;
 		installRuntimeMailboxSignalKeepalive();
 		const agentId = this._getRuntimeMailboxAgentId();
 		this._registerRuntimeMailboxListeners(controlDbPath, agentId);
@@ -3023,7 +3022,7 @@ export class AgentSession {
 		}
 		this._runtimeMailboxSignalHandler = () => {
 			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
-				console.error("Failed to drain runtime coordination messages:", error);
+				reportBackgroundSqliteError("Failed to drain runtime coordination messages:", error);
 			});
 		};
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
@@ -3050,7 +3049,7 @@ export class AgentSession {
 			try {
 				this._registerRuntimeMailboxListeners(controlDbPath, agentId);
 			} catch (error) {
-				console.error("Failed to refresh runtime mailbox listeners:", error);
+				reportBackgroundSqliteError("Failed to refresh runtime mailbox listeners:", error);
 			}
 		}, RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS);
 	}
