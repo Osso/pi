@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-export const GOAL_CONTINUE_PROMPT = "Continue working toward the active goal.";
+import { GENERIC_GOAL_CONTINUATION } from "../../../src/supervisor/goal-continuation.ts";
 
 /**
  * The only path that sends the generic goal prompt. At most one prompt is outstanding per session:
@@ -24,7 +23,7 @@ export function createGoalWorkStarter(pi: ExtensionAPI): GoalWorkStarter {
 			if (pendingStarts.has(sessionId) || ctx.hasPendingMessages()) return;
 			if (!ctx.isIdle() && !endingRuns.has(sessionId)) return;
 			pendingStarts.add(sessionId);
-			pi.sendUserMessage(GOAL_CONTINUE_PROMPT, { deliverAs: "followUp" });
+			pi.sendUserMessage(GENERIC_GOAL_CONTINUATION, { deliverAs: "followUp" });
 		},
 		runStarted(ctx) {
 			pendingStarts.delete(ctx.sessionManager.getSessionId());

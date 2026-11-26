@@ -1081,6 +1081,7 @@ let cachedCliHighlightTheme: CliHighlightTheme | undefined;
 
 function buildCliHighlightTheme(t: Theme): CliHighlightTheme {
 	return {
+		default: (s: string) => t.fg("text", s),
 		keyword: (s: string) => t.fg("syntaxKeyword", s),
 		built_in: (s: string) => t.fg("syntaxType", s),
 		literal: (s: string) => t.fg("syntaxNumber", s),
@@ -1130,11 +1131,7 @@ export function highlightCode(code: string, lang?: string): string[] {
 	if (!validLang) {
 		return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
 	}
-	const opts = {
-		language: validLang,
-		ignoreIllegals: true,
-		theme: getCliHighlightTheme(theme),
-	};
+	const opts = { language: validLang, ignoreIllegals: true, theme: getCliHighlightTheme(theme) };
 	try {
 		return highlight(code, opts).split("\n");
 	} catch {

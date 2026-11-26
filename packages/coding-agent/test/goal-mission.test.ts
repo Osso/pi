@@ -19,11 +19,12 @@ import type {
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Test model not found");
 
-const CONTINUE_GOAL = ["Continue working toward the active goal.", { deliverAs: "followUp" }] as const;
+const CONTINUE_GOAL = [GENERIC_GOAL_CONTINUATION, { deliverAs: "followUp" }] as const;
 const INSTRUCTIONS = "Fix the failing service first.";
 const REVIEW_DELAY_MS = 1_000;
 const COMPLETION_WAIT_MS = 55 * 60 * 1_000;

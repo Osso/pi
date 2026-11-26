@@ -1,8 +1,9 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import { GENERIC_GOAL_CONTINUATION } from "../../../src/supervisor/goal-continuation.ts";
 import { withHeadlessPi } from "../headless-pi.ts";
 
-const CONTINUE_GOAL = "Continue working toward the active goal.";
+const CONTINUE_GOAL = GENERIC_GOAL_CONTINUATION;
 const MISSION = "Keep the faux platform healthy";
 
 it("starts each goal continuation with exactly one prompt, including from the agent_end review", async () => {
@@ -10,6 +11,8 @@ it("starts each goal continuation with exactly one prompt, including from the ag
 		await pi.send({ type: "prompt", message: `/mission set ${MISSION}` });
 		const missionStart = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		expect(missionStart.userMessages).toEqual([CONTINUE_GOAL]);
+		// The generic continuation reminds the model to route questions and blockers through ask_questions.
+		expect(missionStart.userMessages[0]).toContain("Ask questions and report blockers with ask_questions");
 
 		// Each manage_goal action re-copies the mission during the run; none may queue a follow-up.
 		pi.respondToLlmRequest(

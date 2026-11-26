@@ -539,7 +539,7 @@ export function buildContextEntries(
 			contextEntries.push(entry);
 		}
 	}
-	contextEntries.push(...path.slice(compactionIdx + 1));
+	for (const entry of path.slice(compactionIdx + 1)) contextEntries.push(entry);
 	return contextEntries;
 }
 

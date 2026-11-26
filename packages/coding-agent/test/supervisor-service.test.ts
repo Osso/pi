@@ -9,6 +9,7 @@ import {
 	postSupervisorRequest,
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 import {
 	buildSupervisorPrompt,
 	parseSupervisorResponse,
@@ -122,7 +123,7 @@ describe("Supervisor request service", () => {
 			"Only an explicit user instruction may reset or narrow the grounded parent objective",
 			"Return complete only when evidence proves every requirement and completion criterion of the full parent objective",
 			"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction",
-			'instructions exactly "Continue working toward the active goal."',
+			`instructions exactly "${GENERIC_GOAL_CONTINUATION}"`,
 			"Do not use wait while other authorized goal work can proceed without that result; use continue",
 			"Use pause only when progress requires user action",
 			"Escalate when any question involves new scope, cost, safety risk, an irreversible action, or a product tradeoff",

@@ -119,6 +119,7 @@ import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../../supervisor/goal-continuation.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -337,9 +338,8 @@ const FOLLOW_UP_BODY_PREVIEW_LENGTH = 50;
 function formatFollowUpPreview(message: string): string {
 	const sender =
 		message.match(/^- agent:\s*(.+)$/m)?.[1]?.trim() ??
-		(message.trim() === "Continue working toward the active goal." ? "goal" : "unknown");
-	const bodyMarker = "\nMessage:\n";
-	const bodyText = message.split(bodyMarker, 2)[1] ?? message;
+		(message.trim() === GENERIC_GOAL_CONTINUATION ? "goal" : "unknown");
+	const bodyText = message.split("\nMessage:\n", 2)[1] ?? message;
 	const body = (bodyText.split("\n", 1)[0] ?? "").trim();
 	const bodyPreview =
 		body.length > FOLLOW_UP_BODY_PREVIEW_LENGTH ? `${body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH)}…` : body;

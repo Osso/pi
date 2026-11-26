@@ -9,6 +9,7 @@ import {
 	type SupervisorResponse,
 } from "../core/session-control-db.ts";
 import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS } from "./client.ts";
+import { GENERIC_GOAL_CONTINUATION } from "./goal-continuation.ts";
 
 export type SupervisorEvaluator = (prompt: string, signal: AbortSignal) => Promise<unknown>;
 
@@ -123,7 +124,7 @@ export const SUPERVISOR_REQUEST_POLICY = [
 	"Detect narrowed or lost goals; dropped requirements, exclusions, or completion criteria; contradictions between claims and evidence; repeated or circular work; and missing completion proof.",
 	"Return complete only when evidence proves every requirement and completion criterion of the full parent objective.",
 	"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction.",
-	'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
+	`When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "${GENERIC_GOAL_CONTINUATION}"`,
 	"Use different continue instructions only when evidence identifies a concrete omission or another listed exception. Name only the exception and smallest corrective action.",
 	"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
 	"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",

@@ -8,6 +8,7 @@ import {
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
+import { GENERIC_GOAL_CONTINUATION } from "./goal-continuation.ts";
 import { sendSupervisorReply } from "./mail.ts";
 import {
 	buildSupervisorInstructionReviewContext,
@@ -20,8 +21,6 @@ import {
 	type SupervisorInstructionReviewDecision,
 	supervisorInstructionRejectionFeedback,
 } from "./service.ts";
-
-export const GENERIC_GOAL_CONTINUATION = "Continue working toward the active goal.";
 
 export type SupervisorInstructionReviewer = (
 	instructions: string,

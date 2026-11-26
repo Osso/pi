@@ -33,6 +33,7 @@ import type {
 import { archiveSessionFile } from "../src/core/session-archive-storage.ts";
 import { claimNextSupervisorRequest, getControlDbPath, readSupervisorRequest } from "../src/core/session-control-db.ts";
 import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 import { replyAsSupervisor } from "./helpers/supervisor-reply.ts";
 
 vi.mock("../src/supervisor/ensure-running.ts", () => ({
@@ -72,7 +73,7 @@ function createUsage(): Usage {
 }
 
 const storedGoalJsonBySession = new Map<string, string>();
-const CONTINUE_GOAL = ["Continue working toward the active goal.", { deliverAs: "followUp" }] as const;
+const CONTINUE_GOAL = [GENERIC_GOAL_CONTINUATION, { deliverAs: "followUp" }] as const;
 
 function storedGoalKey(cwd: string, sessionId = "test-session"): string {
 	return `${cwd}\0${sessionId}`;
@@ -1295,7 +1296,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd, { reviewGoal });
 		await harness.runCommand("set exclude generated review evidence");
 
-		await harness.runInput("Continue working toward the active goal.", "extension");
+		await harness.runInput(GENERIC_GOAL_CONTINUATION, "extension");
 		await harness.runInput("Run the deployment.");
 		await harness.runEndTurn("Deployment complete.");
 		await harness.runAgentEnd();
@@ -1643,7 +1644,7 @@ describe("goal extension", () => {
 				if (kind === "goal_completion_review") await reReviewAnswered;
 				return kind === "goal_completion_review"
 					? { kind: "complete", reason: "rollout verified" }
-					: { kind: "continue", reason: "work remains", instructions: "Continue working toward the active goal." };
+					: { kind: "continue", reason: "work remains", instructions: GENERIC_GOAL_CONTINUATION };
 			});
 			harness = createGoalHarness(cwd, {
 				idle: () => idle,

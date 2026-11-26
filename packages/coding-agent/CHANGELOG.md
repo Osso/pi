@@ -40,6 +40,7 @@
 ### Changed
 
 - `pi questions` uses configurable `app.questions.new` (Ctrl+N) and `app.questions.refresh` (Ctrl+R) shortcuts instead of ask and refresh action rows; Quit remains selectable, Ctrl+R keeps the selected question, and the footer wraps its key hints at narrow widths.
+- The generic goal continuation (`/goal` reminder and Supervisor `continue`) now tells the agent to ask questions and report blockers with `ask_questions` instead of plain text
 - `pi questions` refreshes the unanswered list every two seconds while visible, without replacing the list component or interrupting detail/answer flows; remote names are queried only for newly seen IDs between manual refreshes.
 - A finished `wait_agent` row is no longer shown in the interactive transcript, because it carries only a timestamp. Failed waits and the expanded view (ctrl+o) still show it.
 - The Supervisor TUI shows a `supervisor_response` question answer as `→ <answer>` only; the question text and the Supervisor's reason stay in the transcript.
@@ -282,6 +283,9 @@
 
 ### Fixed
 
+- Fixed unhighlighted parts of syntax-highlighted code (identifiers, operators, spaces) using the terminal foreground instead of the theme text color, which made tool previews hard to read when Pi and the terminal used contrasting themes
+- Fixed compaction summarizing the current generic goal continuation reminder instead of omitting it like other goal reminders
+- Fixed sessions with about 120k or more entries after the last compaction failing to build context with `RangeError: Maximum call stack size exceeded`
 - Fixed removed scoped models and pools remaining selectable in `/model` autocomplete after registry refresh
 - Fixed question notifications omitting the session name when an interactive SDK session has no main runtime provider
 - Fixed bounded read pagination loading oversized text files into memory instead of selecting the requested lines

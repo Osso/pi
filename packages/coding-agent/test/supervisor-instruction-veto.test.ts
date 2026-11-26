@@ -10,11 +10,11 @@ import {
 	type SupervisorRequest,
 	type SupervisorRequestKind,
 } from "../src/core/session-control-db.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 import {
 	applySupervisorInstructionVeto,
 	createSupervisorInstructionReviewer,
 	evaluateAndCompleteSupervisorRequest,
-	GENERIC_GOAL_CONTINUATION,
 	type SupervisorInstructionReviewer,
 } from "../src/supervisor/request-evaluation.ts";
 import {

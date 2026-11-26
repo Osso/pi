@@ -69,10 +69,21 @@ describe("theme syntax highlighting", () => {
 			"",
 			`${ansi}line two\x1b[39m`,
 			`${ansi}"""\x1b[39m`,
-			"after",
+			`${theme.getFgAnsi("text")}after\x1b[39m`,
 		];
 
 		expect(highlightCode(code, "python")).toEqual(expected);
+	});
+
+	// Unscoped text must use the theme foreground, not the terminal's, so it stays readable on tool cards.
+	it("colors unscoped highlighted code with the theme foreground", () => {
+		initTheme("light");
+
+		const lines = highlightCode("plainIdentifier\nconst answer = 42;", "typescript");
+		const text = theme.getFgAnsi("text");
+
+		expect(lines[0]).toBe(`${text}plainIdentifier\x1b[39m`);
+		expect(lines[1]).toContain(`${text} answer = \x1b[39m`);
 	});
 
 	it("colors diff additions and deletions in fenced diff blocks", () => {

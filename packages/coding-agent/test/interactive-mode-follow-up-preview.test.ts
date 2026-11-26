@@ -2,6 +2,7 @@ import { Container } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { GENERIC_GOAL_CONTINUATION } from "../src/supervisor/goal-continuation.ts";
 
 type PendingMessagesDisplayThis = {
 	compactionQueuedMessages: [];
@@ -79,7 +80,7 @@ describe("InteractiveMode follow-up preview", () => {
 		const fakeThis: PendingMessagesDisplayThis = {
 			compactionQueuedMessages: [],
 			pendingBashComponents: [],
-			getAllQueuedMessages: () => ({ steering: [], followUp: ["Continue working toward the active goal."] }),
+			getAllQueuedMessages: () => ({ steering: [], followUp: [GENERIC_GOAL_CONTINUATION] }),
 			pendingMessagesContainer: new Container(),
 		};
 
