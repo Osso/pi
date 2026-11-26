@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added protected `Editor.confirmAutocomplete()` so subclasses can apply the selected autocomplete suggestion the way `tui.select.confirm` does (port of upstream 27157503e)
 - Added `decodeTypedText()`, the one rule for which key presses type text into a text field; `Input` uses it
 - Added full-width render regions for same-height component updates without rendering the global component tree. Root layout callbacks record row bounds, descendant requests route to their registered boundary, successful writes synchronize the differential-render cache, and unsafe or height-changing updates fall back to normal rendering.
 - Added a non-fallback render-region attempt for callers that must skip unsafe partial updates without scheduling a normal root render.
