@@ -28,6 +28,39 @@ export function isRpcInfoCommand(command: { type: string }): command is RpcInfoC
 	].includes(command.type);
 }
 
+/**
+ * Start a resumed run and respond once it starts (or ends without starting), like `prompt`:
+ * awaiting the whole turn would block clients that wait for the response before abort/steer.
+ * A failure before the run starts is the response; a later one is only logged.
+ */
+function respondWhenRunStarts(
+	session: AgentSession,
+	id: string | undefined,
+	resume: () => Promise<void>,
+): Promise<RpcResponse> {
+	return new Promise((resolve) => {
+		let responded = false;
+		const respond = (response: RpcResponse) => {
+			if (responded) return;
+			responded = true;
+			unsubscribe();
+			resolve(response);
+		};
+		const started: RpcResponse = { id, type: "response", command: "continue", success: true };
+		const unsubscribe = session.subscribe((event) => {
+			if (event.type === "agent_start") respond(started);
+		});
+		resume().then(
+			() => respond(started),
+			(e: unknown) => {
+				const message = e instanceof Error ? e.message : String(e);
+				if (responded) console.error(`RPC continue failed: ${message}`);
+				respond({ id, type: "response", command: "continue", success: false, error: message });
+			},
+		);
+	});
+}
+
 export async function handleRpcInfoCommand(
 	command: RpcInfoCommand,
 	session: AgentSession,
@@ -39,16 +72,15 @@ export async function handleRpcInfoCommand(
 		return { id, type: "response", command: type, success: true };
 	}
 	if (type === "continue") {
-		if (session.isStreaming) {
-			if (session.pendingMessageCount > 0) await session.interrupt("", "rpc");
-			else await session.abort();
+		if (session.isStreaming && session.pendingMessageCount === 0) {
+			await session.abort();
 			return { id, type: "response", command: type, success: true };
 		}
-		if (session.isCompacting) {
+		if (!session.isStreaming && session.isCompacting) {
 			return { id, type: "response", command: type, success: false, error: "Session is busy" };
 		}
-		await session.continue();
-		return { id, type: "response", command: type, success: true };
+		const resume = session.isStreaming ? () => session.interrupt("", "rpc") : () => session.continue();
+		return respondWhenRunStarts(session, id, resume);
 	}
 	if (type === "reload") {
 		if (session.isStreaming || session.isCompacting) {

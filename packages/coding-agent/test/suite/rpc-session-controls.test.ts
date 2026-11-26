@@ -13,6 +13,8 @@ describe("RPC TUI session controls", () => {
 			const continueResponse = agent.send({ type: "continue" });
 			const nextRequest = await agent.waitForLlmRequest((request) => request.id !== firstRequest.id);
 			expect(nextRequest.userMessages).toContain("Keep this queued input");
+			// The resumed LLM request is still held, so the turn cannot have settled.
+			expect(await continueResponse).toMatchObject({ command: "continue", success: true });
 			agent.respondToLlmRequest(
 				nextRequest.id,
 				fauxAssistantMessage(
@@ -24,6 +26,29 @@ describe("RPC TUI session controls", () => {
 			);
 			await agent.waitForEvent((event) => event.type === "agent_settled");
 			expect(await continueResponse).toMatchObject({ command: "continue", success: true });
+		});
+	}, 60_000);
+
+	it("responds to continue on an idle session once the resumed turn starts", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Start a response" });
+			const firstRequest = await agent.waitForLlmRequest();
+			await agent.send({ type: "abort" });
+			await agent.waitForEvent((event) => event.type === "agent_settled");
+
+			const continueResponse = agent.send({ type: "continue" });
+			const resumed = await agent.waitForLlmRequest((request) => request.id !== firstRequest.id);
+			// The resumed LLM request is still held, so the turn cannot have settled.
+			expect(await continueResponse).toMatchObject({ command: "continue", success: true });
+
+			agent.respondToLlmRequest(
+				resumed.id,
+				fauxAssistantMessage([{ type: "text", text: "Resumed." }, fauxToolCall("end_turn", { reason: "Done" })], {
+					stopReason: "toolUse",
+				}),
+			);
+			// The earlier agent_settled was consumed above; this is the resumed turn's.
+			await agent.waitForEvent((event) => event.type === "agent_settled");
 		});
 	}, 60_000);
 
