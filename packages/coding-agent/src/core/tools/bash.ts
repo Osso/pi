@@ -627,7 +627,11 @@ export function createBashToolDefinition(
 					throw new Error(appendStatus(outputText, "Command terminated without an exit code"));
 				}
 				if (exitCode !== 0) {
-					throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
+					return {
+						content: [{ type: "text", text: appendStatus(outputText, `Command exited with code ${exitCode}`) }],
+						details: { ...details, exitCode },
+						isError: true,
+					};
 				}
 				return { content: [{ type: "text", text: outputText }], details: { ...details, exitCode } };
 			} finally {
