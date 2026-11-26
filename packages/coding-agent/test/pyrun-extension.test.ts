@@ -640,6 +640,10 @@ async function resultFor(request) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     return { type: "completed", executed: request.code, value: "slow-detached-done" };
   }
+  if (request.code === "run.silent_detachable()") {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return { type: "completed", executed: request.code, value: "silent-detached-done" };
+  }
   if (request.code === "run.detached_error()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "detachable error started" }) + "\\n");
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -2340,6 +2344,30 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 		expect(result.details.value).toBe("");
 		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("creates the reported log path when a silent Pyrun evaluation is detached", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		const resultPromise = harness.evaluate({ code: "run.silent_detachable()" });
+		await waitFor(() => detachRegistry.detachRunning(), "silent Pyrun detach");
+
+		const result = await resultPromise;
+		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+		const logPath = resultText.match(/Output will be written to (.+)\./)?.[1];
+		expect(logPath).toBeDefined();
+		const [job] = store.listAgents();
+		expect(job.lifecycle).toBe("running");
+		expect(logPath ? existsSync(logPath) : false).toBe(true);
+
+		await waitFor(
+			() => hasProjectedLifecycle(store, job.id, "completed"),
+			"silent detached Pyrun completion",
+			SLOW_DETACHED_COMPLETION_ATTEMPTS,
+		);
+		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("silent-detached-done");
 	});
 
 	it("creates the reported detached Pyrun log path before evaluation completes", async () => {

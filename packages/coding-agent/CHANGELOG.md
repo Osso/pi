@@ -283,6 +283,7 @@
 
 ### Fixed
 
+- A Pyrun evaluation moved to the background before it printed anything now creates its reported output log at once, so reading that path no longer fails with ENOENT
 - Fixed unhighlighted parts of syntax-highlighted code (identifiers, operators, spaces) using the terminal foreground instead of the theme text color, which made tool previews hard to read when Pi and the terminal used contrasting themes
 - Fixed compaction summarizing the current generic goal continuation reminder instead of omitting it like other goal reminders
 - Fixed sessions with about 120k or more entries after the last compaction failing to build context with `RangeError: Maximum call stack size exceeded`

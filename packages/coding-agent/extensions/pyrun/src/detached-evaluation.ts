@@ -244,9 +244,7 @@ async function settleCancellingPyrunJob(
 	if (!identity) return persisted;
 	// The runner may have died before writing any output; the terminal input hashes
 	// the output file, so ensure it exists before building the aborted transition.
-	if (!existsSync(manifest.artifacts.outputPath)) {
-		closeSync(openSync(manifest.artifacts.outputPath, "a", 0o600));
-	}
+	ensurePyrunOutputFile(manifest.artifacts.outputPath);
 	const terminalAt = Date.now();
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
@@ -557,6 +555,8 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			if (ownership) terminalAgent = input.controller.observe(ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (ownership && control.isActivated()) {
+				// The runner writes the log only when the evaluation produces output; the reported path must exist now.
+				ensurePyrunOutputFile(ownership.artifacts.outputPath);
 				return detachedResult(input.params, ownership.agent.id, ownership.artifacts.outputPath);
 			}
 			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
@@ -657,6 +657,10 @@ function formatTerminalAgentError(params: PyrunEvalParams, agent: AgentSnapshot)
 		details: { error, executed: params.code, type: "error" },
 		isError: true,
 	};
+}
+
+function ensurePyrunOutputFile(path: string): void {
+	closeSync(openSync(path, "a", 0o600));
 }
 
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {
