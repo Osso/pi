@@ -693,6 +693,30 @@ If an extension cancelled the clone:
 }
 ```
 
+#### list_sessions
+
+List sessions for a resume picker, as the TUI's `/resume`: this project's sessions (`scope: "cwd"`, the default) or all projects' (`scope: "all"`), newest first. Archived sessions are not included. Load one with `switch_session`.
+
+```json
+{"type": "list_sessions", "scope": "all"}
+```
+
+Response:
+```json
+{
+  "type": "response",
+  "command": "list_sessions",
+  "success": true,
+  "data": {
+    "sessions": [
+      {"path": "/path/to/session.jsonl", "id": "abc123", "cwd": "/home/user/project", "name": "my-feature-work", "modified": "2026-11-26T10:00:00.000Z", "messageCount": 12, "firstMessage": "Fix the tests"}
+    ]
+  }
+}
+```
+
+`name` is omitted for unnamed sessions. `cwd` is empty for old sessions.
+
 #### get_fork_messages
 
 Get user messages available for forking.

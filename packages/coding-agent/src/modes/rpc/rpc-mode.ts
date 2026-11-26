@@ -39,6 +39,7 @@ import { forwardAgentUpdates, handleRpcAgentCommand, isRpcAgentCommand, type Rpc
 import { runRpcBash } from "./rpc-bash.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
+import { listRpcSessions } from "./rpc-sessions.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIDismiss,
@@ -306,7 +307,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		},
 
 		setTheme(_theme: string | Theme) {
-			// Theme switching not supported in RPC mode
 			return { success: false, error: "Theme switching not supported in RPC mode" };
 		},
 
@@ -397,9 +397,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 	if (agents) forwardAgentUpdates(agents.store, output);
 	registerSignalHandlers();
 
-	// Handle a single command
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
+		if (command.type === "list_sessions") return listRpcSessions(command, session.sessionManager, runtimeHost);
 		if (isRpcAgentCommand(command))
 			return handleRpcAgentCommand(command, agents, session.sessionManager.getSessionDir());
 		switch (command.type) {

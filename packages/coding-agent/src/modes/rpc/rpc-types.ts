@@ -74,6 +74,9 @@ export type RpcCommand =
 	// Commands (available for invocation via prompt)
 	| { id?: string; type: "get_commands" }
 
+	// Sessions for a resume picker: this project's (default) or all projects'
+	| { id?: string; type: "list_sessions"; scope?: "cwd" | "all" }
+
 	// Agents
 	| RpcAgentCommand;
 
@@ -82,6 +85,19 @@ export type RpcAgentCommand =
 	| { id?: string; type: "get_agents" }
 	| { id?: string; type: "get_agent_messages"; agentId: string }
 	| { id?: string; type: "steer_agent"; agentId: string; message: string };
+
+/** A session in a `list_sessions` response, newest first. */
+export interface RpcSessionSummary {
+	path: string;
+	id: string;
+	/** Working directory the session started in; empty for old sessions. */
+	cwd: string;
+	name?: string;
+	/** ISO 8601 time of the last change. */
+	modified: string;
+	messageCount: number;
+	firstMessage: string;
+}
 
 /** Emitted whenever an agent in the multi-agent store changes. */
 export type RpcAgentUpdatedEvent = { type: "agent_updated"; agent: AgentSnapshot };
@@ -236,6 +252,7 @@ export type RpcResponse =
 	  }
 
 	// Agents
+	| { id?: string; type: "response"; command: "list_sessions"; success: true; data: { sessions: RpcSessionSummary[] } }
 	| { id?: string; type: "response"; command: "get_agents"; success: true; data: { agents: AgentSnapshot[] } }
 	| { id?: string; type: "response"; command: "get_agent_messages"; success: true; data: { messages: AgentMessage[] } }
 	| { id?: string; type: "response"; command: "steer_agent"; success: true }
