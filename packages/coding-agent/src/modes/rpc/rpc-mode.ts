@@ -39,6 +39,7 @@ import { runRpcBash } from "./rpc-bash.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import type {
 	RpcCommand,
+	RpcExtensionUIDismiss,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
 	RpcResponse,
@@ -110,23 +111,17 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 			const cleanup = () => {
 				if (timeoutId) clearTimeout(timeoutId);
-				opts?.signal?.removeEventListener("abort", onAbort);
+				opts?.signal?.removeEventListener("abort", dismiss);
 				pendingExtensionRequests.delete(id);
 			};
-
-			const onAbort = () => {
+			// pi withdrew the dialog: tell the client to close it, then settle with the default.
+			const dismiss = () => {
 				cleanup();
+				output({ type: "extension_ui_dismiss", id } satisfies RpcExtensionUIDismiss);
 				resolve(defaultValue);
 			};
-			opts?.signal?.addEventListener("abort", onAbort, { once: true });
-
-			if (opts?.timeout) {
-				timeoutId = setTimeout(() => {
-					cleanup();
-					resolve(defaultValue);
-				}, opts.timeout);
-			}
-
+			opts?.signal?.addEventListener("abort", dismiss, { once: true });
+			if (opts?.timeout) timeoutId = setTimeout(dismiss, opts.timeout);
 			pendingExtensionRequests.set(id, {
 				resolve: (response: RpcExtensionUIResponse) => {
 					cleanup();
@@ -155,6 +150,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		input: (title, placeholder, opts) =>
 			createDialogPromise(opts, undefined, { method: "input", title, placeholder, timeout: opts?.timeout }, (r) =>
 				"cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined,
+			),
+
+		questions: (questions, opts) =>
+			createDialogPromise(opts, { answers: {}, cancelled: true }, { method: "questions", questions }, (r) =>
+				"answers" in r ? { answers: r.answers, cancelled: false } : { answers: {}, cancelled: true },
 			),
 
 		notify(message: string, type?: "info" | "warning" | "error"): void {

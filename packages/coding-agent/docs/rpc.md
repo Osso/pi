@@ -1141,10 +1141,16 @@ Extensions can request user interaction via `ctx.ui.select()`, `ctx.ui.confirm()
 
 There are two categories of extension UI methods:
 
-- **Dialog methods** (`select`, `confirm`, `input`, `editor`): emit an `extension_ui_request` on stdout and block until the client sends back an `extension_ui_response` on stdin with the matching `id`.
+- **Dialog methods** (`select`, `confirm`, `input`, `editor`, `questions`): emit an `extension_ui_request` on stdout and block until the client sends back an `extension_ui_response` on stdin with the matching `id`.
 - **Fire-and-forget methods** (`notify`, `setStatus`, `setWidget`, `setTitle`, `set_editor_text`): emit an `extension_ui_request` on stdout but do not expect a response. The client can display the information or ignore it.
 
 If a dialog method includes a `timeout` field, the agent-side will auto-resolve with a default value when the timeout expires. The client does not need to track timeouts.
+
+When pi withdraws a pending `select`, `confirm`, `input` or `questions` dialog (its timeout expired, the turn was aborted, or another answer won, such as a Supervisor answer to `questions`), it emits `extension_ui_dismiss` with the dialog's `id`. The client closes that dialog; a response sent afterwards is ignored.
+
+```json
+{"type": "extension_ui_dismiss", "id": "uuid-1"}
+```
 
 Some `ExtensionUIContext` methods are not supported or degraded in RPC mode because they require direct TUI access:
 - `requestRender()` is a no-op; RPC clients do not own a TUI render loop
@@ -1229,6 +1235,28 @@ Open a multi-line text editor with optional prefilled content.
 
 Expected response: `extension_ui_response` with `value` (the edited text) or `cancelled: true`.
 
+#### questions
+
+The `ask_questions` tool asks the user 1-4 questions. A question with `options` is multiple choice (2-4 options, plus a free-text "Other" answer the client offers itself); without `options` it is free text. `multiSelect: true` allows several options.
+
+```json
+{
+  "type": "extension_ui_request",
+  "id": "uuid-10",
+  "method": "questions",
+  "questions": [
+    {
+      "question": "Which test runner should this project use?",
+      "header": "Runner",
+      "options": [{"label": "vitest", "description": "Fast"}, {"label": "jest"}]
+    },
+    {"question": "What should the binary be called?"}
+  ]
+}
+```
+
+Expected response: `extension_ui_response` with `answers` or `cancelled: true`. When a Supervisor is configured it receives the same questions; if it answers first, pi sends `extension_ui_dismiss` for this `id`.
+
 #### notify
 
 Display a notification. Fire-and-forget, no response expected.
@@ -1306,7 +1334,7 @@ Set the text in the input editor. Fire-and-forget.
 
 ### Extension UI Responses (stdin)
 
-Responses are sent for dialog methods only (`select`, `confirm`, `input`, `editor`). The `id` must match the request. These messages have no RPC acknowledgement.
+Responses are sent for dialog methods only (`select`, `confirm`, `input`, `editor`, `questions`). The `id` must match the request. These messages have no RPC acknowledgement.
 
 The typed Node client provides `await agent.respondToExtensionUiRequest(response)`. It sends the typed `extension_ui_response` verbatim and returns `Promise<void>`; completion does not acknowledge that the dialog was handled.
 
@@ -1322,9 +1350,17 @@ The typed Node client provides `await agent.respondToExtensionUiRequest(response
 {"type": "extension_ui_response", "id": "uuid-2", "confirmed": true}
 ```
 
+#### Answers response (questions)
+
+Keys are the exact question texts. The answer is the chosen option label or the free text; multi-select answers join the chosen labels with `", "`.
+
+```json
+{"type": "extension_ui_response", "id": "uuid-10", "answers": {"Which test runner should this project use?": "vitest", "What should the binary be called?": "pi-desktop"}}
+```
+
 #### Cancellation response (any dialog)
 
-Dismiss any dialog method. The extension receives `undefined` (for select/input/editor) or `false` (for confirm).
+Dismiss any dialog method. The extension receives `undefined` (for select/input/editor), `false` (for confirm), or a cancelled result (for questions).
 
 ```json
 {"type": "extension_ui_response", "id": "uuid-3", "cancelled": true}

@@ -83,7 +83,7 @@ describe("ask_questions tool", () => {
 
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_questions");
 		expect(tools.ask_questions.name).toBe("ask_questions");
-		expect(tools.ask_questions.promptGuidelines?.join("\n")).toContain("interactive TUI sessions");
+		expect(tools.ask_questions.promptGuidelines?.join("\n")).toContain("interactive sessions");
 	});
 
 	it("exposes min/max schema constraints", () => {

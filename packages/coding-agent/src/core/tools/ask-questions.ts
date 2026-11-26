@@ -150,7 +150,7 @@ function cancelQuestionRaceOnAbort(race: QuestionPanelRace, signal: AbortSignal 
 	else signal?.addEventListener("abort", close, { once: true });
 }
 
-type QuestionUiContext = Pick<ExtensionContext, "ui" | "sessionManager">;
+type QuestionUiContext = Pick<ExtensionContext, "ui" | "sessionManager" | "mode">;
 
 async function showQuestions(
 	ctx: QuestionUiContext,
@@ -160,6 +160,14 @@ async function showQuestions(
 	if (race.result) return race.result;
 	const notification = notifyAskQuestionsWaiting(questions.length, ctx.sessionManager);
 	try {
+		if (ctx.mode !== "tui" && ctx.ui.questions) {
+			// A Supervisor answer or cancellation dismisses the client's questions.
+			const dismissal = new AbortController();
+			race.close = () => dismissal.abort();
+			const result = await ctx.ui.questions(questions, { signal: dismissal.signal });
+			race.result ??= result;
+			return race.result;
+		}
 		await ctx.ui.custom<AskQuestionsAnswer>((tui, theme, keybindings, done) => {
 			const finish = (result: AskQuestionsAnswer) => {
 				race.result ??= result;
@@ -375,7 +383,12 @@ function formatAskQuestionsCall(
 
 function unavailableResult(params: AskQuestionsToolInput) {
 	return {
-		content: [{ type: "text" as const, text: "Error: ask_questions requires an interactive TUI session" }],
+		content: [
+			{
+				type: "text" as const,
+				text: "Error: ask_questions requires an interactive TUI session or an RPC client that answers questions",
+			},
+		],
 		details: {
 			blocking: params.blocking,
 			questions: params.questions,
@@ -486,7 +499,7 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 			"Ask the user questions with choices or free-text answers. Explicitly choose blocking to wait, or nonblocking to queue questions and receive answers through your inbox while work continues.",
 		promptSnippet: "Ask all user questions through this tool; explicitly choose blocking or nonblocking",
 		promptGuidelines: [
-			"Use ask_questions only in interactive TUI sessions when you need user preferences, requirement clarification, or a decision between approaches.",
+			"Use ask_questions only in interactive sessions when you need user preferences, requirement clarification, or a decision between approaches.",
 			"Always use ask_questions for questions to the user; never ask for user input in chat. Omit options for free-text questions.",
 			"Always specify blocking explicitly. Use true when progress depends on the answer; use false to queue questions and continue independent authorized work. Nonblocking answers and cancellation arrive as inbox messages correlated by requestId.",
 			"For multiple-choice questions, provide 2-4 distinct options. Do not include an Other option; Pi adds it automatically.",
@@ -498,7 +511,7 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 		async execute(toolCallId, params, signal, _onUpdate, ctx) {
 			if (typeof params.blocking !== "boolean")
 				throw new Error("ask_questions requires explicit blocking: true or false");
-			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
+			if (!ctx.hasUI || (ctx.mode !== "tui" && !ctx.ui.questions)) return unavailableResult(params);
 			validateQuestions(params.questions);
 			if (!params.blocking) return startQueuedQuestionRequest(toolCallId, params, ctx);
 			const { answers, cancelled, answeredBy } = await askQuestions(ctx, toolCallId, params, signal);

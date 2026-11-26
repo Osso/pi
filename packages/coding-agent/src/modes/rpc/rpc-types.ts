@@ -10,6 +10,7 @@ import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
+import type { ExtensionUIQuestion } from "../../core/extensions/types.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 
@@ -241,6 +242,7 @@ export type RpcExtensionUIRequest =
 			timeout?: number;
 	  }
 	| { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string }
+	| { type: "extension_ui_request"; id: string; method: "questions"; questions: ExtensionUIQuestion[] }
 	| {
 			type: "extension_ui_request";
 			id: string;
@@ -266,6 +268,9 @@ export type RpcExtensionUIRequest =
 	| { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
 	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
 
+/** Emitted when pi withdraws a pending dialog (abort, timeout, or another answer won); the client closes it. */
+export type RpcExtensionUIDismiss = { type: "extension_ui_dismiss"; id: string };
+
 // ============================================================================
 // Extension UI Commands (stdin)
 // ============================================================================
@@ -274,4 +279,5 @@ export type RpcExtensionUIRequest =
 export type RpcExtensionUIResponse =
 	| { type: "extension_ui_response"; id: string; value: string }
 	| { type: "extension_ui_response"; id: string; confirmed: boolean }
+	| { type: "extension_ui_response"; id: string; answers: Record<string, string> }
 	| { type: "extension_ui_response"; id: string; cancelled: true };

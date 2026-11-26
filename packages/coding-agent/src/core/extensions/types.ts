@@ -88,6 +88,7 @@ import type {
 	SymbolToolInput,
 	WriteToolInput,
 } from "../tools/index.ts";
+import type { ExtensionUIDialogOptions, ExtensionUIQuestion, ExtensionUIQuestionsResult } from "./ui-dialogs.ts";
 
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -98,15 +99,7 @@ export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 // UI Context
 // ============================================================================
 
-/** Options for extension UI dialogs. */
-export interface ExtensionUIDialogOptions {
-	/** AbortSignal to programmatically dismiss the dialog. */
-	signal?: AbortSignal;
-	/** Timeout in milliseconds. Dialog auto-dismisses with live countdown display. */
-	timeout?: number;
-	/** Mask entered characters in interactive text input. */
-	secret?: boolean;
-}
+export type { ExtensionUIDialogOptions, ExtensionUIQuestion, ExtensionUIQuestionsResult } from "./ui-dialogs.ts";
 
 /** Placement for extension widgets. */
 export type WidgetPlacement = "aboveEditor" | "belowEditor";
@@ -226,6 +219,9 @@ export interface ExtensionUIContext {
 			onHandle?: (handle: OverlayHandle) => void;
 		},
 	): Promise<T>;
+
+	/** ask_questions for non-TUI UIs (RPC); TUI mode uses custom(). Aborting opts.signal dismisses as cancelled. */
+	questions?(questions: ExtensionUIQuestion[], opts?: ExtensionUIDialogOptions): Promise<ExtensionUIQuestionsResult>;
 
 	/** Paste text into the editor, triggering paste handling (collapse for large content). */
 	pasteToEditor(text: string): void;

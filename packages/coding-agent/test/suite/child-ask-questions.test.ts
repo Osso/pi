@@ -264,7 +264,9 @@ describe("child ask_questions relay", () => {
 		await parent.session.prompt("Ask the user");
 
 		const result = toolResult(parent, "ask_questions");
-		expect(textOf(result)).toBe("Error: ask_questions requires an interactive TUI session");
+		expect(textOf(result)).toBe(
+			"Error: ask_questions requires an interactive TUI session or an RPC client that answers questions",
+		);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
