@@ -19,9 +19,6 @@ export async function findNextPlanItem(filePath: string): Promise<string | null>
 	return null;
 }
 
-const RUN_PLAN_AGENT_INSTRUCTION =
-	"[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]";
-
 interface ActivePlan {
 	file: string;
 	path: string;
@@ -48,8 +45,8 @@ function resolvePlanFile(cwd: string, args: string): ActivePlan {
 	return { file, path: resolve(cwd, file) };
 }
 
-function buildPlanPrompt(item: string): string {
-	return `${item}\n\n${RUN_PLAN_AGENT_INSTRUCTION}`;
+function buildPlanPrompt(item: string, planFile: string): string {
+	return `${item}\n\n[run-plan: Do not read ${planFile}. Work on this selected item, then check off that exact item in ${planFile} when it is resolved.]`;
 }
 
 function planFileEnvValue(plan: ActivePlan): string {
@@ -86,7 +83,7 @@ async function submitNextPlanItem(
 		return false;
 	}
 
-	const prompt = buildPlanPrompt(nextItem);
+	const prompt = buildPlanPrompt(nextItem, plan.file);
 	if (options?.followUp) {
 		pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 	} else {

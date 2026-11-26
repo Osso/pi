@@ -271,7 +271,15 @@ describe("run-plan extension", () => {
 		expect(process.env.PLAN_PATH).toBe(join(cwd, "ALT.md"));
 		expect(process.env.PI_PLAN_FILE).toBe("ALT.md");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Alternate plan\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+			"Alternate plan\n\n[run-plan: Do not read ALT.md. Work on this selected item, then check off that exact item in ALT.md when it is resolved.]",
+		);
+
+		// The follow-up for the next item must also name the active plan file, not PLAN.md.
+		writeFileSync(join(cwd, "ALT.md"), "* [x] Alternate plan\n* [ ] Second alternate\n");
+		await harness.runEvent("agent_settled");
+		expect(harness.sendUserMessage).toHaveBeenLastCalledWith(
+			"Second alternate\n\n[run-plan: Do not read ALT.md. Work on this selected item, then check off that exact item in ALT.md when it is resolved.]",
+			{ deliverAs: "followUp" },
 		);
 	});
 

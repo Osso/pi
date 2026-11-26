@@ -8,7 +8,7 @@ The [run-plan extension](../../../packages/coding-agent/extensions/run-plan/src/
 
 `findNextPlanItem` reads the file and returns trimmed text from the first line matching an unchecked `- [ ]` or `* [ ]` item. It does not parse Markdown structure or mutate checkboxes. Checked items are skipped because they do not match. No selected text produces an informational notice; a missing file throws. The command rejects a non-idle session.
 
-Dispatch sends the selected text with a fixed instruction not to read `PLAN.md` and to check off the exact resolved item. After submission, `runPlan` exports environment state, appends `run-plan:active`, clears the editor, and retains the active plan in the extension instance.
+Dispatch sends the selected text with an instruction that names the active plan file: do not read it, and check off the exact resolved item in it. After submission, `runPlan` exports environment state, appends `run-plan:active`, clears the editor, and retains the active plan in the extension instance.
 
 At `agent_settled`, an active plan is reread and submitted as a `followUp`. An unchanged unchecked item is submitted again; checking it moves selection to the next item. `agent_settled` fires only after automatic retries and session continuations such as a cwd relocation, so a failed attempt that is retried does not submit its item a second time. When no item remains, the extension clears its active variable and appends a null state entry.
 

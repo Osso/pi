@@ -291,6 +291,7 @@
 
 ### Fixed
 
+- Fixed `/run-plan <file>` telling the agent to check off the selected item in `PLAN.md` instead of the named plan file, so the item stayed unchecked and was submitted again
 - Fixed Supervisor requests (goal review, approvals, `ask_supervisor`) failing with `the relay to the Supervisor on host <host> is not running` after this host's relay process exited. Sessions started the relay only at their own startup; a request to a Supervisor on another host now starts the configured relay again.
 - Fixed `app.message.followUp` (Alt+Enter) ignoring an open autocomplete menu and queuing the half-typed text. It now applies the selected suggestion like Enter: a completed command name is queued, and other completions are inserted without queuing (port of upstream 27157503e)
 - Fixed a busy shared control DB printing `SQLiteError: database is locked` stack traces over the interactive TUI from the runtime mailbox heartbeat and coordination polling. These periodic tasks now retry on their next tick and report only other errors.

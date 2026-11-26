@@ -19,7 +19,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 - [x] When the plan file does not exist, a command error is thrown (not a silent no-op).
 
 ### Prompt submission
-- [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)` with an instruction not to read `PLAN.md`; the command already selected the item.
+- [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)` with an instruction naming the active plan file (`PLAN.md` or the user-specified file): do not read it, because the command already selected the item, and check the item off in that file when it is resolved.
 - [x] After an active plan agent run settles (no automatic retry or session continuation follows), the current first unchecked item is submitted again as a follow-up if it remains unchecked; if the previous item was checked, the next unchecked item is submitted. A failed attempt that is retried submits nothing.
 - [x] The active run stops when the plan file is missing or no unchecked items remain.
 - [x] The composer / input buffer is cleared after dispatch (no residual text shown).
