@@ -283,6 +283,7 @@
 
 ### Fixed
 
+- Fixed the running `!` command hint naming escape/ctrl+c as the cancel keys: it now names the interrupt key, since ctrl+c clears the editor and pressing it twice quits Pi ([#12517](https://github.com/earendil-works/pi-mono/issues/12517))
 - Fixed `!` command output rebuilt from the session (after compaction, `/reload`, `/resume`, or `/tree`) always showing collapsed while ctrl+o was set to expanded ([#12426](https://github.com/earendil-works/pi-mono/issues/12426))
 - A Pyrun evaluation moved to the background before it printed anything now creates its reported output log at once, so reading that path no longer fails with ENOENT
 - Fixed unhighlighted parts of syntax-highlighted code (identifiers, operators, spaces) using the terminal foreground instead of the theme text color, which made tool previews hard to read when Pi and the terminal used contrasting themes

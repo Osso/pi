@@ -70,7 +70,7 @@ export class BashExecutionComponent extends Container {
 			ui,
 			(spinner) => theme.fg(colorKey, spinner),
 			(text) => theme.fg("muted", text),
-			`Running... (${keyText("tui.select.cancel")} to cancel)`, // Plain text for loader
+			`Running... (${keyText("app.interrupt")} to cancel)`, // Plain text for loader
 			{ frames: [] },
 		);
 		this.contentContainer.addChild(this.loader);
@@ -229,7 +229,7 @@ export class BashExecutionComponent extends Container {
 		if (this.status === "running") {
 			const elapsed = this.showElapsed ? this.formatTimer() : undefined;
 			const runningPrefix = elapsed ? `Running ${elapsed}...` : "Running...";
-			this.loader.setMessage(`${runningPrefix} (${keyText("tui.select.cancel")} to cancel)`);
+			this.loader.setMessage(`${runningPrefix} (${keyText("app.interrupt")} to cancel)`);
 			this.contentContainer.addChild(this.loader);
 		} else {
 			const elapsed = this.showElapsed ? this.formatTimer() : undefined;
