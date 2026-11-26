@@ -11,6 +11,7 @@ import type { SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { ExtensionUIQuestion } from "../../core/extensions/types.ts";
+import type { AgentSnapshot } from "../../core/multi-agent-store.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 
@@ -71,7 +72,19 @@ export type RpcCommand =
 	| { id?: string; type: "get_messages" }
 
 	// Commands (available for invocation via prompt)
-	| { id?: string; type: "get_commands" };
+	| { id?: string; type: "get_commands" }
+
+	// Agents
+	| RpcAgentCommand;
+
+/** Multi-agent commands; fail when the session runs with --no-supervisor. */
+export type RpcAgentCommand =
+	| { id?: string; type: "get_agents" }
+	| { id?: string; type: "get_agent_messages"; agentId: string }
+	| { id?: string; type: "steer_agent"; agentId: string; message: string };
+
+/** Emitted whenever an agent in the multi-agent store changes. */
+export type RpcAgentUpdatedEvent = { type: "agent_updated"; agent: AgentSnapshot };
 
 // ============================================================================
 // RPC Slash Command (for get_commands response)
@@ -221,6 +234,11 @@ export type RpcResponse =
 			success: true;
 			data: { commands: RpcSlashCommand[] };
 	  }
+
+	// Agents
+	| { id?: string; type: "response"; command: "get_agents"; success: true; data: { agents: AgentSnapshot[] } }
+	| { id?: string; type: "response"; command: "get_agent_messages"; success: true; data: { messages: AgentMessage[] } }
+	| { id?: string; type: "response"; command: "steer_agent"; success: true }
 
 	// Error response (any command can fail)
 	| { id?: string; type: "response"; command: string; success: false; error: string };

@@ -1135,6 +1135,42 @@ Emitted when an extension throws an error.
 }
 ```
 
+## Agents
+
+Sessions started with a Supervisor (the default; not `--no-supervisor`) expose the multi-agent store. Without it these commands fail with `success: false`.
+
+### get_agents
+
+```json
+{"type": "get_agents"}
+```
+
+Response `data.agents` is an array of agent snapshots: `id`, `parentId`, `displayName`, `agentType`, `lifecycle` (`running`, `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, `aborted`), `revision`, `createdAt`, `updatedAt`, `cwd`, optional `model`, `currentActivity`, `lastActivity`, `result`, `error`, `transcript`. See `AgentNode` in `src/core/multi-agent-types.ts`.
+
+### get_agent_messages
+
+```json
+{"type": "get_agent_messages", "agentId": "agent_1"}
+```
+
+Response `data.messages` holds the agent's transcript messages, in the same shape as `get_messages`; empty until the agent's transcript file exists. Clients refresh it on `agent_updated` for that agent.
+
+### steer_agent
+
+```json
+{"type": "steer_agent", "agentId": "agent_1", "message": "Also check the tests"}
+```
+
+Delivers the message to an active agent before its next model call. Fails for an unknown or finished agent.
+
+### agent_updated (event)
+
+```json
+{"type": "agent_updated", "agent": {"id": "agent_1", "displayName": "helper", "lifecycle": "running", "...": "..."}}
+```
+
+Emitted on every change to an agent in the store (spawn, activity, lifecycle, result).
+
 ## Extension UI Protocol
 
 Extensions can request user interaction via `ctx.ui.select()`, `ctx.ui.confirm()`, etc. In RPC mode, these are translated into a request/response sub-protocol on top of the base command/event flow.

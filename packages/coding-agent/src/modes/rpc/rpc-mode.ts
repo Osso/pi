@@ -35,6 +35,7 @@ import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "..
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "../runtime-diagnostics.ts";
 import { serializeJsonLine } from "./jsonl.ts";
+import { forwardAgentUpdates, handleRpcAgentCommand, isRpcAgentCommand, type RpcAgentControls } from "./rpc-agents.ts";
 import { runRpcBash } from "./rpc-bash.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import type {
@@ -60,7 +61,7 @@ export type {
  * Run in RPC mode.
  * Listens for JSON commands on stdin, outputs events and responses on stdout.
  */
-export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<never> {
+export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcAgentControls): Promise<never> {
 	takeOverStdout();
 	let session = runtimeHost.session;
 	let unsubscribe: (() => void) | undefined;
@@ -158,7 +159,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			),
 
 		notify(message: string, type?: "info" | "warning" | "error"): void {
-			// Fire and forget - no response needed
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
@@ -176,7 +176,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		},
 
 		setStatus(key: string, status: ExtensionStatus | undefined): void {
-			// Fire and forget - no response needed
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
@@ -228,7 +227,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		},
 
 		setTitle(title: string): void {
-			// Fire and forget - host can implement terminal title control
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
@@ -248,7 +246,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		},
 
 		setEditorText(text: string): void {
-			// Fire and forget - host can implement editor control
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
@@ -397,12 +394,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 	const input = readRpcInputFromStartup(process.stdin, pendingExtensionRequests);
 	await rebindSession();
+	if (agents) forwardAgentUpdates(agents.store, output);
 	registerSignalHandlers();
 
 	// Handle a single command
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
-
+		if (isRpcAgentCommand(command))
+			return handleRpcAgentCommand(command, agents, session.sessionManager.getSessionDir());
 		switch (command.type) {
 			// =================================================================
 			// Prompting

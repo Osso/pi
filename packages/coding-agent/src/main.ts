@@ -765,7 +765,7 @@ function createMainSessionExecutionOptions(
 function createInteractiveOrchestrationControls(
 	orchestration: FirstPartyOrchestration | undefined,
 	controlDbPath: string | undefined,
-	getSessionId: () => string,
+	runtime: { readonly session: { readonly sessionId: string } },
 ): Pick<
 	InteractiveModeOptions,
 	"wakeWaitAgentsAfterSteering" | "steerMultiAgent" | "cancelMultiAgent" | "getLiveAgentSession"
@@ -786,11 +786,11 @@ function createInteractiveOrchestrationControls(
 			return requestInteractiveAgentSteering(store, runtimeHandles, agentId, message, {
 				actorAgentId: null,
 				controlDbPath,
-				sessionId: getSessionId(),
+				sessionId: runtime.session.sessionId,
 			});
 		},
 		cancelMultiAgent: (agentId) =>
-			cancelOwnedAgentRuntime(store, runtimeHandles, agentId, getSessionId(), "cancelled interactively"),
+			cancelOwnedAgentRuntime(store, runtimeHandles, agentId, runtime.session.sessionId, "cancelled interactively"),
 		getLiveAgentSession: (agentId) => runtimeHandles.sessions.get(agentId),
 	};
 }
@@ -1325,10 +1325,10 @@ export async function main(args: string[], options?: MainOptions) {
 			console.error(`Relay startup failed: ${error instanceof Error ? error.message : String(error)}`);
 		});
 	}
-
+	const controls = createInteractiveOrchestrationControls(coordination, controlDbPath, runtime);
 	if (appMode === "rpc") {
 		printTimings();
-		await runRpcMode(runtime);
+		await runRpcMode(runtime, coordination && { store: coordination.store, steer: controls.steerMultiAgent });
 	} else if (appMode === "interactive") {
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,
@@ -1340,7 +1340,7 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
-			...createInteractiveOrchestrationControls(coordination, controlDbPath, () => runtime.session.sessionId),
+			...controls,
 			verbose: parsed.verbose,
 		});
 		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);
