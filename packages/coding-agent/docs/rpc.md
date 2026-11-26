@@ -924,6 +924,18 @@ Each command has:
 
 **Note**: Built-in TUI commands (`/settings`, `/hotkeys`, etc.) are not included. They are handled only in interactive mode and would not execute if sent via `prompt`.
 
+#### TUI information commands
+
+`get_scoped_models` returns the current cycle scope; `set_scoped_models` accepts `{ models: string[] }` of provider/model patterns and updates that scope. `get_keybindings` returns effective keybindings and extension shortcuts. `get_tools` returns active tools as `{ name, description }` objects. `get_extensions` returns loaded extension paths and load errors. `get_changelog` returns the same rendered changelog Markdown as `/changelog`. `clear_session_name` clears the current session name. `continue` resumes the current transcript, and `reload` reloads resources; both fail while the session is streaming or compacting. `import_session` imports the JSONL file at `path`. `set_cwd` relocates the session to `cwd`. `get_project_trust` reads the nearest saved trust decision; `set_project_trust` saves a boolean decision for the current project cwd.
+
+```json
+{"type":"get_tools"}
+{"type":"get_extensions"}
+{"type":"get_changelog"}
+```
+
+Each response uses its command name and returns `data.tools`, `data.extensions` plus `data.errors`, or `data.changelog` respectively. `import_session` returns `{ cancelled }`, `set_cwd` returns `{ cwd }`, and project-trust responses return `{ cwd, decision, path }`. The remaining commands return a success response without data.
+
 ## Events
 
 Events are streamed to stdout as JSON lines during agent operation. Events do NOT include an `id` field (only responses do).
@@ -950,6 +962,17 @@ Events are streamed to stdout as JSON lines during agent operation. Events do NO
 | `auto_retry_start` | Auto-retry begins (after transient error) |
 | `auto_retry_end` | Auto-retry completes (success or final failure) |
 | `extension_error` | Extension threw an error |
+| `working_status` | Working message changed; `message` is omitted when cleared |
+
+### working_status
+
+Emitted when an extension sets or clears the working message used by the TUI status display. This includes Supervisor wait and working messages.
+
+```json
+{"type":"working_status","message":"Waiting for Supervisor"}
+```
+
+A clear event is `{"type":"working_status"}`.
 
 ### agent_start
 

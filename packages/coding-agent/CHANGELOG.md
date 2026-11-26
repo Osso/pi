@@ -37,6 +37,10 @@
 
 - Changed `ToolRenderContext` argument and state defaults and `ToolDefinition` state defaults to `unknown`; tool execution event arguments and result details also require narrowing. `defineTool` preserves its concrete definition type without an `any` intersection, built-in tool factories preserve details types, and public model types use `Model<Api>` instead of `Model<any>`.
 
+### Added
+
+- Added RPC commands `get_tools`, `get_extensions`, `get_changelog`, `get_keybindings`, `get_scoped_models`, `set_scoped_models`, `clear_session_name`, `continue`, `reload`, `import_session`, `set_cwd`, `get_project_trust`, and `set_project_trust`, plus a `working_status` event for extension working messages. Bash tool results now include `details.exitCode` on successful commands.
+
 ### Changed
 
 - `pi questions` no longer shows a Quit row below the list; Escape (or Ctrl+C) quits.

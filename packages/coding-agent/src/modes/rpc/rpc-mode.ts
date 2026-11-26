@@ -37,6 +37,7 @@ import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "../runtime-
 import { serializeJsonLine } from "./jsonl.ts";
 import { forwardAgentUpdates, handleRpcAgentCommand, isRpcAgentCommand, type RpcAgentControls } from "./rpc-agents.ts";
 import { runRpcBash } from "./rpc-bash.ts";
+import { handleRpcInfoCommand, isRpcInfoCommand } from "./rpc-info.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
 import { listRpcSessions } from "./rpc-sessions.ts";
@@ -51,7 +52,6 @@ import type {
 	RpcSlashCommand,
 } from "./rpc-types.ts";
 
-// Re-export types for consumers
 export type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -187,8 +187,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			} as RpcExtensionUIRequest);
 		},
 
-		setWorkingMessage(_message?: string): void {
-			// Working message not supported in RPC mode - requires TUI loader access
+		setWorkingMessage(message?: string): void {
+			output({ type: "working_status", message });
 		},
 
 		setWorkingVisible(_visible: boolean): void {
@@ -397,6 +397,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
 		if (command.type === "list_sessions") return listRpcSessions(command, session.sessionManager, runtimeHost);
+		if (isRpcInfoCommand(command)) return handleRpcInfoCommand(command, session, runtimeHost);
 		if (isRpcTreeCommand(command)) return handleRpcTreeCommand(command, session);
 		if (isRpcAgentCommand(command))
 			return handleRpcAgentCommand(command, agents, session.sessionManager.getSessionDir());
@@ -817,6 +818,5 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 
 	continueRestoredSession(session);
 
-	// Keep process alive forever
 	return new Promise(() => {});
 }

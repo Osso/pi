@@ -23,6 +23,8 @@ describe("headless Bash foreground and detach behavior", () => {
 				(request) => request.agentId === null && request.id !== initialRequest.id,
 			);
 			expectSingleToolResult(afterTool, "foreground-inline");
+			const toolResult = afterTool.messages.find((message) => message.role === "toolResult");
+			expect(toolResult?.details).toMatchObject({ exitCode: 0 });
 			expect(agent.listAgents().filter((candidate) => candidate.displayName === "Bash command")).toHaveLength(0);
 			await agent.send({ type: "abort" });
 		});
