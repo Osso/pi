@@ -129,6 +129,7 @@
 
 ### Added
 
+- The Supervisor session can unblock a main session stuck in a long tool call or turn with `interrupt_session` (session ID, optional host, reason), on this host or another through the relay. The target obeys only its configured Supervisor: it stops the running turn (killing the Bash or Pyrun call, keeping queued input) and continues with the reason as its next prompt, keeping its session, background jobs and child agents. An interrupt older than the running turn stops nothing.
 - RPC `clear_queue` command removes and returns pending steering and follow-up messages.
 - RPC `navigate_tree` and `abort_branch_summary` commands move the session leaf like `/tree`, with an optional branch summary; `get_tree` also reports `branchSummarySkipPrompt`.
 - RPC `list_sessions` command lists this project's or all projects' sessions for a resume picker.

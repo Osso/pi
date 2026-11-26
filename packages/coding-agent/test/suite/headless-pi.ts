@@ -103,6 +103,8 @@ export interface HeadlessPiOptions {
 	provider?: "headless-faux" | "openai-codex";
 	sandboxProfile?: SandboxProfileName;
 	retainTempDirOnDispose?: boolean;
+	/** Host of the configured Supervisor session, for a Supervisor reached through the relay. */
+	supervisorHost?: string;
 }
 
 export interface HeadlessRpcExtensionError {
@@ -1180,6 +1182,9 @@ export default function(pi) {
 			agents: { background: { context: "fresh" } },
 			disabledExtensions: selectHeadlessDisabledExtensions(fixtureOptions.enableMemoryEnrichment),
 			...(fixtureOptions.noSupervisor ? {} : HEADLESS_SUPERVISOR_SETTINGS),
+			...(fixtureOptions.supervisorHost
+				? { supervisor: { ...HEADLESS_SUPERVISOR_SETTINGS.supervisor, host: fixtureOptions.supervisorHost } }
+				: {}),
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };

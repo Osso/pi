@@ -41,6 +41,7 @@ import {
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { requestSupervisorDecision } from "../supervisor/client.ts";
+import { isSupervisorInterrupt } from "../supervisor/interrupt.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { sleep } from "../utils/sleep.ts";
 import { BackgroundCompactionState } from "./agent-session-background-compaction.ts";
@@ -90,6 +91,7 @@ import { callActiveTool } from "./agent-session-tool-call.ts";
 import { getAssistantContentText } from "./assistant-narration.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import { readBlockedTurnMailboxAction } from "./blocked-turn-mailbox.ts";
 import {
 	type CompactionResult,
 	type CompactionSourceInfo,
@@ -196,7 +198,6 @@ import {
 	cleanupMultiAgentTerminalOutbox,
 	getControlDbPath,
 	getRuntimeProcessInstanceId,
-	hasPendingRuntimeMailboxMessage,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
 	type RuntimeMailboxAddress,
@@ -2733,8 +2734,9 @@ export class AgentSession {
 		const canSteerActiveTurn = this.isStreaming && options.checkpoint !== undefined;
 		if (this.isStreaming) {
 			if (!canSteerActiveTurn) {
-				this._detachRunningToolsForPendingSteer();
-				return false;
+				if (this._readBlockedTurnMailboxAction() !== "interrupt") return false;
+				await this._stopAgentRun(); // Stopped for the Supervisor; its interrupt message starts the next turn.
+				return this._drainRuntimeMailboxMessages(options);
 			}
 		} else if (!options.triggerIfIdle) {
 			return false;
@@ -2774,21 +2776,17 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * A steer is only delivered at a tool-result or model-call checkpoint, so a long tool call would hold it back.
-	 * Move detachable running tools to background jobs: their detached results reach that checkpoint at once.
-	 */
-	private _detachRunningToolsForPendingSteer(): void {
-		if (!this._toolDetachRegistry?.hasRunning()) return;
+	/** A steer or Supervisor interrupt cannot wait for the checkpoint a long tool call or response holds back. */
+	private _readBlockedTurnMailboxAction(): "interrupt" | undefined {
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
-		if (!controlDbPath) return;
-		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
-		const steerPending = hasPendingRuntimeMailboxMessage(
+		if (!controlDbPath) return undefined;
+		return readBlockedTurnMailboxAction({
 			controlDbPath,
-			recipient,
-			(message) => message.kind === "steer" && message.targetCheckpoint !== "when_waiting",
-		);
-		if (steerPending) this._toolDetachRegistry.detachAll();
+			recipient: { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId },
+			messages: this.messages,
+			supervisor: this.settingsManager.getGlobalSettings().supervisor,
+			toolDetachRegistry: this._toolDetachRegistry,
+		});
 	}
 
 	private async _deliverReadyRuntimeMailboxMessages(
@@ -2841,6 +2839,7 @@ export class AgentSession {
 		message: RuntimeMailboxMessage,
 		options: { checkpoint?: SteeringCheckpoint; includeNextModelCall?: boolean; triggerIfIdle: boolean },
 	): boolean {
+		if (isSupervisorInterrupt(message)) return options.triggerIfIdle && !this.isStreaming; // never steered into a turn it stops
 		if (message.kind !== "steer") {
 			return options.checkpoint !== "after_tool_result" || options.includeNextModelCall === true;
 		}

@@ -212,6 +212,9 @@ describe("interactive Supervisor session", () => {
 		for (const name of harness.session.getActiveToolNames()) {
 			expect(SUPERVISOR_SESSION_TOOL_NAMES).toContain(name);
 		}
+		expect(harness.session.getActiveToolNames()).toEqual(
+			expect.arrayContaining(["inspect_session", "interrupt_session"]),
+		);
 
 		const outside = join(harness.tempDir, "outside.md");
 		harness.setResponses([

@@ -27,7 +27,7 @@ const INSPECT_NAMES_PREFIX = "supervisor_inspect_names:";
 const INSPECT_NAMES_REPLY_PREFIX = "supervisor_inspect_names_reply:";
 const CORRECTION_PREFIX = "supervisor_correction:";
 const NOT_RUNNING_SUFFIX = "-not-running";
-const STORE_PATH = "supervisor-mail";
+export const STORE_PATH = "supervisor-mail";
 const MAIL_CHECK_INTERVAL_MS = 1_000;
 
 /** A session description answering an `inspect_session` call; not a Supervisor decision. */

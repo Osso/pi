@@ -26,6 +26,7 @@ import { SUPERVISOR_REQUEST_POLICY, type SupervisorEvaluator } from "../../../sr
 import { registerAskCommand } from "./ask-command.ts";
 import { DueTaskDelivery, type DueTaskOptions, readLlmTasksToken } from "./due-tasks.ts";
 import { createInspectSessionTool } from "./inspect-session-tool.ts";
+import { createInterruptSessionTool } from "./interrupt-session-tool.ts";
 import { renderSupervisorRequestMessage } from "./request-message.ts";
 
 export const SUPERVISOR_REQUEST_MESSAGE_TYPE = "supervisor_request";
@@ -38,6 +39,7 @@ export const SUPERVISOR_SESSION_TOOL_NAMES = [
 	"write",
 	SUPERVISOR_RESPONSE_TOOL_NAME,
 	"inspect_session",
+	"interrupt_session",
 	"send_agent_message",
 	"ask_questions",
 	"end_turn",
@@ -115,6 +117,7 @@ class SupervisorSessionServer {
 		if (!controlDbPath) throw new Error("The Supervisor session requires the Pi control database.");
 		this.pi.registerTool(createSupervisorResponseTool());
 		this.pi.registerTool(createInspectSessionTool());
+		this.pi.registerTool(createInterruptSessionTool());
 		const available = new Set(this.pi.getAllTools().map((tool) => tool.name));
 		this.pi.setActiveTools(SUPERVISOR_SESSION_TOOL_NAMES.filter((name) => available.has(name)));
 		const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
