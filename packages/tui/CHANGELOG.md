@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed a bare URL that runs into a very long line (for example a pasted base64 data URL) exhausting memory when rendered with OSC 8 hyperlinks: URLs over 8192 characters are now shown as plain text ([#12416](https://github.com/earendil-works/pi-mono/issues/12416))
 - Fixed bracketed paste closing Ctrl+R history search instead of extending its search query
 - Fixed narrow Markdown tables dropping wide characters when only some columns require two terminal cells
 - Markdown lists and tables that render to more than about 125k lines no longer crash with `RangeError: Maximum call stack size exceeded`
