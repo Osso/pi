@@ -151,4 +151,53 @@ describe("Supervisor interrupt through the relay", () => {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
 	}, 90_000);
+
+	it("stops a main turn blocked in Pyrun for a Supervisor on the same host", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Run the long evaluation" });
+			const first = await agent.waitForLlmRequest((request) => request.agentId === null);
+			const pidFile = join(agent.paths.workspaceDir, "pyrun.pid");
+			const code = [
+				"import os, time",
+				`open(${JSON.stringify(pidFile)}, "w").write(str(os.getpid()))`,
+				"while True: time.sleep(0.05)",
+			].join("\n");
+			agent.respondToLlmRequest(
+				first.id,
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+			);
+			const pid = await waitFor(
+				() =>
+					existsSync(pidFile) && readFileSync(pidFile, "utf8").trim()
+						? Number(readFileSync(pidFile, "utf8"))
+						: undefined,
+				"the blocking Pyrun evaluation",
+			);
+			const runner = readProcessIdentity(pid);
+			if (!runner) throw new Error(`Pyrun process ${pid} exited before the interrupt`);
+
+			sendSupervisorInterrupt(
+				getControlDbPath(agent.paths.agentDir),
+				HEADLESS_SUPERVISOR_SESSION_ID,
+				{ sessionId: agent.sessionId },
+				"the evaluation hangs; stop it",
+			);
+			await waitFor(() => (isProcessIdentityAlive(runner) ? undefined : true), "the Pyrun process to be killed");
+			const resumed = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null &&
+					request.userMessages.some((text) => text.includes("the evaluation hangs; stop it")),
+			);
+			agent.respondToLlmRequest(
+				resumed.id,
+				fauxAssistantMessage(
+					[{ type: "text", text: "Stopped." }, fauxToolCall("end_turn", { reason: "Stopped" })],
+					{
+						stopReason: "toolUse",
+					},
+				),
+			);
+			await agent.waitForEvent((event) => event.type === "agent_settled");
+		});
+	}, 90_000);
 });
