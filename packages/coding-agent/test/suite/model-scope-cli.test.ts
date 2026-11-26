@@ -92,7 +92,7 @@ describe("CLI disabled models", () => {
 		expect(result.status, result.stderr).toBe(0);
 		expect(result.stdout).toMatch(/hunt\s+hunt-base/);
 		expect(result.stdout).not.toContain("hunt-legacy");
-		expect(result.stderr).not.toContain("errors loading models.json");
+		expect(result.stderr).not.toContain("models.json error");
 	});
 
 	it("rejects an explicit request for the disabled model", () => {

@@ -171,6 +171,10 @@ export async function createAgentSessionServices(
 		}
 	}
 	extensionsResult.runtime.pendingProviderRegistrations = [];
+	// A warning, like invalid settings: the runtime keeps working without the file's models, and an error would
+	// make the CLI exit.
+	const modelsJsonError = modelRegistry.getError();
+	if (modelsJsonError) diagnostics.push({ type: "warning", message: `models.json error: ${modelsJsonError}` });
 	diagnostics.push(...applyExtensionFlagValues(resourceLoader, options.extensionFlagValues));
 
 	return {
