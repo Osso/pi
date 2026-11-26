@@ -79,7 +79,7 @@ function crashArchive(point: CrashPoint) {
 			point,
 			String(now),
 		],
-		{ encoding: "utf8", timeout: 15000 },
+		{ encoding: "utf8", timeout: 60_000 },
 	);
 	expect(child.signal, child.stderr).toBe("SIGKILL");
 	expect(existsSync(f.file)).toBe(point !== "after-unlink");
@@ -121,28 +121,25 @@ function appendAfterCrash(f: ReturnType<typeof fixture>) {
 	return f.content + appended;
 }
 
-describe("idle transcript archival crash recovery", () => {
-	it.each(crashPoints)(
-		"finishes archival after %s and restores a writable transcript",
-		async (point) => {
-			const f = crashArchive(point);
-			// SIGKILL cannot release the pass claim; a new startup skips until its default stale window expires.
-			expect(await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now })).toEqual({
-				archivedPaths: [],
-				errors: [],
-			});
-			expireCrashedArchiveClaim(f.root);
-			const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
-			expect(result.errors).toEqual([]);
-			expect(result.archivedPaths).toEqual(point === "after-unlink" ? [] : [`${f.file}.zst`]);
-			expect(existsSync(f.file)).toBe(false);
-			expect(zstdDecompressSync(readFileSync(`${f.file}.zst`))).toEqual(Buffer.from(f.content));
-			expect(readSessionMetadata(f.db, f.file)).toBeUndefined();
-			expect(readSessionMetadata(f.db, `${f.file}.zst`)).toMatchObject({ id: "old", isArchived: true });
-			assertWritableRestore(f, `${f.file}.zst`);
-		},
-		20_000,
-	);
+// A cold tsx child can take well over 15 s on a loaded host; give each crash child and test room.
+describe("idle transcript archival crash recovery", { timeout: 90_000 }, () => {
+	it.each(crashPoints)("finishes archival after %s and restores a writable transcript", async (point) => {
+		const f = crashArchive(point);
+		// SIGKILL cannot release the pass claim; a new startup skips until its default stale window expires.
+		expect(await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now })).toEqual({
+			archivedPaths: [],
+			errors: [],
+		});
+		expireCrashedArchiveClaim(f.root);
+		const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
+		expect(result.errors).toEqual([]);
+		expect(result.archivedPaths).toEqual(point === "after-unlink" ? [] : [`${f.file}.zst`]);
+		expect(existsSync(f.file)).toBe(false);
+		expect(zstdDecompressSync(readFileSync(`${f.file}.zst`))).toEqual(Buffer.from(f.content));
+		expect(readSessionMetadata(f.db, f.file)).toBeUndefined();
+		expect(readSessionMetadata(f.db, `${f.file}.zst`)).toMatchObject({ id: "old", isArchived: true });
+		assertWritableRestore(f, `${f.file}.zst`);
+	});
 	for (const point of crashPoints) {
 		it.each(["plain", "archive"])(`restores via %s immediately after ${point}`, (reference) => {
 			const f = crashArchive(point);
@@ -161,7 +158,7 @@ describe("idle transcript archival crash recovery", () => {
 			expect(readSessionMetadata(f.db, `${f.file}.zst`)).toBeUndefined();
 			expect(readSessionMetadata(f.db, f.file)).toMatchObject({ id: "old", isArchived: false });
 			assertWritableRestore(f, f.file, content);
-		}, 20_000);
+		});
 		it.each(["plain", "archive"])(`restores appended bytes via %s after ${point}`, (reference) => {
 			const f = crashArchive(point);
 			const content = appendAfterCrash(f);

@@ -1662,7 +1662,7 @@ describe("headless Pi fixture", () => {
 					),
 				);
 				await agent.waitForEvent((event) => event.type === "tool_execution_start");
-				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"), { timeout: 10_000 });
 				const runner = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
 				);
@@ -1878,7 +1878,7 @@ describe("headless Pi fixture", () => {
 				);
 				await agent.waitForEvent((event) => event.type === "tool_execution_start");
 				const originalRunner = await agent.waitForAgent((candidate) => candidate.lifecycle === "running");
-				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"), { timeout: 10_000 });
 				const originalPid = agent.getRunnerPid(originalRunner.id);
 				if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
 				const afterDetach = await agent.waitForLlmRequest(

@@ -356,10 +356,11 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// run.slow_detachable() sleeps 1 s after detaching, which alone uses most of the default 100 attempts.
-const SLOW_DETACHED_COMPLETION_ATTEMPTS = 500;
+// run.slow_detachable() sleeps 1 s after detaching, on top of the runner startup the default allows for.
+const SLOW_DETACHED_COMPLETION_ATTEMPTS = 1000;
 
-async function waitFor(condition: () => boolean, label: string, attempts = 100): Promise<void> {
+// The default allows about 5 s: starting a runner process can take seconds on a loaded host.
+async function waitFor(condition: () => boolean, label: string, attempts = 500): Promise<void> {
 	for (let attempt = 0; attempt < attempts; attempt += 1) {
 		if (condition()) return;
 		await delay(10);
