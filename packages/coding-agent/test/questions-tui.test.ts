@@ -338,7 +338,7 @@ describe("pi questions list", () => {
 		expect(finished()).toBe(true);
 	});
 
-	it("shows shortcuts and keeps Quit selectable when the list is empty", () => {
+	it("shows shortcuts without action rows, and Escape quits when the list is empty", () => {
 		const actions: string[] = [];
 		const component = new QuestionListComponent({
 			heading: "Unanswered questions",
@@ -348,10 +348,8 @@ describe("pi questions list", () => {
 			entries: [],
 			sessionNames: new Map(),
 			now: Date.now(),
-			closingActions: ["Quit"],
-			onAction: (action) => actions.push(action),
-			onEntry: () => {},
-			onCancel: () => {},
+			onEntry: (entry) => actions.push(entry.ref),
+			onCancel: () => actions.push("cancel"),
 			onToggleAll: () => {},
 			onRefresh: () => actions.push("refresh"),
 			onNewQuestion: () => actions.push("new"),
@@ -361,14 +359,18 @@ describe("pi questions list", () => {
 		expect(lines.join("\n")).toContain("Nothing is waiting.");
 		expect(lines.join("\n")).toContain("ctrl+n new question");
 		expect(lines.join("\n")).toContain("ctrl+r refresh");
-		expect(lines.join("\n")).toContain("Quit");
+		expect(lines.join("\n")).toContain("escape/ctrl+c quit");
+		expect(lines.some((line) => line.startsWith(" \u2192 "))).toBe(false);
+		expect(lines.join("\n")).not.toContain("Quit");
 		expect(lines.join("\n")).not.toContain("Ask a session a question");
 		expect(lines.join("\n")).not.toContain("↻ Refresh");
 
 		component.handleInput("\x0e");
 		component.handleInput("\x12");
+		component.handleInput("j");
 		component.handleInput("\r");
-		expect(actions).toEqual(["new", "refresh", "Quit"]);
+		component.handleInput("\x1b");
+		expect(actions).toEqual(["new", "refresh", "cancel"]);
 
 		const arrived = listQuestionEntries(center).filter((entry) => entry.ref === "a2");
 		component.update(arrived, new Map(), Date.now());
@@ -379,12 +381,8 @@ describe("pi questions list", () => {
 		expect(selectedRow).toMatch(/^ \u2192 a2 /);
 
 		component.handleInput("j");
-		component.update(listQuestionEntries(center).slice(0, 2), new Map(), Date.now());
-		const quitRow = component
-			.render(140)
-			.map(stripAnsi)
-			.find((line) => line.startsWith(" \u2192 "));
-		expect(quitRow).toBe(" \u2192 Quit");
+		component.handleInput("\r");
+		expect(actions.at(-1)).toBe("a2");
 	});
 
 	it("moves the selection with j/k and the arrows, opens the detail view, and quits on escape", () => {

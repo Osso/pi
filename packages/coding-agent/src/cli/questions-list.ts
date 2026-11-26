@@ -137,9 +137,6 @@ export interface QuestionListOptions {
 	entries: QuestionEntry[];
 	sessionNames: ReadonlyMap<string, string>;
 	now: number;
-	/** Rows below the table. */
-	closingActions: string[];
-	onAction: (action: string) => void;
 	onEntry: (entry: QuestionEntry) => void;
 	onCancel: () => void;
 	onToggleAll: () => void;
@@ -151,7 +148,6 @@ export class QuestionListComponent implements Component {
 	private readonly options: QuestionListOptions;
 	private rows: string[][];
 	private readonly border = new DynamicBorder();
-	/** Index over entries, then the closing actions. */
 	private selectedIndex = 0;
 	private scrollTop = 0;
 
@@ -166,22 +162,14 @@ export class QuestionListComponent implements Component {
 	}
 
 	update(entries: QuestionEntry[], sessionNames: ReadonlyMap<string, string>, now: number): void {
-		const oldRow = this.selectedIndex;
-		const hadEntries = this.options.entries.length > 0;
-		// On an empty list a closing action is selected only by default, so a new question takes the selection.
-		const selectedAction = hadEntries ? this.options.closingActions[oldRow - this.options.entries.length] : undefined;
-		const selectedEntry = this.options.entries[oldRow];
+		const selectedEntry = this.options.entries[this.selectedIndex];
 		this.options.entries = entries;
 		this.options.sessionNames = sessionNames;
 		this.options.now = now;
 		this.rows = this.buildRows();
 
-		const closingActionIndex =
-			selectedAction === undefined ? -1 : this.options.closingActions.indexOf(selectedAction);
 		const selectedEntryIndex = selectedEntry ? entries.findIndex((entry) => entry.ref === selectedEntry.ref) : -1;
-		if (selectedEntryIndex >= 0) this.selectedIndex = selectedEntryIndex;
-		else if (closingActionIndex >= 0) this.selectedIndex = entries.length + closingActionIndex;
-		else this.selectedIndex = 0;
+		this.selectedIndex = Math.max(0, selectedEntryIndex);
 		this.scrollTop = Math.min(this.scrollTop, Math.max(0, this.rows.length - MAX_VISIBLE_ROWS));
 		this.keepSelectedVisible();
 	}
@@ -190,12 +178,8 @@ export class QuestionListComponent implements Component {
 		return this.options.entries.map((entry) => questionCells(entry, this.options.sessionNames, this.options.now));
 	}
 
-	private get itemCount(): number {
-		return this.rows.length + this.options.closingActions.length;
-	}
-
 	private move(delta: number): void {
-		this.selectedIndex = Math.max(0, Math.min(this.itemCount - 1, this.selectedIndex + delta));
+		this.selectedIndex = Math.max(0, Math.min(this.rows.length - 1, this.selectedIndex + delta));
 		this.keepSelectedVisible();
 	}
 
@@ -207,12 +191,8 @@ export class QuestionListComponent implements Component {
 	}
 
 	private confirm(): void {
-		const { entries, closingActions } = this.options;
-		const row = this.selectedIndex;
-		const action = closingActions[row - entries.length];
-		const entry = entries[row];
-		if (action !== undefined) this.options.onAction(action);
-		else if (entry) this.options.onEntry(entry);
+		const entry = this.options.entries[this.selectedIndex];
+		if (entry) this.options.onEntry(entry);
 	}
 
 	handleInput(keyData: string): void {
@@ -227,12 +207,6 @@ export class QuestionListComponent implements Component {
 	}
 
 	invalidate(): void {}
-
-	private actionLine(label: string, index: number, width: number): string {
-		const selected = index === this.selectedIndex;
-		const text = selected ? theme.fg("accent", `\u2192 ${label}`) : `  ${theme.fg("text", label)}`;
-		return truncateToWidth(` ${text}`, width, "\u2026");
-	}
 
 	private tableLine(cells: string[], widths: number[], colors: ThemeColor[], marker: string): string {
 		const columns = cells.map((cell, column) =>
@@ -278,7 +252,6 @@ export class QuestionListComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const { closingActions } = this.options;
 		const hints = packHints(
 			[
 				rawKeyHint("\u2191\u2193", "navigate"),
@@ -290,7 +263,6 @@ export class QuestionListComponent implements Component {
 			],
 			width,
 		);
-		const closingStart = this.rows.length;
 		const lines = [
 			...this.border.render(width),
 			"",
@@ -298,8 +270,6 @@ export class QuestionListComponent implements Component {
 			...this.renderNotice(width),
 			"",
 			...this.renderTable(width),
-			"",
-			...closingActions.map((label, index) => this.actionLine(label, closingStart + index, width)),
 			"",
 			...hints,
 			"",

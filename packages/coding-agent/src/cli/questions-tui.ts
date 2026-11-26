@@ -33,7 +33,6 @@ import { createStartupTui, startStartupTui } from "./startup-ui.ts";
  * questions, read agent answers, ask sessions new questions and follow-ups.
  */
 
-const QUIT = "Quit";
 const ASK_FOLLOW_UP = "Ask a follow-up";
 const BACK = "Back";
 const REVISE = "Revise the answer";
@@ -193,10 +192,6 @@ export class QuestionsApp {
 			entries,
 			sessionNames,
 			now: Date.now(),
-			closingActions: [QUIT],
-			onAction: (action) => {
-				if (action === QUIT) this.close();
-			},
 			onEntry: (entry) => {
 				if (entry.direction === "user") return this.showUserQuestion(entry);
 				this.showAgentQuestion(entry);
