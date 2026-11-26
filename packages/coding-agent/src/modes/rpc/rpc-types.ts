@@ -7,7 +7,7 @@
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
-import type { SessionStats } from "../../core/agent-session.ts";
+import type { AgentSessionEvent, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { ExtensionUIQuestion } from "../../core/extensions/types.ts";
@@ -30,6 +30,7 @@ export type RpcCommand =
 
 	// State
 	| { id?: string; type: "get_state" }
+	| RpcInfoCommand
 
 	// Model
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -83,6 +84,23 @@ export type RpcCommand =
 	| RpcAgentCommand
 	| RpcTreeCommand;
 
+/** RPC commands for TUI information and session controls. */
+export type RpcInfoCommand =
+	| { id?: string; type: "get_tools" }
+	| { id?: string; type: "get_extensions" }
+	| { id?: string; type: "get_changelog" }
+	| { id?: string; type: "share_session" }
+	| { id?: string; type: "get_keybindings" }
+	| { id?: string; type: "get_scoped_models" }
+	| { id?: string; type: "set_scoped_models"; models: string[] }
+	| { id?: string; type: "clear_session_name" }
+	| { id?: string; type: "continue" }
+	| { id?: string; type: "reload" }
+	| { id?: string; type: "import_session"; path: string }
+	| { id?: string; type: "set_cwd"; cwd: string }
+	| { id?: string; type: "get_project_trust" }
+	| { id?: string; type: "set_project_trust"; trusted: boolean };
+
 /** Session-tree commands behind the TUI's `/tree`. */
 export type RpcTreeCommand =
 	| { id?: string; type: "get_tree" }
@@ -110,6 +128,12 @@ export interface RpcSessionSummary {
 
 /** Emitted whenever an agent in the multi-agent store changes. */
 export type RpcAgentUpdatedEvent = { type: "agent_updated"; agent: AgentSnapshot };
+
+/** Emitted when an extension changes the status message shown while pi is working. */
+export type RpcWorkingStatusEvent = { type: "working_status"; message?: string };
+
+/** Any event emitted on the RPC stream, including events not produced by AgentSession. */
+export type RpcEvent = AgentSessionEvent | RpcAgentUpdatedEvent | RpcWorkingStatusEvent;
 
 // ============================================================================
 // RPC Slash Command (for get_commands response)
@@ -162,6 +186,47 @@ export type RpcResponse =
 
 	// State
 	| { id?: string; type: "response"; command: "get_state"; success: true; data: RpcSessionState }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_tools";
+			success: true;
+			data: { tools: Array<{ name: string; description: string }> };
+	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_extensions";
+			success: true;
+			data: { extensions: Array<{ path: string }>; errors: Array<{ path: string; error: string }> };
+	  }
+	| { id?: string; type: "response"; command: "get_changelog"; success: true; data: { changelog: string } }
+	| { id?: string; type: "response"; command: "share_session"; success: true; data: { url: string } }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_keybindings";
+			success: true;
+			data: { keybindings: Record<string, unknown>; shortcuts: Record<string, unknown> };
+	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_scoped_models" | "set_scoped_models";
+			success: true;
+			data: { models: Array<{ provider: string; id: string; thinkingLevel?: string }> };
+	  }
+	| { id?: string; type: "response"; command: "set_scoped_models"; success: false; error: string }
+	| { id?: string; type: "response"; command: "clear_session_name" | "continue" | "reload"; success: true }
+	| { id?: string; type: "response"; command: "import_session"; success: true; data: { cancelled: boolean } }
+	| { id?: string; type: "response"; command: "set_cwd"; success: true; data: { cwd: string } }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_project_trust" | "set_project_trust";
+			success: true;
+			data: { cwd: string; decision: boolean | null; path: string | null };
+	  }
 
 	// Model
 	| {

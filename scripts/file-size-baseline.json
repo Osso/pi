@@ -32,6 +32,6 @@
 	"packages/tui/src/components/editor.ts": 2565,
 	"packages/tui/src/components/markdown.ts": 892,
 	"packages/tui/src/keys.ts": 1384,
-	"packages/tui/src/tui.ts": 2376,
+	"packages/tui/src/tui.ts": 2374,
 	"packages/tui/src/utils.ts": 892
 }

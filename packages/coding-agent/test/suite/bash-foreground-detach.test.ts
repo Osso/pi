@@ -8,6 +8,23 @@ function expectSingleToolResult(request: HeadlessLlmRequest, expectedOutput: str
 }
 
 describe("headless Bash foreground and detach behavior", () => {
+	it("includes the nonzero exit code in an error tool result", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Run a command that exits with an error" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(fauxToolCall("bash", { command: "exit 7" }), { stopReason: "toolUse" }),
+			);
+			const afterTool = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			const toolResult = afterTool.messages.find((message) => message.role === "toolResult");
+			expect(toolResult).toMatchObject({ details: { exitCode: 7 }, isError: true });
+			await agent.send({ type: "abort" });
+		});
+	});
+
 	it("keeps a fast Bash tool foreground without creating a background job", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Run a fast foreground command" });
@@ -23,6 +40,8 @@ describe("headless Bash foreground and detach behavior", () => {
 				(request) => request.agentId === null && request.id !== initialRequest.id,
 			);
 			expectSingleToolResult(afterTool, "foreground-inline");
+			const toolResult = afterTool.messages.find((message) => message.role === "toolResult");
+			expect(toolResult?.details).toMatchObject({ exitCode: 0 });
 			expect(agent.listAgents().filter((candidate) => candidate.displayName === "Bash command")).toHaveLength(0);
 			await agent.send({ type: "abort" });
 		});
