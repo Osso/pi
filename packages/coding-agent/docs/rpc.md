@@ -1188,6 +1188,8 @@ When pi withdraws a pending `select`, `confirm`, `input` or `questions` dialog (
 {"type": "extension_ui_dismiss", "id": "uuid-1"}
 ```
 
+The `/approvals` and `/sandbox` commands (sent as `prompt`) open their selectors as two `select` dialogs: the save scope (`global`, `project`, and for `/sandbox` also `session`), then the preset or profile, with the current one suffixed ` (current)`. The result arrives as a `notify`.
+
 Some `ExtensionUIContext` methods are not supported or degraded in RPC mode because they require direct TUI access:
 - `requestRender()` is a no-op; RPC clients do not own a TUI render loop
 - `custom()` returns `undefined`

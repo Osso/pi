@@ -129,6 +129,7 @@
 
 ### Added
 
+- In RPC mode, `/approvals` and `/sandbox` open their selectors as `select` dialogs (save scope, then preset or profile) instead of doing nothing.
 - RPC exposes multi-agent state: `get_agents`, `get_agent_messages` (a child agent's transcript) and `steer_agent` commands, and an `agent_updated` event on every agent change.
 - `ask_questions` works over RPC: pi emits an `extension_ui_request` with `method: "questions"`, and the client answers with `extension_ui_response` carrying `answers` keyed by question text. New `ctx.ui.questions()` hook for non-TUI UIs. Pending `select`/`confirm`/`input`/`questions` dialogs that pi withdraws (timeout, abort, Supervisor answer) now emit `extension_ui_dismiss` so RPC clients close them.
 - Added `pi questions`, an interactive view of stored questions on the Supervisor host: answer or revise questions agents asked you, read agent answers to your questions, and ask a session a new question or a follow-up. `pi control questions list|answer|ask|follow-up` gives the same operations for scripts. Run it over SSH or as a remote-agent managed session.

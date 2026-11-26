@@ -38,6 +38,7 @@ import { serializeJsonLine } from "./jsonl.ts";
 import { forwardAgentUpdates, handleRpcAgentCommand, isRpcAgentCommand, type RpcAgentControls } from "./rpc-agents.ts";
 import { runRpcBash } from "./rpc-bash.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
+import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIDismiss,
@@ -310,7 +311,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		},
 
 		getToolsExpanded() {
-			// Tool expansion not supported in RPC mode - no TUI
 			return false;
 		},
 
@@ -342,8 +342,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			mode: "rpc",
 			controlDbPath: agentDir ? getControlDbPath() : undefined,
 			commandContextActions: {
-				showApprovalSelector: () => {},
-				showSandboxSelector: () => {},
+				showApprovalSelector: () => void selectApprovalPreset(session),
+				showSandboxSelector: () => void selectSandboxProfile(session),
 				waitForIdle: () => session.waitForIdle(),
 				newSession: async (options) => runtimeHost.newSession(options),
 				fork: async (entryId, forkOptions) => {
