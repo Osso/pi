@@ -2158,12 +2158,10 @@ export class TUI extends Container {
 			const isImage = isImageLine(line);
 			const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i, renderEnd) : 1;
 			if (imageReservedRows > 1) {
-				const imageStartScreenRow = i - viewportTop;
-				if (imageStartScreenRow < 0 || imageStartScreenRow + imageReservedRows > height) {
-					return fallbackToFullRender(
-						`kitty image pre-clear would scroll (${imageStartScreenRow} + ${imageReservedRows} > ${height})`,
-						true,
-					);
+				// Pre-clearing may scroll the screen when the image is appended at the bottom, like any appended line.
+				// Moving back up to the image's first row only fails when the image is taller than the screen.
+				if (imageReservedRows > height) {
+					return fallbackToFullRender(`kitty image taller than screen (${imageReservedRows} > ${height})`, true);
 				}
 
 				buffer += "\x1b[2K";
