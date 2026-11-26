@@ -7,7 +7,7 @@
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
-import type { SessionStats } from "../../core/agent-session.ts";
+import type { AgentSessionEvent, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { ExtensionUIQuestion } from "../../core/extensions/types.ts";
@@ -89,6 +89,7 @@ export type RpcInfoCommand =
 	| { id?: string; type: "get_tools" }
 	| { id?: string; type: "get_extensions" }
 	| { id?: string; type: "get_changelog" }
+	| { id?: string; type: "share_session" }
 	| { id?: string; type: "get_keybindings" }
 	| { id?: string; type: "get_scoped_models" }
 	| { id?: string; type: "set_scoped_models"; models: string[] }
@@ -130,6 +131,9 @@ export type RpcAgentUpdatedEvent = { type: "agent_updated"; agent: AgentSnapshot
 
 /** Emitted when an extension changes the status message shown while pi is working. */
 export type RpcWorkingStatusEvent = { type: "working_status"; message?: string };
+
+/** Any event emitted on the RPC stream, including events not produced by AgentSession. */
+export type RpcEvent = AgentSessionEvent | RpcAgentUpdatedEvent | RpcWorkingStatusEvent;
 
 // ============================================================================
 // RPC Slash Command (for get_commands response)
@@ -197,6 +201,7 @@ export type RpcResponse =
 			data: { extensions: Array<{ path: string }>; errors: Array<{ path: string; error: string }> };
 	  }
 	| { id?: string; type: "response"; command: "get_changelog"; success: true; data: { changelog: string } }
+	| { id?: string; type: "response"; command: "share_session"; success: true; data: { url: string } }
 	| {
 			id?: string;
 			type: "response";

@@ -1,7 +1,6 @@
 /**
  * RPC mode: Headless operation with JSON stdin/stdout protocol.
  *
- * Used for embedding the agent in other applications.
  * Receives commands as JSON on stdin, outputs events and responses as JSON on stdout.
  *
  * Protocol:
@@ -54,6 +53,7 @@ import type {
 
 export type {
 	RpcCommand,
+	RpcEvent,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
 	RpcResponse,

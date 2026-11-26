@@ -6,6 +6,7 @@ import { resolveModelScope } from "../../core/model-resolver.ts";
 import { ProjectTrustStore } from "../../core/trust-manager.ts";
 import { normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { resolvePath } from "../../utils/paths.ts";
+import { createSessionGist } from "../interactive/share-gist.ts";
 import type { RpcInfoCommand, RpcResponse } from "./rpc-types.ts";
 
 export function isRpcInfoCommand(command: { type: string }): command is RpcInfoCommand {
@@ -13,6 +14,7 @@ export function isRpcInfoCommand(command: { type: string }): command is RpcInfoC
 		"get_tools",
 		"get_extensions",
 		"get_changelog",
+		"share_session",
 		"get_keybindings",
 		"get_scoped_models",
 		"set_scoped_models",
@@ -77,6 +79,10 @@ export async function handleRpcInfoCommand(
 			success: true,
 			data: { cwd, decision: entry?.decision ?? null, path: entry?.path ?? null },
 		};
+	}
+	if (type === "share_session") {
+		const { url } = await createSessionGist(session);
+		return { id, type: "response", command: type, success: true, data: { url } };
 	}
 	if (type === "get_scoped_models" || type === "set_scoped_models") {
 		if (type === "set_scoped_models") {
