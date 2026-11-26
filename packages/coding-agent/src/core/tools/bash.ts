@@ -52,7 +52,6 @@ const bashSchema = Type.Object({
 export type BashToolInput = Static<typeof bashSchema>;
 
 export interface BashToolDetails {
-	exitCode?: number;
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
 	backgroundJobId?: string;
@@ -627,13 +626,9 @@ export function createBashToolDefinition(
 					throw new Error(appendStatus(outputText, "Command terminated without an exit code"));
 				}
 				if (exitCode !== 0) {
-					return {
-						content: [{ type: "text", text: appendStatus(outputText, `Command exited with code ${exitCode}`) }],
-						details: { ...details, exitCode },
-						isError: true,
-					};
+					throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
 				}
-				return { content: [{ type: "text", text: outputText }], details: { ...details, exitCode } };
+				return { content: [{ type: "text", text: outputText }], details };
 			} finally {
 				unregisterDetach?.();
 				clearUpdateTimer();

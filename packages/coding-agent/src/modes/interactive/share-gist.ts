@@ -17,14 +17,30 @@ export interface ShareGistHost {
 	showError(message: string): void;
 }
 
+/** Why gh cannot create a gist, or undefined when it is installed and logged in. */
+function ghUnavailableReason(): string | undefined {
+	// spawnSync reports a missing gh through `error` (ENOENT); it does not throw.
+	const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
+	if (authResult.error) return "GitHub CLI (gh) is not installed. Install it from https://cli.github.com/";
+	if (authResult.status !== 0) return "GitHub CLI is not logged in. Run 'gh auth login' first.";
+	return undefined;
+}
+
 /** Export a session and create the secret gist used by `/share` and RPC clients. */
 export async function createSessionGist(
 	session: AgentSession,
 	signal?: AbortSignal,
 ): Promise<{ url: string; gistUrl: string }> {
-	const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
-	if (authResult.error) throw new Error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-	if (authResult.status !== 0) throw new Error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+	const unavailable = ghUnavailableReason();
+	if (unavailable) throw new Error(unavailable);
+	return uploadSessionGist(session, signal);
+}
+
+/** Export and upload once gh is known to work. */
+async function uploadSessionGist(
+	session: AgentSession,
+	signal?: AbortSignal,
+): Promise<{ url: string; gistUrl: string }> {
 	if (signal?.aborted) throw new Error("Share cancelled");
 
 	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-share-"));
@@ -63,6 +79,12 @@ export async function createSessionGist(
 
 /** `/share`: create a secret gist and show its viewer URL. */
 export async function shareSessionAsGist(host: ShareGistHost): Promise<void> {
+	// Check gh before replacing the editor with the loader.
+	const unavailable = ghUnavailableReason();
+	if (unavailable) {
+		host.showError(unavailable);
+		return;
+	}
 	const loader = new BorderedLoader(host.ui, theme, "Creating gist...");
 	host.editorContainer.clear();
 	host.editorContainer.addChild(loader);
@@ -84,7 +106,7 @@ export async function shareSessionAsGist(host: ShareGistHost): Promise<void> {
 	};
 
 	try {
-		const result = await createSessionGist(host.session, loader.signal);
+		const result = await uploadSessionGist(host.session, loader.signal);
 		restoreEditor();
 		host.showStatus(`Share URL: ${result.url}\nGist: ${result.gistUrl}`);
 	} catch (error: unknown) {
