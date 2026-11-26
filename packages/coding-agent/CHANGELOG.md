@@ -39,6 +39,7 @@
 
 ### Changed
 
+- `pi questions` uses configurable `app.questions.new` (Ctrl+N) and `app.questions.refresh` (Ctrl+R) shortcuts instead of ask and refresh action rows; Quit remains selectable, Ctrl+R keeps the selected question, and the footer wraps its key hints at narrow widths.
 - `pi questions` refreshes the unanswered list every two seconds while visible, without replacing the list component or interrupting detail/answer flows; remote names are queried only for newly seen IDs between manual refreshes.
 - A finished `wait_agent` row is no longer shown in the interactive transcript, because it carries only a timestamp. Failed waits and the expanded view (ctrl+o) still show it.
 - The Supervisor TUI shows a `supervisor_response` question answer as `→ <answer>` only; the question text and the Supervisor's reason stay in the transcript.

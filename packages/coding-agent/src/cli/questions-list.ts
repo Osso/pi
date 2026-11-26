@@ -18,8 +18,8 @@ import {
 } from "../questions/question-center.ts";
 
 /**
- * The `pi questions` list: action rows, then a table of questions in aligned columns that fit the
- * render width, then the quit row.
+ * The `pi questions` list: a table of questions in aligned columns that fit the render width,
+ * followed by the quit row.
  */
 
 const MAX_VISIBLE_ROWS = 10;
@@ -114,6 +114,19 @@ function columnWidths(rows: string[][], width: number): number[] {
 	return widths;
 }
 
+/** Footer lines of whole hints, each line within `width`. */
+function packHints(hints: string[], width: number): string[] {
+	const lines: string[] = [];
+	let line = "";
+	for (const hint of hints) {
+		const extended = line ? `${line}${GAP}${hint}` : ` ${hint}`;
+		const overflows = line !== "" && visibleWidth(extended) > width;
+		if (overflows) lines.push(line);
+		line = overflows ? ` ${hint}` : extended;
+	}
+	return [...lines, line];
+}
+
 export interface QuestionListOptions {
 	heading: string;
 	notice: string;
@@ -124,21 +137,21 @@ export interface QuestionListOptions {
 	entries: QuestionEntry[];
 	sessionNames: ReadonlyMap<string, string>;
 	now: number;
-	/** Rows above the table. */
-	actions: string[];
 	/** Rows below the table. */
 	closingActions: string[];
 	onAction: (action: string) => void;
 	onEntry: (entry: QuestionEntry) => void;
 	onCancel: () => void;
 	onToggleAll: () => void;
+	onRefresh: () => void;
+	onNewQuestion: () => void;
 }
 
 export class QuestionListComponent implements Component {
 	private readonly options: QuestionListOptions;
 	private rows: string[][];
 	private readonly border = new DynamicBorder();
-	/** Index over actions, then entries, then closing actions. */
+	/** Index over entries, then the closing actions. */
 	private selectedIndex = 0;
 	private scrollTop = 0;
 
@@ -153,25 +166,21 @@ export class QuestionListComponent implements Component {
 	}
 
 	update(entries: QuestionEntry[], sessionNames: ReadonlyMap<string, string>, now: number): void {
-		const oldRow = this.selectedIndex - this.options.actions.length;
-		const selectedAction =
-			this.selectedIndex < this.options.actions.length
-				? this.options.actions[this.selectedIndex]
-				: this.options.closingActions[oldRow - this.options.entries.length];
+		const oldRow = this.selectedIndex;
+		const hadEntries = this.options.entries.length > 0;
+		// On an empty list a closing action is selected only by default, so a new question takes the selection.
+		const selectedAction = hadEntries ? this.options.closingActions[oldRow - this.options.entries.length] : undefined;
 		const selectedEntry = this.options.entries[oldRow];
 		this.options.entries = entries;
 		this.options.sessionNames = sessionNames;
 		this.options.now = now;
 		this.rows = this.buildRows();
 
-		const selectedActionIndex = selectedAction === undefined ? -1 : this.options.actions.indexOf(selectedAction);
 		const closingActionIndex =
 			selectedAction === undefined ? -1 : this.options.closingActions.indexOf(selectedAction);
 		const selectedEntryIndex = selectedEntry ? entries.findIndex((entry) => entry.ref === selectedEntry.ref) : -1;
-		if (selectedActionIndex >= 0) this.selectedIndex = selectedActionIndex;
-		else if (selectedEntryIndex >= 0) this.selectedIndex = this.options.actions.length + selectedEntryIndex;
-		else if (closingActionIndex >= 0)
-			this.selectedIndex = this.options.actions.length + entries.length + closingActionIndex;
+		if (selectedEntryIndex >= 0) this.selectedIndex = selectedEntryIndex;
+		else if (closingActionIndex >= 0) this.selectedIndex = entries.length + closingActionIndex;
 		else this.selectedIndex = 0;
 		this.scrollTop = Math.min(this.scrollTop, Math.max(0, this.rows.length - MAX_VISIBLE_ROWS));
 		this.keepSelectedVisible();
@@ -182,7 +191,7 @@ export class QuestionListComponent implements Component {
 	}
 
 	private get itemCount(): number {
-		return this.options.actions.length + this.rows.length + this.options.closingActions.length;
+		return this.rows.length + this.options.closingActions.length;
 	}
 
 	private move(delta: number): void {
@@ -191,16 +200,16 @@ export class QuestionListComponent implements Component {
 	}
 
 	private keepSelectedVisible(): void {
-		const row = this.selectedIndex - this.options.actions.length;
+		const row = this.selectedIndex;
 		if (row < 0 || row >= this.rows.length) return;
 		if (row < this.scrollTop) this.scrollTop = row;
 		else if (row >= this.scrollTop + MAX_VISIBLE_ROWS) this.scrollTop = row - MAX_VISIBLE_ROWS + 1;
 	}
 
 	private confirm(): void {
-		const { actions, entries, closingActions } = this.options;
-		const row = this.selectedIndex - actions.length;
-		const action = row < 0 ? actions[this.selectedIndex] : closingActions[row - entries.length];
+		const { entries, closingActions } = this.options;
+		const row = this.selectedIndex;
+		const action = closingActions[row - entries.length];
 		const entry = entries[row];
 		if (action !== undefined) this.options.onAction(action);
 		else if (entry) this.options.onEntry(entry);
@@ -208,7 +217,9 @@ export class QuestionListComponent implements Component {
 
 	handleInput(keyData: string): void {
 		const kb = getKeybindings();
-		if (kb.matches(keyData, "app.questions.toggleAll")) this.options.onToggleAll();
+		if (kb.matches(keyData, "app.questions.refresh")) this.options.onRefresh();
+		else if (kb.matches(keyData, "app.questions.new")) this.options.onNewQuestion();
+		else if (kb.matches(keyData, "app.questions.toggleAll")) this.options.onToggleAll();
 		else if (kb.matches(keyData, "tui.select.up") || kb.matches(keyData, "app.questions.listUp")) this.move(-1);
 		else if (kb.matches(keyData, "tui.select.down") || kb.matches(keyData, "app.questions.listDown")) this.move(1);
 		else if (kb.matches(keyData, "tui.select.confirm")) this.confirm();
@@ -232,7 +243,7 @@ export class QuestionListComponent implements Component {
 
 	private rowColors(index: number): ThemeColor[] {
 		const state = this.options.entries[index]?.state ?? "open";
-		const selected = index + this.options.actions.length === this.selectedIndex;
+		const selected = index === this.selectedIndex;
 		const main: ThemeColor = selected ? "accent" : "text";
 		return [main, "muted", STATE_COLORS[state], "muted", "muted", main, "muted", selected ? "accent" : "success"];
 	}
@@ -250,7 +261,7 @@ export class QuestionListComponent implements Component {
 		];
 		const end = Math.min(this.scrollTop + MAX_VISIBLE_ROWS, this.rows.length);
 		for (let index = this.scrollTop; index < end; index++) {
-			const selected = index + this.options.actions.length === this.selectedIndex;
+			const selected = index === this.selectedIndex;
 			const marker = selected ? theme.fg("accent", "\u2192 ") : "  ";
 			lines.push(this.tableLine(this.rows[index] ?? [], widths, this.rowColors(index), marker));
 		}
@@ -267,27 +278,30 @@ export class QuestionListComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const { actions, closingActions } = this.options;
-		const hints = [
-			rawKeyHint("\u2191\u2193", "navigate"),
-			keyHint("tui.select.confirm", "select"),
-			keyHint("app.questions.toggleAll", this.options.toggleLabel),
-			keyHint("tui.select.cancel", "quit"),
-		].join("  ");
-		const closingStart = actions.length + this.rows.length;
+		const { closingActions } = this.options;
+		const hints = packHints(
+			[
+				rawKeyHint("\u2191\u2193", "navigate"),
+				keyHint("tui.select.confirm", "select"),
+				keyHint("app.questions.new", "new question"),
+				keyHint("app.questions.refresh", "refresh"),
+				keyHint("app.questions.toggleAll", this.options.toggleLabel),
+				keyHint("tui.select.cancel", "quit"),
+			],
+			width,
+		);
+		const closingStart = this.rows.length;
 		const lines = [
 			...this.border.render(width),
 			"",
 			...new Text(theme.fg("accent", theme.bold(this.options.heading)), 1, 0).render(width),
 			...this.renderNotice(width),
 			"",
-			...actions.map((label, index) => this.actionLine(label, index, width)),
-			"",
 			...this.renderTable(width),
 			"",
 			...closingActions.map((label, index) => this.actionLine(label, closingStart + index, width)),
 			"",
-			` ${hints}`,
+			...hints,
 			"",
 			...this.border.render(width),
 		];

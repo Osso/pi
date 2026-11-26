@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { setKeybindings, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import { QuestionListComponent } from "../src/cli/questions-list.ts";
 import { QuestionsApp } from "../src/cli/questions-tui.ts";
 import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
@@ -18,6 +19,7 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import {
 	type AgentQuestionEntry,
 	answerAgentQuestion,
+	listQuestionEntries,
 	type QuestionCenter,
 	readQuestionEntry,
 } from "../src/questions/question-center.ts";
@@ -184,6 +186,9 @@ describe("pi questions list", () => {
 			let lines = screen(ui, width);
 			expect(lines.join("\n")).toContain("Unanswered questions, newest first");
 			expect(lines.join("\n")).toContain("tab all questions");
+			expect(lines.join("\n")).toContain("ctrl+n new question");
+			expect(lines.join("\n")).toContain("ctrl+r refresh");
+			expect(lines.join("\n")).toMatch(/ctrl\+c quit/);
 			expectAlignedRows(lines, ["a2", "u2"]);
 
 			press(ui, "\t");
@@ -223,8 +228,8 @@ describe("pi questions list", () => {
 		await vi.advanceTimersByTimeAsync(2_000);
 		lines = screen(ui, 140);
 		expect(lines.some((line) => line.startsWith(" a2 "))).toBe(false);
-		expect(lines.find((line) => line.startsWith(" \u2192 "))).toContain("+ Ask a session a question");
-		press(ui, "\r");
+		expect(lines.find((line) => line.startsWith(" \u2192 "))).toMatch(/^ \u2192 a3 /);
+		press(ui, "\x0e");
 		expect(screen(ui, 140).join("\n")).toContain("Ask which session?");
 		press(ui, "\x1b");
 		const timersBeforeQuit = vi.getTimerCount();
@@ -234,7 +239,7 @@ describe("pi questions list", () => {
 		expect(vi.getTimerCount()).toBeLessThan(timersBeforeQuit);
 	});
 
-	it("does not auto-refresh all-history mode and keeps manual Refresh", async () => {
+	it("does not auto-refresh all-history mode and refreshes it with Ctrl+R", async () => {
 		vi.useFakeTimers();
 		const { ui, finished } = start(140);
 		press(ui, "\t");
@@ -242,8 +247,13 @@ describe("pi questions list", () => {
 		await vi.advanceTimersByTimeAsync(2_000);
 		expect(screen(ui, 140).join("\n")).not.toContain("An all-history update.");
 
-		press(ui, "j", "\r");
+		for (let step = 0; step < 8; step++) {
+			if (/^ \u2192 u1 /.test(screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "")) break;
+			press(ui, "j");
+		}
+		press(ui, "\x12");
 		expect(screen(ui, 140).join("\n")).toContain("An all-history update.");
+		expect(screen(ui, 140).find((line) => line.startsWith(" \u2192 "))).toMatch(/^ \u2192 u1 /);
 		press(ui, "\x1b");
 		expect(finished()).toBe(true);
 		expect(vi.getTimerCount()).toBe(0);
@@ -295,7 +305,7 @@ describe("pi questions list", () => {
 				["a4", "you"],
 				["a5", "unknown"],
 			]) {
-				const line = lines.find((candidate) => candidate.trimStart().startsWith(`${ref} `));
+				const line = lines.find((candidate) => new RegExp(`^\\s*(?:→ )?${ref} `).test(candidate));
 				expect(line).toMatch(new RegExp(`\\s${source}\\s+yes\\s*$`));
 			}
 		}
@@ -328,17 +338,69 @@ describe("pi questions list", () => {
 		expect(finished()).toBe(true);
 	});
 
+	it("shows shortcuts and keeps Quit selectable when the list is empty", () => {
+		const actions: string[] = [];
+		const component = new QuestionListComponent({
+			heading: "Unanswered questions",
+			notice: "",
+			emptyText: "Nothing is waiting.",
+			toggleLabel: "all questions",
+			entries: [],
+			sessionNames: new Map(),
+			now: Date.now(),
+			closingActions: ["Quit"],
+			onAction: (action) => actions.push(action),
+			onEntry: () => {},
+			onCancel: () => {},
+			onToggleAll: () => {},
+			onRefresh: () => actions.push("refresh"),
+			onNewQuestion: () => actions.push("new"),
+		});
+		const lines = component.render(140).map(stripAnsi);
+
+		expect(lines.join("\n")).toContain("Nothing is waiting.");
+		expect(lines.join("\n")).toContain("ctrl+n new question");
+		expect(lines.join("\n")).toContain("ctrl+r refresh");
+		expect(lines.join("\n")).toContain("Quit");
+		expect(lines.join("\n")).not.toContain("Ask a session a question");
+		expect(lines.join("\n")).not.toContain("↻ Refresh");
+
+		component.handleInput("\x0e");
+		component.handleInput("\x12");
+		component.handleInput("\r");
+		expect(actions).toEqual(["new", "refresh", "Quit"]);
+
+		const arrived = listQuestionEntries(center).filter((entry) => entry.ref === "a2");
+		component.update(arrived, new Map(), Date.now());
+		const selectedRow = component
+			.render(140)
+			.map(stripAnsi)
+			.find((line) => line.startsWith(" \u2192 "));
+		expect(selectedRow).toMatch(/^ \u2192 a2 /);
+
+		component.handleInput("j");
+		component.update(listQuestionEntries(center).slice(0, 2), new Map(), Date.now());
+		const quitRow = component
+			.render(140)
+			.map(stripAnsi)
+			.find((line) => line.startsWith(" \u2192 "));
+		expect(quitRow).toBe(" \u2192 Quit");
+	});
+
 	it("moves the selection with j/k and the arrows, opens the detail view, and quits on escape", () => {
 		const { ui, finished } = start(140);
 		press(ui, "\t");
 		const selected = () => screen(ui, 140).find((line) => line.startsWith(" \u2192 ")) ?? "";
+		const initialSelection = selected();
 
-		expect(selected()).toContain("+ Ask a session a question");
 		press(ui, "j");
-		expect(selected()).toContain("Refresh");
-		press(ui, "k", "\x1b[B");
-		expect(selected()).toContain("Refresh");
-		for (let step = 0; step < 6 && !/^ \u2192 a1 /.test(selected()); step++) press(ui, "j");
+		const nextSelection = selected();
+		expect(nextSelection).not.toBe(initialSelection);
+		press(ui, "k");
+		expect(selected()).toBe(initialSelection);
+		press(ui, "\x1b[B");
+		expect(selected()).toBe(nextSelection);
+		for (let step = 0; step < 8 && !/^ \u2192 a1 /.test(selected()); step++) press(ui, "j");
 		expect(selected()).toMatch(/^ \u2192 a1 /);
 
 		press(ui, "\r");

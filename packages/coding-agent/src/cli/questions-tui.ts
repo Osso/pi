@@ -33,8 +33,6 @@ import { createStartupTui, startStartupTui } from "./startup-ui.ts";
  * questions, read agent answers, ask sessions new questions and follow-ups.
  */
 
-const ASK_NEW = "+ Ask a session a question";
-const REFRESH = "\u21bb Refresh";
 const QUIT = "Quit";
 const ASK_FOLLOW_UP = "Ask a follow-up";
 const BACK = "Back";
@@ -195,12 +193,9 @@ export class QuestionsApp {
 			entries,
 			sessionNames,
 			now: Date.now(),
-			actions: [ASK_NEW, REFRESH],
 			closingActions: [QUIT],
 			onAction: (action) => {
-				if (action === ASK_NEW) return this.chooseTarget();
-				if (action === QUIT) return this.close();
-				this.showList(true);
+				if (action === QUIT) this.close();
 			},
 			onEntry: (entry) => {
 				if (entry.direction === "user") return this.showUserQuestion(entry);
@@ -211,11 +206,13 @@ export class QuestionsApp {
 				this.showAll = !this.showAll;
 				this.showList();
 			},
+			onRefresh: () => this.reloadVisibleList(true),
+			onNewQuestion: () => this.chooseTarget(),
 		});
 		this.currentList = list;
 		this.show(list);
 		if (!this.showAll) {
-			this.refreshTimer = setInterval(() => this.refreshVisibleList(), 2_000);
+			this.refreshTimer = setInterval(() => this.reloadVisibleList(false), 2_000);
 			this.refreshTimer.unref?.();
 		}
 	}
@@ -226,11 +223,13 @@ export class QuestionsApp {
 		return names;
 	}
 
-	private refreshVisibleList(): void {
-		if (this.closed || this.showAll || this.current !== this.currentList || !this.currentList) return;
+	/** Reloads stored rows into the visible list in place, keeping its selection. */
+	private reloadVisibleList(refreshNames: boolean): void {
+		if (this.closed || this.current !== this.currentList || !this.currentList) return;
 		const allEntries = listQuestionEntries(this.center);
-		this.loadRemoteNames(allEntries, false);
-		this.currentList.update(allEntries.filter(isUnanswered), this.sessionNames(), Date.now());
+		this.loadRemoteNames(allEntries, refreshNames);
+		const entries = allEntries.filter((entry) => this.showAll || isUnanswered(entry));
+		this.currentList.update(entries, this.sessionNames(), Date.now());
 		this.ui.requestRender();
 	}
 

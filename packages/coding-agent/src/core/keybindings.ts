@@ -68,6 +68,8 @@ export interface AppKeybindings {
 	"app.questions.next": true;
 	"app.questions.previous": true;
 	"app.questions.toggleAll": true;
+	"app.questions.refresh": true;
+	"app.questions.new": true;
 	"app.questions.listUp": true;
 	"app.questions.listDown": true;
 }
@@ -277,6 +279,14 @@ export const KEYBINDINGS = {
 	"app.questions.toggleAll": {
 		defaultKeys: "tab",
 		description: "pi questions: switch between unanswered and all questions",
+	},
+	"app.questions.refresh": {
+		defaultKeys: "ctrl+r",
+		description: "pi questions: refresh questions and session names",
+	},
+	"app.questions.new": {
+		defaultKeys: "ctrl+n",
+		description: "pi questions: ask a session a question",
 	},
 	"app.questions.listUp": {
 		defaultKeys: "k",

@@ -127,12 +127,13 @@ describe("question session names over the host relay", () => {
 			entries: [entry],
 			sessionNames: names,
 			now: Date.now(),
-			actions: [],
 			closingActions: [],
 			onAction: () => {},
 			onEntry: () => {},
 			onCancel: () => {},
 			onToggleAll: () => {},
+			onRefresh: () => {},
+			onNewQuestion: () => {},
 		});
 		const lines = component.render(160).map(stripAnsi);
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(160);
@@ -171,12 +172,13 @@ describe("question session names over the host relay", () => {
 			entries: [entry],
 			sessionNames: new Map(),
 			now: Date.now(),
-			actions: [],
 			closingActions: [],
 			onAction: () => {},
 			onEntry: () => {},
 			onCancel: () => {},
 			onToggleAll: () => {},
+			onRefresh: () => {},
+			onNewQuestion: () => {},
 		});
 		expect(component.render(120).map(stripAnsi).join("\n")).toContain(`remote-host:${REMOTE.slice(0, 8)}`);
 	});
@@ -226,7 +228,7 @@ describe("question session names over the host relay", () => {
 				() => {
 					const text = ui.render(140).map(stripAnsi).join("\n");
 					expect(text).toMatch(/session\s+question/);
-					const rows = text.split("\n").filter((line) => /^\s+a\d+\s/.test(line));
+					const rows = text.split("\n").filter((line) => /^\s*(?:→ )?a\d+\s/.test(line));
 					expect(rows.some((line) => /Billing worker\s+Billing worker/.test(line))).toBe(true);
 					expect(rows.some((line) => /Second worker\s+Second worker/.test(line))).toBe(true);
 				},
@@ -261,7 +263,7 @@ describe("question session names over the host relay", () => {
 		const ui = new TUI(new VirtualTerminal(140, 40));
 		const app = new QuestionsApp(ui, { controlDbPath: sourceDb, supervisorSessionId: SUPERVISOR }, () => {});
 		app.showList();
-		for (const key of ["j", "j", "\r"]) ui.getFocusedComponent()?.handleInput?.(key);
+		ui.getFocusedComponent()?.handleInput?.("\r");
 
 		const sourceToTarget = new PassThrough();
 		const targetToSource = new PassThrough();
