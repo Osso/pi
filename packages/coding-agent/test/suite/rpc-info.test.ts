@@ -23,12 +23,21 @@ describe("RPC TUI information commands", () => {
 				"app.interrupt",
 			);
 
+			const available = await agent.send({ type: "get_available_models" });
+			const model = (available as { data: { models: Array<{ provider: string; id: string }> } }).data.models[0];
+			expect(model).toBeDefined();
 			const currentModels = await agent.send({ type: "get_scoped_models" });
 			expect(currentModels).toMatchObject({ command: "get_scoped_models", success: true, data: { models: [] } });
-			expect(await agent.send({ type: "set_scoped_models", models: [] })).toMatchObject({
+			expect(
+				await agent.send({ type: "set_scoped_models", models: [`${model?.provider}/${model?.id}`] }),
+			).toMatchObject({
 				command: "set_scoped_models",
 				success: true,
-				data: { models: [] },
+				data: { models: [{ provider: model?.provider, id: model?.id }] },
+			});
+			expect(await agent.send({ type: "get_scoped_models" })).toMatchObject({
+				command: "get_scoped_models",
+				data: { models: [{ provider: model?.provider, id: model?.id }] },
 			});
 
 			const changelog = await agent.send({ type: "get_changelog" });
