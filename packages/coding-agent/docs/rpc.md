@@ -806,9 +806,42 @@ Response:
         ]
       }
     ],
-    "leafId": "def456"
+    "leafId": "def456",
+    "branchSummarySkipPrompt": false
   }
 }
+```
+
+`branchSummarySkipPrompt` is the `branchSummary.skipPrompt` setting: when `true`, the TUI navigates without asking whether to summarize the abandoned branch.
+
+#### navigate_tree
+
+Move the session leaf to an entry in the tree, as the TUI's `/tree` does. The abandoned branch stays in the session file. If the agent is streaming, the response is aborted first; queued messages are discarded, so send `clear_queue` before this command to keep them.
+
+```json
+{"type": "navigate_tree", "entryId": "abc123", "summarize": true, "customInstructions": "Focus on decisions"}
+```
+
+`summarize` (default `false`) adds a summary of the abandoned branch at the new position; `customInstructions` steers that summary. Send `abort_branch_summary` to stop a running summary.
+
+Response:
+```json
+{
+  "type": "response",
+  "command": "navigate_tree",
+  "success": true,
+  "data": {"cancelled": false, "aborted": false, "editorText": "Original prompt text"}
+}
+```
+
+When the target is a user message, the new leaf is its parent and `editorText` is that message's text, for the client to put back in its editor. `aborted` is `true` when `abort_branch_summary` stopped the summary; the leaf did not move. `cancelled` is `true` when an extension cancelled the navigation.
+
+#### abort_branch_summary
+
+Stop the branch summary of a running `navigate_tree`.
+
+```json
+{"type": "abort_branch_summary"}
 ```
 
 #### get_last_assistant_text

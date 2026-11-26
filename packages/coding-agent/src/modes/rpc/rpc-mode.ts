@@ -40,6 +40,7 @@ import { runRpcBash } from "./rpc-bash.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
 import { listRpcSessions } from "./rpc-sessions.ts";
+import { handleRpcTreeCommand, isRpcTreeCommand } from "./rpc-tree.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIDismiss,
@@ -396,6 +397,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
 		if (command.type === "list_sessions") return listRpcSessions(command, session.sessionManager, runtimeHost);
+		if (isRpcTreeCommand(command)) return handleRpcTreeCommand(command, session);
 		if (isRpcAgentCommand(command))
 			return handleRpcAgentCommand(command, agents, session.sessionManager.getSessionDir());
 		switch (command.type) {
@@ -658,11 +660,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 					entries = entries.slice(sinceIndex + 1);
 				}
 				return success(id, "get_entries", { entries, leafId: sessionManager.getLeafId() });
-			}
-
-			case "get_tree": {
-				const sessionManager = session.sessionManager;
-				return success(id, "get_tree", { tree: sessionManager.getTree(), leafId: sessionManager.getLeafId() });
 			}
 
 			case "get_last_assistant_text": {

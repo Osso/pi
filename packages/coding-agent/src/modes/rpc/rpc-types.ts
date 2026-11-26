@@ -64,7 +64,6 @@ export type RpcCommand =
 	| { id?: string; type: "clone" }
 	| { id?: string; type: "get_fork_messages" }
 	| { id?: string; type: "get_entries"; since?: string }
-	| { id?: string; type: "get_tree" }
 	| { id?: string; type: "get_last_assistant_text" }
 	| { id?: string; type: "set_session_name"; name: string }
 
@@ -81,7 +80,14 @@ export type RpcCommand =
 	| { id?: string; type: "clear_queue" }
 
 	// Agents
-	| RpcAgentCommand;
+	| RpcAgentCommand
+	| RpcTreeCommand;
+
+/** Session-tree commands behind the TUI's `/tree`. */
+export type RpcTreeCommand =
+	| { id?: string; type: "get_tree" }
+	| { id?: string; type: "navigate_tree"; entryId: string; summarize?: boolean; customInstructions?: string }
+	| { id?: string; type: "abort_branch_summary" };
 
 /** Multi-agent commands; fail when the session runs with --no-supervisor. */
 export type RpcAgentCommand =
@@ -231,8 +237,16 @@ export type RpcResponse =
 			type: "response";
 			command: "get_tree";
 			success: true;
-			data: { tree: SessionTreeNode[]; leafId: string | null };
+			data: { tree: SessionTreeNode[]; leafId: string | null; branchSummarySkipPrompt: boolean };
 	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "navigate_tree";
+			success: true;
+			data: { cancelled: boolean; aborted: boolean; editorText?: string };
+	  }
+	| { id?: string; type: "response"; command: "abort_branch_summary"; success: true }
 	| {
 			id?: string;
 			type: "response";
