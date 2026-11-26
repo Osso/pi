@@ -129,6 +129,7 @@
 
 ### Added
 
+- RPC `clear_queue` command removes and returns pending steering and follow-up messages.
 - RPC `list_sessions` command lists this project's or all projects' sessions for a resume picker.
 - In RPC mode, `/approvals` and `/sandbox` open their selectors as `select` dialogs (save scope, then preset or profile) instead of doing nothing.
 - RPC exposes multi-agent state: `get_agents`, `get_agent_messages` (a child agent's transcript) and `steer_agent` commands, and an `agent_updated` event on every agent change.

@@ -77,6 +77,9 @@ export type RpcCommand =
 	// Sessions for a resume picker: this project's (default) or all projects'
 	| { id?: string; type: "list_sessions"; scope?: "cwd" | "all" }
 
+	// Remove and return the pending steering and follow-up messages
+	| { id?: string; type: "clear_queue" }
+
 	// Agents
 	| RpcAgentCommand;
 
@@ -252,6 +255,13 @@ export type RpcResponse =
 	  }
 
 	// Agents
+	| {
+			id?: string;
+			type: "response";
+			command: "clear_queue";
+			success: true;
+			data: { steering: string[]; followUp: string[] };
+	  }
 	| { id?: string; type: "response"; command: "list_sessions"; success: true; data: { sessions: RpcSessionSummary[] } }
 	| { id?: string; type: "response"; command: "get_agents"; success: true; data: { agents: AgentSnapshot[] } }
 	| { id?: string; type: "response"; command: "get_agent_messages"; success: true; data: { messages: AgentMessage[] } }

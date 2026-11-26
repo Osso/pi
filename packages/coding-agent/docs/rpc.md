@@ -135,6 +135,19 @@ Response:
 
 See [set_follow_up_mode](#set_follow_up_mode) for controlling how follow-up messages are processed.
 
+#### clear_queue
+
+Remove the pending steering and follow-up messages and return them, e.g. to restore them to the client's editor (the TUI's Alt+Up). A `queue_update` event follows.
+
+```json
+{"type": "clear_queue"}
+```
+
+Response:
+```json
+{"type": "response", "command": "clear_queue", "success": true, "data": {"steering": [], "followUp": ["then summarize"]}}
+```
+
 #### abort
 
 Abort the current agent operation.

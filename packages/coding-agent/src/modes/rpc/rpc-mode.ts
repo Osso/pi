@@ -173,7 +173,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		requestRender(): void {}, // RPC clients do not own a TUI render loop.
 
 		onTerminalInput(): () => void {
-			// Raw terminal input not supported in RPC mode
 			return () => {};
 		},
 
@@ -238,7 +237,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		},
 
 		async custom() {
-			// Custom UI not supported in RPC mode
 			return undefined as never;
 		},
 
@@ -314,9 +312,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			return false;
 		},
 
-		setToolsExpanded(_expanded: boolean) {
-			// Tool expansion not supported in RPC mode - no TUI
-		},
+		setToolsExpanded(_expanded: boolean) {},
 	});
 
 	runtimeHost.setRebindSession(() => rebindSession());
@@ -642,6 +638,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 				const result = await runtimeHost.fork(leafId, { position: "at" });
 				return success(id, "clone", { cancelled: result.cancelled });
 			}
+
+			case "clear_queue":
+				return success(id, "clear_queue", session.clearQueue());
 
 			case "get_fork_messages": {
 				const messages = session.getUserMessagesForForking();
