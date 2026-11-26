@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- Fixed Kitty images disappearing in Konsole in both regular and fullscreen mode: `allocateImageId()` now returns IDs that fit a signed 32-bit integer, which Konsole requires (port of upstream ed0f27d62, [#12548](https://github.com/earendil-works/pi/issues/12548))
 - Fixed a bare URL that runs into a very long line (for example a pasted base64 data URL) exhausting memory when rendered with OSC 8 hyperlinks: URLs over 8192 characters are now shown as plain text ([#12416](https://github.com/earendil-works/pi-mono/issues/12416))
 - Fixed bracketed paste closing Ctrl+R history search instead of extending its search query
 - Fixed narrow Markdown tables dropping wide characters when only some columns require two terminal cells

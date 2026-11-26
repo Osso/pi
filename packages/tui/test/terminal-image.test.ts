@@ -6,6 +6,7 @@ import assert from "node:assert";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { Image } from "../src/components/image.ts";
 import {
+	allocateImageId,
 	deleteAllKittyImages,
 	deleteKittyImage,
 	detectCapabilities,
@@ -374,6 +375,16 @@ describe("detectCapabilities", () => {
 			assert.strictEqual(caps.hyperlinks, false);
 			assert.strictEqual(caps.images, null);
 		});
+	});
+});
+
+describe("Kitty image IDs", () => {
+	// #12548: Konsole parses keys as signed 32-bit integers and reads larger IDs as 0.
+	it("allocates IDs that fit a signed 32-bit integer", (t) => {
+		t.mock.method(Math, "random", () => 0.999999999999);
+		assert.strictEqual(allocateImageId(), 0x7fffffff);
+		t.mock.method(Math, "random", () => 0);
+		assert.strictEqual(allocateImageId(), 1);
 	});
 });
 
