@@ -943,56 +943,12 @@ export class Editor implements Component, Focusable {
 			}
 
 			if (kb.matches(data, "tui.input.tab")) {
-				const selected = this.autocompleteList.getSelectedItem();
-				if (selected && this.autocompleteProvider) {
-					this.pushUndoSnapshot();
-					this.lastAction = null;
-					const result = this.autocompleteProvider.applyCompletion(
-						this.state.lines,
-						this.state.cursorLine,
-						this.state.cursorCol,
-						selected,
-						this.autocompletePrefix,
-					);
-					this.state.lines = result.lines;
-					this.state.cursorLine = result.cursorLine;
-					this.setCursorCol(result.cursorCol);
-					this.cancelAutocomplete();
-					if (this.onChange) this.onChange(this.getText());
-				}
+				if (this.applySelectedCompletion() && this.onChange) this.onChange(this.getText());
 				return;
 			}
 
-			if (kb.matches(data, "tui.select.confirm")) {
-				const selected = this.autocompleteList.getSelectedItem();
-				if (selected && this.autocompleteProvider) {
-					// Only the command-name menu submits; path/argument menus can also have a "/" prefix (read before applying).
-					const beforeCursor = (this.state.lines[this.state.cursorLine] || "").slice(0, this.state.cursorCol);
-					const submitsCommand =
-						this.autocompletePrefix.startsWith("/") && this.isInSlashCommandNameContext(beforeCursor);
-					this.pushUndoSnapshot();
-					this.lastAction = null;
-					const result = this.autocompleteProvider.applyCompletion(
-						this.state.lines,
-						this.state.cursorLine,
-						this.state.cursorCol,
-						selected,
-						this.autocompletePrefix,
-					);
-					this.state.lines = result.lines;
-					this.state.cursorLine = result.cursorLine;
-					this.setCursorCol(result.cursorCol);
-
-					if (submitsCommand) {
-						this.cancelAutocomplete();
-						// Fall through to submit
-					} else {
-						this.cancelAutocomplete();
-						if (this.onChange) this.onChange(this.getText());
-						return;
-					}
-				}
-			}
+			// "submit" or "none": fall through to submit
+			if (kb.matches(data, "tui.select.confirm") && this.confirmAutocomplete() === "applied") return;
 		}
 
 		// Tab - trigger completion
@@ -2557,6 +2513,40 @@ export class Editor implements Component, Focusable {
 	private cancelAutocomplete(): void {
 		this.cancelAutocompleteRequest();
 		this.clearAutocompleteUi();
+	}
+
+	/**
+	 * Apply the selected autocomplete suggestion. Returns "none" if nothing was applied, "applied" if it was
+	 * inserted without submitting, or "submit" if a slash command name was completed and should be submitted.
+	 */
+	protected confirmAutocomplete(): "none" | "applied" | "submit" {
+		// Only the command-name menu submits; path/argument menus can also have a "/" prefix (read before applying).
+		const beforeCursor = (this.state.lines[this.state.cursorLine] || "").slice(0, this.state.cursorCol);
+		const submitsCommand = this.autocompletePrefix.startsWith("/") && this.isInSlashCommandNameContext(beforeCursor);
+		if (!this.applySelectedCompletion()) return "none";
+		if (submitsCommand) return "submit";
+		if (this.onChange) this.onChange(this.getText());
+		return "applied";
+	}
+
+	/** Insert the selected autocomplete suggestion and close the menu. Returns false if nothing was selected. */
+	private applySelectedCompletion(): boolean {
+		const selected = this.autocompleteState ? this.autocompleteList?.getSelectedItem() : undefined;
+		if (!selected || !this.autocompleteProvider) return false;
+		this.pushUndoSnapshot();
+		this.lastAction = null;
+		const result = this.autocompleteProvider.applyCompletion(
+			this.state.lines,
+			this.state.cursorLine,
+			this.state.cursorCol,
+			selected,
+			this.autocompletePrefix,
+		);
+		this.state.lines = result.lines;
+		this.state.cursorLine = result.cursorLine;
+		this.setCursorCol(result.cursorCol);
+		this.cancelAutocomplete();
+		return true;
 	}
 
 	public isShowingAutocomplete(): boolean {

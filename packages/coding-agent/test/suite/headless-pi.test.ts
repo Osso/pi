@@ -1099,10 +1099,12 @@ describe("headless Pi fixture", () => {
 				);
 				const runnerPid = agent.getRunnerPid(detachedJob.id);
 				if (!runnerPid) throw new Error("Child Pyrun runner has no PID");
+				const runnerIdentity = readProcessIdentity(runnerPid);
 
 				await agent.crash();
 				killProcessGroup(runnerPid);
-				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
+				// After the crash the runner is re-parented, so it can stay a zombie until init reaps it.
+				await vi.waitFor(() => expect(isProcessIdentityAlive(runnerIdentity)).toBe(false));
 				await agent.restart();
 				await agent.waitForLlmRequest((request) => request.sessionId === callerSessionId);
 
@@ -1599,6 +1601,7 @@ describe("headless Pi fixture", () => {
 	it("cleans up a detached Bash runner and shell after callback returns", async () => {
 		let runnerPid: number | undefined;
 		let shellPid: number | undefined;
+		const identities: ProcessIdentity[] = [];
 		try {
 			await withHeadlessPi(
 				async (agent) => {
@@ -1631,14 +1634,17 @@ describe("headless Pi fixture", () => {
 						},
 						{ timeout: 10_000, interval: 20 },
 					);
+					identities.push(readProcessIdentity(runnerPid), readProcessIdentity(shellPid as number));
 				},
 				{ autoDetachTools: true },
 			);
 
-			expect(runnerPid).toBeDefined();
-			expect(shellPid).toBeDefined();
-			expect(isProcessAlive(runnerPid as number)).toBe(false);
-			expect(isProcessAlive(shellPid as number)).toBe(false);
+			expect(identities).toHaveLength(2);
+			// Cleanup kills both; a killed process can stay a zombie until its new parent reaps it.
+			await vi.waitFor(() => expect(identities.filter(isProcessIdentityAlive)).toEqual([]), {
+				timeout: 2_000,
+				interval: 20,
+			});
 		} finally {
 			if (runnerPid !== undefined && isProcessAlive(runnerPid)) killProcessGroup(runnerPid);
 			if (shellPid !== undefined && isProcessAlive(shellPid)) killProcessGroup(shellPid);

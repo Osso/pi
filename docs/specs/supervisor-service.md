@@ -25,7 +25,7 @@ The Supervisor is a normal, full-UI interactive Pi session on agent-server. It r
 - [x] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [x] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
 - [x] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
-- [x] A relay outage produces the same failure results as an unavailable Supervisor: a stopped local relay fails the request immediately, and a broken SSH link fails it at its deadline.
+- [x] A request to a Supervisor on another host starts this host's configured relay when it is not running, then sends the request. A relay that is not configured or does not start fails the request immediately, and a broken SSH link fails it at its deadline.
 - [x] A request to a Supervisor session that is not running (locally, or as reported by the relay) stays queued and fails with the not-running reason only when no reply arrives within a three-minute restart grace, so a Supervisor restart does not fail requests.
 
 ### Question answering

@@ -108,9 +108,20 @@ export class CustomEditor extends Editor {
 			return;
 		}
 
+		// Follow-up submit applies an open autocomplete suggestion first, as Enter does.
+		const followUpHandler = this.actionHandlers.get("app.message.followUp");
+		if (followUpHandler && this.keybindings.matches(data, "app.message.followUp")) {
+			if (this.confirmAutocomplete() === "applied" || followUpHandler() !== false) return;
+		}
+
 		// Check all other app actions
 		for (const [action, handler] of this.actionHandlers) {
-			if (action !== "app.interrupt" && action !== "app.exit" && this.keybindings.matches(data, action)) {
+			if (
+				action !== "app.interrupt" &&
+				action !== "app.exit" &&
+				action !== "app.message.followUp" &&
+				this.keybindings.matches(data, action)
+			) {
 				if (handler() !== false) {
 					return;
 				}

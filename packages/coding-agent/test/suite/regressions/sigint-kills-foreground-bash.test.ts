@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
+import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import { createHeadlessPaths, createProviderServer, runWithCleanup } from "../headless-pi.ts";
 
 // The foreground Bash tool runs its shell in its own process group, so Ctrl+C in the terminal reaches only
@@ -106,12 +107,17 @@ describe("SIGINT during a foreground Bash tool", () => {
 						{ timeout: 20_000, interval: 50 },
 					);
 					shellPid = Number(readFileSync(pidFile, "utf8").trim());
-					expect(isAlive(shellPid)).toBe(true);
+					const shell = readProcessIdentity(shellPid);
+					expect(isProcessIdentityAlive(shell)).toBe(true);
 
 					child.kill("SIGINT");
 
 					const exitCode = await closed;
-					await vi.waitFor(() => expect(isAlive(shellPid ?? 0)).toBe(false), { timeout: 5_000, interval: 50 });
+					// Pi has exited, so the killed shell can stay a zombie until its new parent reaps it.
+					await vi.waitFor(() => expect(isProcessIdentityAlive(shell)).toBe(false), {
+						timeout: 5_000,
+						interval: 50,
+					});
 					expect(exitCode, output.slice(-2000)).toBe(130);
 				},
 				async () => {
