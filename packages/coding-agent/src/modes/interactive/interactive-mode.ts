@@ -4090,15 +4090,14 @@ export class InteractiveMode {
 				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext, {
 					showElapsed: false,
 				});
-				if (message.output) {
-					component.appendOutput(message.output);
-				}
+				if (message.output) component.appendOutput(message.output);
 				component.setComplete(
 					message.exitCode,
 					message.cancelled,
 					message.truncated ? ({ truncated: true } as TruncationResult) : undefined,
 					message.fullOutputPath,
 				);
+				component.setExpanded(this.toolOutputExpanded);
 				this.chatContainer.addChild(component);
 				break;
 			}

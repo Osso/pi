@@ -283,6 +283,7 @@
 
 ### Fixed
 
+- Fixed `!` command output rebuilt from the session (after compaction, `/reload`, `/resume`, or `/tree`) always showing collapsed while ctrl+o was set to expanded ([#12426](https://github.com/earendil-works/pi-mono/issues/12426))
 - A Pyrun evaluation moved to the background before it printed anything now creates its reported output log at once, so reading that path no longer fails with ENOENT
 - Fixed unhighlighted parts of syntax-highlighted code (identifiers, operators, spaces) using the terminal foreground instead of the theme text color, which made tool previews hard to read when Pi and the terminal used contrasting themes
 - Fixed compaction summarizing the current generic goal continuation reminder instead of omitting it like other goal reminders
