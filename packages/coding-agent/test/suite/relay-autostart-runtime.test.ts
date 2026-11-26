@@ -16,6 +16,7 @@ import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../../src/config.ts";
 import { ensureRelayRunning, type RelayLaunchInvocation } from "../../src/core/host-relay-resident.ts";
 import { isProcessIdentityAlive, type ProcessIdentity } from "../../src/core/runtime-process.ts";
 import { getControlDbPath } from "../../src/core/session-control-db.ts";
+import { ensureSupervisorAvailable } from "../../src/supervisor/ensure-running.ts";
 
 // `.invalid` never resolves, so the relay keeps retrying its SSH connection without network access.
 const relaySettings = { peer: "relay-test.invalid" };
@@ -37,7 +38,53 @@ async function stopRelay(identity: ProcessIdentity | undefined): Promise<void> {
 	if (!(await waitForExit(identity))) process.kill(identity.pid, "SIGKILL");
 }
 
+function relayInvocation(command: string, agentDir: string, homeDir: string): RelayLaunchInvocation {
+	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
+	return {
+		command,
+		args: ["--experimental-strip-types", cliPath, "relay", "connect"],
+		env: {
+			PATH: process.env.PATH,
+			HOME: homeDir,
+			[ENV_AGENT_DIR]: agentDir,
+			[ENV_STATE_DIR]: agentDir,
+			PI_SKIP_VERSION_CHECK: "1",
+		},
+	};
+}
+
 describe("relay automatic startup runtime", () => {
+	it("starts a stopped relay when a session addresses the Supervisor on another host", async () => {
+		const cacheDir = join(homedir(), ".cache");
+		mkdirSync(cacheDir, { recursive: true });
+		const tempDir = mkdtempSync(join(cacheDir, "pi-relay-supervisor-"));
+		const agentDir = join(tempDir, "agent");
+		const homeDir = join(tempDir, "home");
+		for (const dir of [agentDir, homeDir]) mkdirSync(dir, { recursive: true });
+		const supervisor = { sessionId: "remote-supervisor", host: "supervisor-host.invalid" };
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ relay: relaySettings, supervisor }));
+		const controlDbPath = getControlDbPath(agentDir);
+		const previousAgentDir = process.env[ENV_AGENT_DIR];
+		process.env[ENV_AGENT_DIR] = agentDir;
+		let relay: ProcessIdentity | undefined;
+		try {
+			const address = await ensureSupervisorAvailable({
+				controlDbPath,
+				startRelay: (path, settings) =>
+					ensureRelayRunning(path, settings, relayInvocation(process.execPath, agentDir, homeDir)),
+			});
+			relay = readRelayIdentity(controlDbPath);
+
+			expect(address).toEqual(supervisor);
+			expect(isProcessIdentityAlive(relay)).toBe(true);
+		} finally {
+			if (previousAgentDir === undefined) delete process.env[ENV_AGENT_DIR];
+			else process.env[ENV_AGENT_DIR] = previousAgentDir;
+			await stopRelay(relay);
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	}, 30_000);
+
 	it.skipIf(process.platform !== "linux")(
 		"replaces a same-version relay whose executable a deployment removed",
 		async () => {
@@ -50,18 +97,7 @@ describe("relay automatic startup runtime", () => {
 			for (const dir of [agentDir, homeDir]) mkdirSync(dir, { recursive: true });
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ relay: relaySettings }));
 			const controlDbPath = getControlDbPath(agentDir);
-			const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
-			const invocation = (command: string): RelayLaunchInvocation => ({
-				command,
-				args: ["--experimental-strip-types", cliPath, "relay", "connect"],
-				env: {
-					PATH: process.env.PATH,
-					HOME: homeDir,
-					[ENV_AGENT_DIR]: agentDir,
-					[ENV_STATE_DIR]: agentDir,
-					PI_SKIP_VERSION_CHECK: "1",
-				},
-			});
+			const invocation = (command: string) => relayInvocation(command, agentDir, homeDir);
 			const deployedNode = join(tempDir, "node");
 			copyFileSync(process.execPath, deployedNode);
 			chmodSync(deployedNode, 0o755);

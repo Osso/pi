@@ -286,6 +286,7 @@
 
 ### Fixed
 
+- Fixed Supervisor requests (goal review, approvals, `ask_supervisor`) failing with `the relay to the Supervisor on host <host> is not running` after this host's relay process exited. Sessions started the relay only at their own startup; a request to a Supervisor on another host now starts the configured relay again.
 - Fixed `app.message.followUp` (Alt+Enter) ignoring an open autocomplete menu and queuing the half-typed text. It now applies the selected suggestion like Enter: a completed command name is queued, and other completions are inserted without queuing (port of upstream 27157503e)
 - Fixed a busy shared control DB printing `SQLiteError: database is locked` stack traces over the interactive TUI from the runtime mailbox heartbeat and coordination polling. These periodic tasks now retry on their next tick and report only other errors.
 - Fixed print, JSON, and RPC modes not reporting an invalid `models.json`, so a typo such as `"contextWindow": "32000"` showed up only as `Model "..." not found` or `No API key found`. `createAgentSessionServices()` now returns the error as a warning in `diagnostics` ([#12522](https://github.com/earendil-works/pi-mono/issues/12522))
