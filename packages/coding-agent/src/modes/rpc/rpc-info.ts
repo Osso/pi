@@ -39,7 +39,12 @@ export async function handleRpcInfoCommand(
 		return { id, type: "response", command: type, success: true };
 	}
 	if (type === "continue") {
-		if (session.isStreaming || session.isCompacting) {
+		if (session.isStreaming) {
+			if (session.pendingMessageCount > 0) await session.interrupt("", "rpc");
+			else await session.abort();
+			return { id, type: "response", command: type, success: true };
+		}
+		if (session.isCompacting) {
 			return { id, type: "response", command: type, success: false, error: "Session is busy" };
 		}
 		await session.continue();

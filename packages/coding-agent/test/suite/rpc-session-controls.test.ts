@@ -1,9 +1,32 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 describe("RPC TUI session controls", () => {
+	it("aborts a streaming turn and resubmits queued input for continue", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Start a response" });
+			const firstRequest = await agent.waitForLlmRequest();
+			await agent.send({ type: "follow_up", message: "Keep this queued input" });
+			const continueResponse = agent.send({ type: "continue" });
+			const nextRequest = await agent.waitForLlmRequest((request) => request.id !== firstRequest.id);
+			expect(nextRequest.userMessages).toContain("Keep this queued input");
+			agent.respondToLlmRequest(
+				nextRequest.id,
+				fauxAssistantMessage(
+					[{ type: "text", text: "Resumed queued input." }, fauxToolCall("end_turn", { reason: "Done" })],
+					{
+						stopReason: "toolUse",
+					},
+				),
+			);
+			await agent.waitForEvent((event) => event.type === "agent_settled");
+			expect(await continueResponse).toMatchObject({ command: "continue", success: true });
+		});
+	}, 60_000);
+
 	it("clears names, stores project trust, relocates cwd, reloads, imports, and continues", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "set_session_name", name: "RPC control test" });

@@ -84,7 +84,7 @@ export type RpcCommand =
 	| RpcAgentCommand
 	| RpcTreeCommand;
 
-/** Read-only information shown by the TUI's `/tools`, `/extensions`, and `/changelog`. */
+/** RPC commands for TUI information and session controls. */
 export type RpcInfoCommand =
 	| { id?: string; type: "get_tools" }
 	| { id?: string; type: "get_extensions" }
