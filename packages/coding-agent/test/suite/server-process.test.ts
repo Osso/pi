@@ -257,6 +257,18 @@ describe("pi server process", () => {
 					await reconnected.request("detach_session", { sessionId, runtimeInstanceId });
 					const stopped = await reconnected.request("stop_session", { sessionId, runtimeInstanceId });
 					expect(stopped.success).toBe(true);
+					const visibleSessions = await list(reconnected);
+					expect(visibleSessions).toContainEqual(
+						expect.objectContaining({ sessionId, status: "ended", owner: "external" }),
+					);
+					const currentSessions = await reconnected.request("list_sessions", { includeEnded: false });
+					expect(
+						(currentSessions.data as { sessions: Frame[] }).sessions.some(
+							(entry) => entry.sessionId === sessionId,
+						),
+					).toBe(false);
+					const reattachEnded = await reconnected.request("attach_session", { sessionId, mode: "observe" });
+					expect(reattachEnded).toMatchObject({ success: false, error: { code: "not_running" } });
 				} finally {
 					reconnected.close();
 				}

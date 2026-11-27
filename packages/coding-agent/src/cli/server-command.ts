@@ -295,7 +295,10 @@ async function handleCommand(
 				});
 			case "list_sessions": {
 				client.subscriptions.add("sessions");
-				return respond({ sessions: sessionSummaries(workers), revision: Date.now() });
+				const sessions = sessionSummaries(workers);
+				const visibleSessions =
+					frame.includeEnded === false ? sessions.filter((session) => session.status !== "ended") : sessions;
+				return respond({ sessions: visibleSessions, revision: Date.now() });
 			}
 			case "start_session": {
 				if (typeof frame.cwd !== "string" || !frame.cwd)
@@ -357,7 +360,11 @@ async function handleCommand(
 			}
 			case "attach_session": {
 				const worker = workers.get(String(frame.sessionId));
-				if (!worker) return fail("not_attachable", "Session is not an RPC worker owned by this server");
+				if (!worker) {
+					const session = sessionSummaries(workers).find((entry) => entry.sessionId === frame.sessionId);
+					if (session?.status === "ended") return fail("not_running", "Session is not running");
+					return fail("not_attachable", "Session is not an RPC worker owned by this server");
+				}
 				if (frame.mode !== "observe" && frame.mode !== "control")
 					return fail("invalid_request", "mode must be observe or control");
 				if (
