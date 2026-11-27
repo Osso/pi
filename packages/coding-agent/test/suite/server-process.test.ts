@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -10,6 +11,8 @@ import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
 
 type Frame = Record<string, unknown>;
+
+const FOREIGN_SUPERVISOR_HOST = `${hostname()}-remote-supervisor`;
 
 class ServerClient {
 	private readonly lines: ReturnType<typeof createInterface>;
@@ -72,7 +75,7 @@ class ServerClient {
 
 async function startDaemon(
 	agent: HeadlessPi,
-	supervisorHost: string | null = "agent-server",
+	supervisorHost: string | null = FOREIGN_SUPERVISOR_HOST,
 ): Promise<{ daemon: ChildProcess; client: ServerClient; runtimeDir: string }> {
 	const runtimeDir = join(agent.paths.tempDir, "runtime");
 	mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
@@ -301,7 +304,7 @@ describe("pi server process", () => {
 				const hello = await client.request("hello", { version: 1 });
 				expect(hello).toMatchObject({
 					success: true,
-					data: { questionStoreHost: "agent-server" },
+					data: { questionStoreHost: FOREIGN_SUPERVISOR_HOST },
 				});
 				const foreignQuestion = await client.request("answer_question", {
 					questionId: "a999",
@@ -309,7 +312,7 @@ describe("pi server process", () => {
 				});
 				expect(foreignQuestion).toMatchObject({
 					success: false,
-					error: { code: "not_found", message: expect.stringContaining("agent-server") },
+					error: { code: "not_found", message: expect.stringContaining(FOREIGN_SUPERVISOR_HOST) },
 				});
 				const initialSessions = await list(client);
 				expect(initialSessions).toContainEqual(
