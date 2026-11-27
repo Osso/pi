@@ -10,6 +10,8 @@ import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai/compat"
 import { validateToolArguments } from "@earendil-works/pi-ai/compat";
 import { STANDALONE_DISABLED_TOOL_NAMES } from "./tool-capabilities.ts";
 
+export const RPC_TOOL_CALL_ID_PREFIX = "rpc-tool:";
+
 interface ProgrammaticToolCallInput {
 	toolName: string;
 	params: unknown;
@@ -42,7 +44,7 @@ export async function callActiveTool(input: ProgrammaticToolCallInput): Promise<
 	if (!activeToolNames.includes(toolName)) {
 		throw new Error(`Tool is not active: ${toolName}`);
 	}
-	if (toolName === "pyrun_eval") {
+	if (toolName === "pyrun_eval" && !activeToolCallId?.startsWith(RPC_TOOL_CALL_ID_PREFIX)) {
 		throw new Error("pyrun_eval cannot call itself through pi.tools.call");
 	}
 	const tool = toolRegistry.get(toolName);

@@ -14,6 +14,7 @@ import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
+import { runRemoteTool } from "../../agents-core/src/remote-host.ts";
 import {
 	createBwrapRunnerCommand,
 	createBwrapRunnerEnvironment,
@@ -59,6 +60,10 @@ interface PyrunExecutorState {
 const PYRUN_PROMPT_SNIPPET = "Evaluate Python through the canonical Pyrun JSONL runtime adapter";
 
 const pyrunEvalSchema = Type.Object({
+	host: Type.Optional(Type.String({ description: "pi server host ID; omit to run on this machine." })),
+	cwd: Type.Optional(
+		Type.String({ description: "Working directory on the remote host; defaults to the current cwd." }),
+	),
 	code: Type.String({ description: "Python source to evaluate." }),
 	session_id: Type.Optional(
 		Type.String({
@@ -69,6 +74,7 @@ const pyrunEvalSchema = Type.Object({
 });
 
 const PYRUN_PROMPT_GUIDELINES = [
+	"Use host to run Pyrun on another pi server machine; cwd can select its working directory.",
 	"Each pyrun_eval runs in a fresh Python with an empty ctx. To keep ctx across calls, pass the same session_id; only ctx persists, other globals start empty on each call. A call to a session that is still running fails at once. Omit session_id for one-off calls; never use it to label or describe a call, because each distinct name keeps a Python process alive for up to an hour.",
 	"Pi delegates Python/Pyrun runtime semantics to the Pyrun JSONL runner; Pi does not implement helper behavior locally.",
 	"Do not use MCP for Pi's built-in pyrun_eval path; use the JSONL runner boundary.",
@@ -543,7 +549,8 @@ export function createPyrunToolDefinition(
 	return {
 		name: "pyrun_eval",
 		label: "Pyrun Eval",
-		description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.",
+		description:
+			"Evaluate Python/Pyrun code locally or on a pi server host through the canonical Pyrun JSONL runtime adapter.",
 		promptSnippet: options.promptSnippet ?? PYRUN_PROMPT_SNIPPET,
 		promptGuidelines: options.promptGuidelines ?? PYRUN_PROMPT_GUIDELINES,
 		approvalRequired: true,
@@ -656,18 +663,28 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 
 	pi.registerTool(
 		createPyrunToolDefinition(async (toolCallId, params, ctx, onUpdate, signal) => {
+			const remoteParams = params as PyrunEvalParams & { host?: string; cwd?: string };
+			const remote = await runRemoteTool(
+				ctx,
+				remoteParams.host,
+				remoteParams.cwd ?? ctx.cwd,
+				"pyrun_eval",
+				{ code: params.code, ...(params.session_id ? { session_id: params.session_id } : {}) },
+				signal,
+			);
+			if (remote !== undefined)
+				return remote as AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>;
 			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
 			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
 			const activeExecutor = executorFor(ctx);
 			const typedOnUpdate = onUpdate as
 				| ((partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void)
 				| undefined;
-			// Detaching needs a persisted session to own the background job; `--no-session` runs stay foreground.
-			if (!store?.getPersistenceTarget() || !detachRegistry) {
+			const agentId = ctx.toolExecutionAgentId;
+			// Detaching needs a persisted session and a tool-call owner for the background job.
+			if (!store?.getPersistenceTarget() || !detachRegistry || !agentId) {
 				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal, toolCallId);
 			}
-			const agentId = ctx.toolExecutionAgentId;
-			if (!agentId) throw new Error("Detached Pyrun requires a persisted tool execution agent ID");
 			return runDurableDetachablePyrunEvaluation({
 				agentId,
 				ctx,

@@ -12,6 +12,7 @@ import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import type { RuntimeMailboxAddress } from "../../../src/core/session-control-db.ts";
 import type { SessionManager } from "../../../src/core/session-manager.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
+import { normalizeRemoteHost } from "./remote-host.ts";
 
 export const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -95,9 +96,7 @@ export function requireSpawnAgentParams(params: unknown): asserts params is Spaw
 	if (typeof input.prompt !== "string") {
 		throw new Error("spawn_agent prompt must be a string");
 	}
-	if (input.host !== undefined && (typeof input.host !== "string" || !input.host.trim())) {
-		throw new Error("spawn_agent host must be a non-empty host ID");
-	}
+	normalizeRemoteHost(input.host, "spawn_agent");
 	if (input.cwd !== undefined && input.host === undefined) throw new Error("spawn_agent cwd requires host");
 	if (input.host !== undefined && input.context === "inherit") {
 		throw new Error('spawn_agent on another host starts a fresh session; context "inherit" is unavailable');

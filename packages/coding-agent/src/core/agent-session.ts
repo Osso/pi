@@ -1888,7 +1888,7 @@ export class AgentSession {
 		return this._toolDefinitions.get(name)?.definition;
 	}
 
-	private _callActiveTool(
+	_callActiveTool(
 		toolName: string,
 		params: unknown,
 		signal: AbortSignal | undefined,

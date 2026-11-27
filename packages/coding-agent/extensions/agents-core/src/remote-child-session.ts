@@ -1,105 +1,11 @@
-import { spawn } from "node:child_process";
-import { createConnection } from "node:net";
-import type { Readable, Writable } from "node:stream";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { defaultHubCommand, readFrames, serverHostId, socketPath, writeFrame } from "../../../src/cli/server-wire.ts";
+import { serverHostId } from "../../../src/cli/server-wire.ts";
 import type { ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { AttachedSessionFactory, ChildAgentSession, ChildAgentSessionFactory } from "./contracts.ts";
+import { HubConnection } from "./remote-host.ts";
 
 type Frame = Record<string, unknown>;
-type PendingRequest = { resolve: (data: Frame) => void; reject: (error: Error) => void };
-
-/** One pi server protocol connection to the hub, which routes frames by hostId to the other machines. */
-class HubConnection {
-	private readonly output: Writable;
-	private readonly destroy: () => void;
-	private readonly pending = new Map<string, PendingRequest>();
-	private readonly frameListeners = new Set<(frame: Frame) => void>();
-	private readonly closeListeners = new Set<(error: Error) => void>();
-	private nextId = 0;
-	closed: Error | undefined;
-
-	constructor(input: Readable, output: Writable, destroy: () => void) {
-		this.output = output;
-		this.destroy = destroy;
-		readFrames(
-			input,
-			(frame) => this.accept(frame),
-			() => this.fail(new Error("Invalid frame from the pi server hub")),
-		);
-		input.once("close", () => this.fail(new Error("Connection to the pi server hub closed")));
-		input.once("error", (error) => this.fail(new Error(`pi server hub connection failed: ${error.message}`)));
-	}
-
-	/** The local socket on the hub; elsewhere the spoke link command (`server.hubCommand`), whose hub end is a stdio connector. */
-	static async open(ctx: ExtensionContext): Promise<HubConnection> {
-		const server = ctx.settingsManager?.getMergedSettings().server;
-		if (!server?.hub) throw new Error("spawn_agent host requires server.hub in settings");
-		let connection: HubConnection;
-		if (server.hub === serverHostId()) {
-			const socket = createConnection(socketPath());
-			connection = new HubConnection(socket, socket, () => socket.destroy());
-		} else {
-			const [program, ...args] = server.hubCommand ?? defaultHubCommand(server.hub);
-			if (!program) throw new Error("server.hubCommand is empty");
-			const child = spawn(program, args, { stdio: ["pipe", "pipe", "ignore"] });
-			connection = new HubConnection(child.stdout, child.stdin, () => child.kill("SIGTERM"));
-		}
-		try {
-			await connection.request("hello", { version: 1 });
-		} catch (error) {
-			connection.close();
-			throw error;
-		}
-		return connection;
-	}
-
-	request(type: string, fields: Frame): Promise<Frame> {
-		if (this.closed) return Promise.reject(this.closed);
-		const id = `remote-child-${++this.nextId}`;
-		return new Promise((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-			writeFrame(this.output, { ...fields, type, id });
-		});
-	}
-
-	onFrame(listener: (frame: Frame) => void): void {
-		this.frameListeners.add(listener);
-	}
-
-	onClose(listener: (error: Error) => void): void {
-		if (this.closed) listener(this.closed);
-		else this.closeListeners.add(listener);
-	}
-
-	close(): void {
-		this.fail(new Error("Connection to the pi server hub closed"));
-		this.destroy();
-	}
-
-	private accept(frame: Frame): void {
-		if (frame.type !== "response") {
-			for (const listener of this.frameListeners) listener(frame);
-			return;
-		}
-		const pending = this.pending.get(String(frame.id));
-		if (!pending) return;
-		this.pending.delete(String(frame.id));
-		const error = frame.error as { code?: string; message?: string } | undefined;
-		if (frame.success === true) pending.resolve((frame.data ?? {}) as Frame);
-		else pending.reject(new Error(`${String(frame.command)} failed: ${error?.code}: ${error?.message}`));
-	}
-
-	private fail(error: Error): void {
-		if (this.closed) return;
-		this.closed = error;
-		for (const pending of this.pending.values()) pending.reject(error);
-		this.pending.clear();
-		for (const listener of this.closeListeners) listener(error);
-		this.closeListeners.clear();
-	}
-}
 
 /**
  * A child that runs as a pi server worker on another machine. The worker outlives this process: a parent restart

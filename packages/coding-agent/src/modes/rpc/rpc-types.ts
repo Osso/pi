@@ -5,7 +5,7 @@
  * Responses and events are emitted as JSON lines on stdout.
  */
 
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
@@ -86,6 +86,7 @@ export type RpcCommand =
 
 /** RPC commands for TUI information and session controls. */
 export type RpcInfoCommand =
+	| { id?: string; type: "call_tool"; toolName: string; params: unknown }
 	| { id?: string; type: "get_tools" }
 	| { id?: string; type: "get_extensions" }
 	| { id?: string; type: "get_changelog" }
@@ -189,6 +190,7 @@ export type RpcResponse =
 
 	// State
 	| { id?: string; type: "response"; command: "get_state"; success: true; data: RpcSessionState }
+	| { id?: string; type: "response"; command: "call_tool"; success: true; data: { result: AgentToolResult<unknown> } }
 	| {
 			id?: string;
 			type: "response";

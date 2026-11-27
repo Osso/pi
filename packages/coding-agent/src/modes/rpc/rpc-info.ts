@@ -1,6 +1,7 @@
 import { getChangelogPath } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import { RPC_TOOL_CALL_ID_PREFIX } from "../../core/agent-session-tool-call.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
 import { resolveModelScope } from "../../core/model-resolver.ts";
 import { ProjectTrustStore } from "../../core/trust-manager.ts";
@@ -11,6 +12,7 @@ import type { RpcInfoCommand, RpcResponse } from "./rpc-types.ts";
 
 export function isRpcInfoCommand(command: { type: string }): command is RpcInfoCommand {
 	return [
+		"call_tool",
 		"get_tools",
 		"get_extensions",
 		"get_changelog",
@@ -67,6 +69,15 @@ export async function handleRpcInfoCommand(
 	runtimeHost: AgentSessionRuntime,
 ): Promise<RpcResponse> {
 	const { id, type } = command;
+	if (type === "call_tool") {
+		const result = await session._callActiveTool(
+			command.toolName,
+			command.params,
+			undefined,
+			`${RPC_TOOL_CALL_ID_PREFIX}${id ?? "call"}`,
+		);
+		return { id, type: "response", command: type, success: true, data: { result } };
+	}
 	if (type === "clear_session_name") {
 		session.clearSessionName();
 		return { id, type: "response", command: type, success: true };

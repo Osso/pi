@@ -1,10 +1,11 @@
 import { closeSync, constants, openSync, readFileSync, rmSync } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type ChildProcess, spawn } from "child_process";
 import { type Static, Type } from "typebox";
+import { runRemoteTool } from "../../../extensions/agents-core/src/remote-host.ts";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { truncateToVisualLines } from "../../modes/interactive/components/visual-truncate.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
@@ -18,7 +19,7 @@ import {
 } from "../../utils/shell.ts";
 import { splitAtUtf8Boundaries } from "../../utils/utf8-boundary.ts";
 import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import type { ExtensionContext, ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
 import { ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { executeRunnerOwnedBash } from "./bash-runner.ts";
@@ -45,6 +46,10 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 }
 
 const bashSchema = Type.Object({
+	host: Type.Optional(Type.String({ description: "pi server host ID; omit to run on this machine." })),
+	cwd: Type.Optional(
+		Type.String({ description: "Working directory on the remote host; defaults to the current cwd." }),
+	),
 	command: Type.String({ description: "Bash command to execute" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
@@ -432,16 +437,31 @@ export function createBashToolDefinition(
 	return {
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		description: `Execute a bash command in the current working directory or on a pi server host. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		promptGuidelines: [
+			"Use host to run the command on another pi server machine; cwd can select its working directory.",
+		],
 		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
 		parameters: bashSchema,
 		async execute(
 			toolCallId,
-			{ command, timeout }: { command: string; timeout?: number },
+			{ host, cwd: remoteCwd, command, timeout }: { host?: string; cwd?: string; command: string; timeout?: number },
 			signal?: AbortSignal,
 			onUpdate?,
-			_ctx?,
+			ctx?: ExtensionContext,
 		) {
+			if (host !== undefined) {
+				if (!ctx) throw new Error("Remote bash requires an extension context");
+				const remote = await runRemoteTool(
+					ctx,
+					host,
+					remoteCwd ?? cwd,
+					"bash",
+					{ command, ...(timeout === undefined ? {} : { timeout }) },
+					signal,
+				);
+				if (remote !== undefined) return remote as AgentToolResult<BashToolDetails | undefined>;
+			}
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
 			const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });

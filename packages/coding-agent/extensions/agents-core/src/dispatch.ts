@@ -28,6 +28,7 @@ import {
 import { createLifecycleCoordinator } from "./lifecycle-runtime.ts";
 import { emptyAgent, result } from "./messaging.ts";
 import { createRemoteChildSessionFactory } from "./remote-child-session.ts";
+import { normalizeRemoteHost } from "./remote-host.ts";
 import {
 	isProductionChildSessionFactory,
 	spawnPromptValidationMessage,
@@ -388,7 +389,7 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 	const displayName = params.displayName?.trim() || requestedAgentType || "Agent";
 	const agentType = requestedAgentType || "default";
 	const profile = requireConfiguredAgentProfile(agentType, requestedAgentType, ctx);
-	const host = params.host?.trim();
+	const host = normalizeRemoteHost(params.host, "spawn_agent");
 	// A child on another host is a pi server worker there: a fresh session with that machine's model and tools.
 	const createSession = host ? createRemoteChildSessionFactory(store, host) : createChildSession;
 	const context = host ? "fresh" : (params.context ?? profile?.context ?? (consultationParent ? "fresh" : "inherit"));

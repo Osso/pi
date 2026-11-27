@@ -39,6 +39,7 @@
 
 ### Added
 
+- `bash`, `pyrun_eval`, and `browser-cli` accept `host` to run on another pi server machine through the shared hub transport; `bash` and `pyrun_eval` also accept a remote `cwd`. RPC `call_tool` invokes an active tool in an attached worker. See [docs/server.md](docs/server.md#running-tools-on-another-machine).
 - `spawn_agent` takes `host` (a `pi server` host ID) and optional `cwd`: the child runs as a server worker on that machine, started through the hub, and its result reaches `wait_agent`, the agent list, and the mailbox as for a local child. A parent restart reattaches the running worker. See [docs/server.md](docs/server.md#sub-agents-on-another-machine).
 
 - In RPC mode the default footer extension publishes the current branch's pull request as the `pull-request` extension status, `<url> <state> ✓ <passed> ○ <running> ✗ <failed>` (read with `github pr branch` every five minutes and on branch changes), so RPC clients such as pi-desktop can link it.

@@ -8,6 +8,7 @@ import type {
 } from "../../../src/core/extensions/types.ts";
 import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
 import { isExecutableAvailable } from "../../../src/utils/executable.ts";
+import { runRemoteTool } from "../../agents-core/src/remote-host.ts";
 
 export interface BrowserCliCommandResult {
 	stdout: string;
@@ -37,6 +38,7 @@ export interface BrowserCliExtensionOptions {
 const BROWSER_CLI_EXECUTABLE = "browser-cli";
 
 const BROWSER_CLI_PROMPT_GUIDELINES = [
+	"Use host to run browser-cli on another pi server machine.",
 	'When spawn_agent is available, use a fresh agentType "browser" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.',
 	"Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
 	"Each agent drives its own dedicated background tab (BROWSER_CLI_SESSION is set automatically); `tabs list` marks it with *. Never activate or navigate other tabs.",
@@ -51,6 +53,7 @@ const browserCliCommandSchema = Type.Array(Type.String({ description: "One brows
 });
 
 const browserCliSchema = Type.Object({
+	host: Type.Optional(Type.String({ description: "pi server host ID; omit to run on this machine." })),
 	commands: Type.Array(browserCliCommandSchema, {
 		description: "Ordered browser-cli argv commands to execute sequentially.",
 		minItems: 1,
@@ -71,7 +74,8 @@ export function createBrowserCliToolDefinition(
 	return {
 		name: "browser-cli",
 		label: "Browser CLI",
-		description: "Run ordered browser-cli argv commands sequentially and return each command result.",
+		description:
+			"Run ordered browser-cli argv commands sequentially on this machine or a pi server host and return each command result.",
 		promptSnippet: "Control the browser through ordered browser-cli command batches.",
 		promptGuidelines: BROWSER_CLI_PROMPT_GUIDELINES,
 		parameters: browserCliSchema,
@@ -84,6 +88,15 @@ export function createBrowserCliToolDefinition(
 			_onUpdate,
 			ctx,
 		): Promise<AgentToolResult<BrowserCliBatchResult>> {
+			const remote = await runRemoteTool(
+				ctx,
+				params.host,
+				ctx.cwd,
+				"browser-cli",
+				{ commands: params.commands },
+				signal,
+			);
+			if (remote !== undefined) return remote as AgentToolResult<BrowserCliBatchResult>;
 			const commands = await runBrowserCliBatch(runCommand, params.commands, browserCliSession(ctx), signal);
 			return {
 				content: [{ type: "text", text: formatBrowserCliBatchOutput(commands) }],

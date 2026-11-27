@@ -603,11 +603,12 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		defineTool({
 			name: "spawn_agent",
 			label: "Spawn Agent",
-			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
+			description:
+				"Create a child agent record and optionally dispatch it through the multi-agent runtime on a pi server host.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
 				'Child agents can only request one read-only "explore" consultation at a time. Omit parentId; the tool waits for the consultation to finish and the result arrives through the mailbox.',
-				'In main sessions, context defaults to "inherit"; choose "fresh" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.',
+				'In main sessions, context defaults to "inherit"; choose "fresh" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context. Set host to run the child on another pi server machine.',
 				'In main sessions, use agentType "implement" for scoped code changes, "verifier" for proof commands before completion, and "reviewer" for final code review or second opinions.',
 			],
 			approvalRequired: false,
