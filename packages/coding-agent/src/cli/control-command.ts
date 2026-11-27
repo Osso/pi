@@ -8,7 +8,7 @@ import {
 } from "../core/session-control-db.ts";
 
 export { handleQuestionsCommand } from "./questions-tui.ts";
-export { handleServerCommand } from "./server-command.ts";
+export { handleServerCommand } from "./server-daemon.ts";
 
 interface ControlCommandDependencies {
 	stdout?: (text: string) => void;

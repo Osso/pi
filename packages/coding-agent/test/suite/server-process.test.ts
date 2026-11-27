@@ -76,6 +76,7 @@ class ServerClient {
 async function startDaemon(
 	agent: HeadlessPi,
 	supervisorHost: string | null = FOREIGN_SUPERVISOR_HOST,
+	options: { hostId?: string; hub?: string; hubCommand?: string[] } = {},
 ): Promise<{ daemon: ChildProcess; client: ServerClient; runtimeDir: string }> {
 	const runtimeDir = join(agent.paths.tempDir, "runtime");
 	mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
@@ -88,8 +89,11 @@ async function startDaemon(
 	const storedSettings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
 	if (supervisorHost !== null) storedSettings.supervisor = { host: supervisorHost, sessionId: "remote-supervisor" };
 	else delete storedSettings.supervisor;
+	if (options.hub)
+		storedSettings.server = { hub: options.hub, ...(options.hubCommand ? { hubCommand: options.hubCommand } : {}) };
+	else delete storedSettings.server;
 	writeFileSync(settingsPath, JSON.stringify(storedSettings));
-	const { daemon, stderr } = spawnDaemon(agent, runtimeDir, preloadPath, cliPath);
+	const { daemon, stderr } = spawnDaemon(agent, runtimeDir, preloadPath, cliPath, options.hostId);
 	// Connect, not just check the file: a crashed server's stale socket file exists before the new server binds.
 	const deadline = Date.now() + 30_000;
 	while (Date.now() < deadline) {
@@ -111,6 +115,7 @@ function spawnDaemon(
 	runtimeDir: string,
 	preloadPath: string,
 	cliPath: string,
+	hostId?: string,
 ): { daemon: ChildProcess; stderr: () => string } {
 	const daemon = spawn(
 		process.execPath,
@@ -131,6 +136,7 @@ function spawnDaemon(
 				PI_CODING_AGENT_STATE_DIR: agent.paths.agentDir,
 				PI_CODING_AGENT_SESSION_DIR: agent.paths.sessionDir,
 				PI_HEADLESS_PROVIDER_SOCKET: join(agent.paths.tempDir, "provider.sock"),
+				...(hostId ? { PI_SERVER_HOST_ID: hostId } : {}),
 			},
 			stdio: ["ignore", "ignore", "pipe"],
 		},
@@ -467,4 +473,224 @@ describe("pi server process", () => {
 			}
 		});
 	}, 120_000);
+
+	it("routes a hub to a linked spoke: machines, tagged events, stale offline snapshot, reconnect, answers", async () => {
+		await withHeadlessPi(async (hubAgent) => {
+			await withHeadlessPi(async (spokeAgent) => {
+				const hub = await startDaemon(hubAgent, null, { hostId: "hub-id", hub: "hub-id" });
+				// The spoke's link runs the local `pi server --link` against the hub's runtime dir instead of SSH.
+				const hubCommand = [
+					"env",
+					`XDG_RUNTIME_DIR=${hub.runtimeDir}`,
+					process.execPath,
+					"--experimental-strip-types",
+					...process.execArgv,
+					join(import.meta.dirname, "../../src/cli.ts"),
+					"server",
+					"--link",
+				];
+				const startSpoke = () => startDaemon(spokeAgent, null, { hostId: "spoke-id", hub: "hub-id", hubCommand });
+				const client = hub.client;
+				const poll = async <T>(read: () => Promise<T | undefined>, what: string): Promise<T> => {
+					const deadline = Date.now() + 30_000;
+					while (Date.now() < deadline) {
+						const value = await read();
+						if (value !== undefined) return value;
+						await new Promise((resolve) => setTimeout(resolve, 50));
+					}
+					throw new Error(`Timed out waiting for ${what}`);
+				};
+				const machines = async () =>
+					((await client.request("list_machines")).data as { machines: Frame[] }).machines;
+				const spokeStatus = (status: string) =>
+					poll(async () => ((await machines())[1]?.status === status ? true : undefined), `spoke ${status}`);
+				const aggregated = async (type: "list_sessions" | "list_questions", fields: Frame = {}) => {
+					const response = await client.request(type, fields);
+					return (response.data as Record<string, Frame[]>)[type === "list_sessions" ? "sessions" : "questions"];
+				};
+				const findSession = (sessionId: string, stale: boolean) =>
+					poll(
+						async () =>
+							(await aggregated("list_sessions")).find(
+								(entry) =>
+									entry.sessionId === sessionId && entry.hostId === "spoke-id" && entry.stale === stale,
+							),
+						`${sessionId} stale=${stale}`,
+					);
+				let spoke = await startSpoke();
+				try {
+					expect(await client.request("hello", { version: 1 })).toMatchObject({
+						data: { hostId: "hub-id", features: expect.arrayContaining(["machines"]) },
+					});
+					await spokeStatus("online");
+					expect(await machines()).toEqual([
+						expect.objectContaining({ hostId: "hub-id", status: "online" }),
+						expect.objectContaining({
+							hostId: "spoke-id",
+							status: "online",
+							serverInstanceId: expect.any(String),
+						}),
+					]);
+
+					const started = await client.request("start_session", {
+						hostId: "spoke-id",
+						cwd: spokeAgent.paths.workspaceDir,
+					});
+					expect(started).toMatchObject({ success: true, command: "start_session", hostId: "spoke-id" });
+					const firstSession = (started.data as { session: Frame }).session;
+					const firstId = firstSession.sessionId as string;
+					const firstRuntime = firstSession.runtimeInstanceId as string;
+					const attached = await client.request("attach_session", {
+						hostId: "spoke-id",
+						sessionId: firstId,
+						mode: "control",
+					});
+					expect(attached).toMatchObject({
+						success: true,
+						hostId: "spoke-id",
+						data: { runtimeInstanceId: firstRuntime },
+					});
+					const prompt = await client.request("session_rpc", {
+						hostId: "spoke-id",
+						sessionId: firstId,
+						runtimeInstanceId: firstRuntime,
+						command: { type: "prompt", id: "hub-prompt", message: "Reply through the hub." },
+					});
+					expect(prompt).toMatchObject({
+						success: true,
+						hostId: "spoke-id",
+						data: { response: { id: "hub-prompt" } },
+					});
+					const request = await spokeAgent.waitForLlmRequest((item) =>
+						item.userMessages.includes("Reply through the hub."),
+					);
+					spokeAgent.respondToLlmRequest(
+						request.id,
+						fauxAssistantMessage(
+							[
+								{ type: "text", text: "Hub route works." },
+								fauxToolCall("end_turn", { reason: "Hub route works" }),
+							],
+							{ stopReason: "toolUse" },
+						),
+					);
+					await client.waitForEvent(
+						(event) =>
+							event.type === "session_event" &&
+							event.hostId === "spoke-id" &&
+							event.sessionId === firstId &&
+							JSON.stringify(event.event).includes("Hub route works."),
+					);
+					await client.waitForEvent(
+						(event) =>
+							event.type === "session_event" &&
+							event.hostId === "spoke-id" &&
+							(event.event as Frame).type === "agent_end",
+					);
+					// No hostId: every machine; the hub's own id is the same as no forwarding.
+					await findSession(firstId, false);
+					expect(await aggregated("list_sessions")).toContainEqual(
+						expect.objectContaining({ sessionId: hubAgent.sessionId, hostId: "hub-id" }),
+					);
+					const hubOnly = await aggregated("list_sessions", { hostId: "hub-id" });
+					expect(hubOnly.length).toBeGreaterThan(0);
+					expect(hubOnly.every((entry) => entry.hostId === "hub-id")).toBe(true);
+
+					// A crashed spoke goes offline; its last snapshot stays, marked stale.
+					await new Promise<void>((resolve) => {
+						spoke.daemon.once("exit", () => resolve());
+						spoke.daemon.kill("SIGKILL");
+					});
+					await spokeStatus("offline");
+					expect(
+						await client.waitForEvent(
+							(event) => event.type === "machine_updated" && (event.machine as Frame).status === "offline",
+						),
+					).toMatchObject({
+						machine: { hostId: "spoke-id", lastSeenAt: expect.any(String) },
+					});
+					expect(await machines()).toContainEqual({
+						hostId: "spoke-id",
+						status: "offline",
+						lastSeenAt: expect.any(String),
+					});
+					await findSession(firstId, true);
+					expect(await client.request("list_sessions", { hostId: "spoke-id" })).toMatchObject({
+						success: false,
+						error: { code: "machine_offline" },
+					});
+
+					spoke.client.close();
+					spoke = await startSpoke();
+					await spokeStatus("online");
+					await findSession(firstId, false);
+					const fromSpoke = await client.request("list_sessions", { hostId: "spoke-id" });
+					expect(fromSpoke).toMatchObject({ success: true, hostId: "spoke-id" });
+					expect((fromSpoke.data as { sessions: Frame[] }).sessions).toContainEqual(
+						expect.objectContaining({ sessionId: firstId, hostId: "spoke-id" }),
+					);
+
+					const questionSession = await client.request("start_session", {
+						hostId: "spoke-id",
+						cwd: spokeAgent.paths.workspaceDir,
+					});
+					const session = (questionSession.data as { session: Frame }).session;
+					const sessionId = session.sessionId as string;
+					const runtimeInstanceId = session.runtimeInstanceId as string;
+					await client.request("attach_session", { hostId: "spoke-id", sessionId, mode: "control" });
+					await client.request("session_rpc", {
+						hostId: "spoke-id",
+						sessionId,
+						runtimeInstanceId,
+						command: { type: "prompt", message: "Ask through the hub." },
+					});
+					const questionRequest = await spokeAgent.waitForLlmRequest((item) =>
+						item.userMessages.includes("Ask through the hub."),
+					);
+					spokeAgent.respondToLlmRequest(
+						questionRequest.id,
+						fauxAssistantMessage(
+							[fauxToolCall("ask_questions", { blocking: true, questions: [{ question: "Hub answer?" }] })],
+							{ stopReason: "toolUse" },
+						),
+					);
+					const question = await poll(
+						async () =>
+							(await aggregated("list_questions")).find(
+								(item) => item.hostId === "spoke-id" && item.sessionId === sessionId,
+							),
+						"spoke question in the hub inbox",
+					);
+					expect(question).toMatchObject({ state: "pending", answerable: true, stale: false });
+					const answer = await client.request("answer_question", {
+						hostId: "spoke-id",
+						questionId: question.questionId,
+						answers: { "Hub answer?": "42" },
+					});
+					expect(answer).toMatchObject({ success: true, hostId: "spoke-id", data: { delivery: "accepted" } });
+					const followUp = await spokeAgent.waitForLlmRequest((item) =>
+						JSON.stringify(item.messages).includes("42"),
+					);
+					spokeAgent.respondToLlmRequest(
+						followUp.id,
+						fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Answered 42" })], {
+							stopReason: "toolUse",
+						}),
+					);
+					await poll(
+						async () =>
+							(await aggregated("list_questions")).some((item) => item.questionId === question.questionId)
+								? undefined
+								: true,
+						"answered question to leave the hub inbox",
+					);
+				} finally {
+					client.close();
+					spoke.client.close();
+					await stopDaemon(spoke.daemon, spoke.runtimeDir);
+					await stopDaemon(hub.daemon, hub.runtimeDir);
+				}
+			});
+		});
+	}, 180_000);
 });

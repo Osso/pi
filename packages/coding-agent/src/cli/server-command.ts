@@ -1,33 +1,17 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, rmSync } from "node:fs";
-import { createConnection, createServer, type Socket } from "node:net";
-import { hostname } from "node:os";
-import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
+import type { ChildProcess } from "node:child_process";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
-import { getControlDbPath } from "../core/session-control-db.ts";
-import { listSessions } from "../core/session-directory.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
-import { removeStaleSocket, workerLaunchPrefix } from "./server-launch.ts";
+import type { HubClient, ServerHub } from "./server-hub.ts";
+import { handleAnswerQuestion } from "./server-question-handlers.ts";
+import { questionStoreHost, questionSummaries } from "./server-question-utils.ts";
+import { errorMessage, serverHostId } from "./server-wire.ts";
+import { rpcCommand, sessionPathForId, sessionSummaries, startWorker } from "./server-worker.ts";
 
 type RpcCommandResponse = Extract<RpcResponse, { command: "get_state" }>;
 
-import { type AgentQuestionEntry, answerAgentQuestion, listQuestionEntries } from "../questions/question-center.ts";
-import {
-	controlCenter,
-	makeQuestionSummary,
-	questionStoreHost,
-	questionSummaries,
-	questionUpdates,
-	sameAnswers,
-} from "./server-question-utils.ts";
+export const PROTOCOL_VERSION = 1;
 
-const PROTOCOL_VERSION = 1;
-const MAX_FRAME_BYTES = 1_048_576;
-const SERVER_DIR_MODE = 0o700;
-const SOCKET_MODE = 0o600;
-
-type ServerSessionSummary = {
+export type ServerSessionSummary = {
 	sessionId: string;
 	name: string | null;
 	cwd: string | null;
@@ -66,202 +50,62 @@ type Attachment = {
 	buffering: boolean;
 	events: Array<{ sequence: number; event: RpcEvent }>;
 };
-type Client = { socket: Socket; attachments: Map<string, Attachment>; subscriptions: Set<"sessions" | "questions"> };
-type RevisionCounters = { sessions: number; questions: number };
+export type Subscription = "sessions" | "questions" | "machines";
+/** One protocol connection: a socket client, or on a spoke, one hub connection carried over the link. */
+export type Client = {
+	send: (frame: unknown) => void;
+	attachments: Map<string, Attachment>;
+	subscriptions: Set<Subscription>;
+	/** Set on the hub: the handle used to forward this client's frames to spokes. */
+	hubClient?: HubClient;
+};
+export type RevisionCounters = { sessions: number; questions: number };
 
-function socketPath(): string {
-	const runtimeDir = process.env.XDG_RUNTIME_DIR;
-	if (!runtimeDir) throw new Error("XDG_RUNTIME_DIR is required for pi server");
-	return join(runtimeDir, "pi", "server.sock");
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-function writeFrame(socket: Socket, frame: unknown): void {
-	if (socket.destroyed) return;
-	const line = `${JSON.stringify(frame)}\n`;
-	if (socket.writableLength + Buffer.byteLength(line) > MAX_FRAME_BYTES) {
-		socket.destroy(new Error("Client output buffer exceeds 1 MiB"));
-		return;
-	}
-	socket.write(line);
-}
-
-function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
-	const owned = new Map([...workers.values()].map((worker) => [worker.sessionId, worker] as const));
-	return listSessions(getControlDbPath(), { includeEnded: true }).map((entry) => {
-		const worker = owned.get(entry.sessionId);
-		return {
-			sessionId: entry.sessionId,
-			name: entry.name,
-			cwd: entry.cwd,
-			status: entry.status,
-			checkStatus: entry.checkStatus,
-			eligibleToReceive: entry.eligibleToReceive,
-			agentGeneration: entry.agentGeneration,
-			lastActiveAt: entry.lastActiveAt,
-			owner: worker ? "server" : "external",
-			attachment: worker ? "rpc" : entry.status === "running" || entry.status === "idle" ? "terminal" : "none",
-			...(worker ? { runtimeInstanceId: worker.runtimeInstanceId } : {}),
-			sessionPath: entry.sessionPath,
-		};
-	});
-}
-
-function rpcCommand(worker: Worker, command: Record<string, unknown>): Promise<RpcResponse> {
-	const id = `server-${++worker.requestNumber}`;
-	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			worker.pending.delete(id);
-			reject(new Error("RPC worker did not answer within 30 seconds"));
-		}, 30_000);
-		worker.pending.set(id, (response) => {
-			clearTimeout(timeout);
-			resolve(response);
-		});
-		if (!worker.child.stdin?.writable) {
-			clearTimeout(timeout);
-			worker.pending.delete(id);
-			reject(new Error("RPC worker stdin is closed"));
-			return;
-		}
-		worker.child.stdin.write(`${JSON.stringify({ ...command, id })}\n`, (error) => {
-			if (error) {
-				clearTimeout(timeout);
-				worker.pending.delete(id);
-				reject(error);
-			}
-		});
-	});
-}
-
-function parseWorkerLine(worker: Worker, line: string): void {
-	let frame: Record<string, unknown>;
-	try {
-		frame = JSON.parse(line) as Record<string, unknown>;
-	} catch {
-		worker.stderr += `\nInvalid RPC worker frame: ${line}`;
-		return;
-	}
-	if (frame.type === "response" && typeof frame.id === "string") {
-		worker.pending.get(frame.id)?.(frame as unknown as RpcResponse);
-		worker.pending.delete(frame.id);
-		return;
-	}
-	if (frame.type === "response") return;
-	const event = frame as unknown as RpcEvent;
-	if (
-		frame.type === "extension_ui_request" &&
-		frame.method === "questions" &&
-		typeof frame.id === "string" &&
-		Array.isArray(frame.questions)
-	) {
-		const questionId = `${worker.sessionId}:${frame.id}`;
-		const questions = frame.questions as ExtensionUIQuestion[];
-		worker.directQuestions.set(questionId, {
-			dialogId: frame.id,
-			toolCallId: typeof frame.toolCallId === "string" ? frame.toolCallId : frame.id,
-			blocking: frame.blocking === true,
-			createdAt: new Date().toISOString(),
-			questions,
-		});
-	}
-	if (frame.type === "extension_ui_dismiss" && typeof frame.id === "string")
-		worker.directQuestions.delete(`${worker.sessionId}:${frame.id}`);
-	const sequence = ++worker.sequence;
-	for (const client of worker.clients) {
-		const attachment = client.attachments.get(worker.sessionId);
-		if (!attachment) continue;
-		const packet = { sequence, event };
-		if (attachment.buffering) attachment.events.push(packet);
-		else
-			writeFrame(client.socket, {
-				type: "session_event",
-				sessionId: worker.sessionId,
-				runtimeInstanceId: worker.runtimeInstanceId,
-				...packet,
-			});
-	}
-}
-
-function startWorker(cwd: string, resumePath?: string, name?: string): Worker {
-	const args = [...workerLaunchPrefix(), "--mode", "rpc"];
-	if (resumePath) args.push("--session", resumePath);
-	if (name) args.push("--name", name);
-	const child = spawn(process.execPath, args, { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
-	const worker: Worker = {
-		child,
-		sessionId: "",
-		cwd,
-		name: name ?? null,
-		runtimeInstanceId: crypto.randomUUID(),
-		sequence: 0,
-		requestNumber: 0,
-		pending: new Map(),
-		clients: new Set(),
-		directQuestions: new Map(),
-		answeredDirectQuestions: new Map(),
-		stderr: "",
-	};
-	const childStdout = child.stdout;
-	if (!childStdout) {
-		child.kill();
-		throw new Error("RPC worker stdout is not piped");
-	}
-	const stdout = createInterface({ input: childStdout, crlfDelay: Infinity });
-	stdout.on("line", (line) => parseWorkerLine(worker, line));
-	child.stderr?.on("data", (chunk: Buffer) => {
-		worker.stderr = `${worker.stderr}${chunk.toString()}`.slice(-16_384);
-	});
-	child.on("exit", () => {
-		for (const resolve of worker.pending.values())
-			resolve({
-				type: "response",
-				command: "get_state",
-				success: false,
-				error: worker.stderr,
-			} as unknown as RpcResponse);
-		worker.pending.clear();
-	});
-	return worker;
-}
-
-function sessionPathForId(sessionId: string): string | undefined {
-	return listSessions(getControlDbPath(), { includeEnded: true }).find((session) => session.sessionId === sessionId)
-		?.sessionPath;
-}
-
-type CommandContext = {
-	frame: Record<string, unknown>;
-	client: Client;
+export type ServerState = {
 	workers: Map<string, Worker>;
 	serverInstanceId: string;
 	revisions: RevisionCounters;
 	publishUpdates: () => void;
+	hub?: ServerHub;
+};
+
+export type CommandContext = ServerState & {
+	frame: Record<string, unknown>;
+	client: Client;
 	respond: (data: unknown) => void;
 	fail: (code: string, message: string) => void;
 };
 
 type CommandHandler = (context: CommandContext) => Promise<void>;
 
-async function handleHello({ frame, serverInstanceId, respond, fail }: CommandContext): Promise<void> {
+async function handleHello({ frame, serverInstanceId, hub, respond, fail }: CommandContext): Promise<void> {
 	if (frame.version !== PROTOCOL_VERSION)
 		return fail("unsupported_version", `Supported protocol version is ${PROTOCOL_VERSION}`);
 	return respond({
 		version: PROTOCOL_VERSION,
-		hostId: hostname(),
+		hostId: serverHostId(),
 		serverInstanceId,
-		features: ["sessions", "rpc", "questions"],
+		features: hub ? ["sessions", "rpc", "questions", "machines"] : ["sessions", "rpc", "questions"],
 		questionStoreHost: questionStoreHost(),
 	});
 }
 
-async function handleListSessions({ frame, client, workers, revisions, publishUpdates, respond }: CommandContext) {
+/** On the hub, entries carry hostId; with no hostId in the request, every machine's last known entries are included. */
+function withMachines(
+	local: Record<string, unknown>[],
+	frame: Record<string, unknown>,
+	hub: ServerHub | undefined,
+	cached: (hub: ServerHub) => Record<string, unknown>[],
+): Record<string, unknown>[] {
+	if (!hub) return local;
+	const tagged = local.map((entry) => ({ ...entry, hostId: hub.hostId }));
+	return frame.hostId === undefined ? [...tagged, ...cached(hub)] : tagged;
+}
+
+async function handleListSessions({ frame, client, workers, revisions, publishUpdates, hub, respond }: CommandContext) {
 	publishUpdates();
 	client.subscriptions.add("sessions");
-	const sessions = sessionSummaries(workers);
+	const sessions = withMachines(sessionSummaries(workers), frame, hub, (machines) => machines.cachedSessions());
 	const visibleSessions =
 		frame.includeEnded === false ? sessions.filter((session) => session.status !== "ended") : sessions;
 	return respond({ sessions: visibleSessions, revision: revisions.sessions });
@@ -395,7 +239,7 @@ async function handleAttachSession({ frame, client, workers, respond, fail }: Co
 	attachment.buffering = false;
 	for (const event of attachment.events) {
 		if (event.sequence >= firstSequence)
-			writeFrame(client.socket, {
+			client.send({
 				type: "session_event",
 				sessionId: worker.sessionId,
 				runtimeInstanceId: worker.runtimeInstanceId,
@@ -457,118 +301,25 @@ async function handleSessionRpc({ frame, client, workers, respond, fail }: Comma
 	return respond({ response: { ...response, id: command.id } });
 }
 
-async function handleListQuestions({ client, workers, revisions, publishUpdates, respond }: CommandContext) {
+async function handleListQuestions({
+	frame,
+	client,
+	workers,
+	revisions,
+	publishUpdates,
+	hub,
+	respond,
+}: CommandContext) {
 	publishUpdates();
 	client.subscriptions.add("questions");
-	return respond({ questions: questionSummaries(workers), revision: revisions.questions });
+	const questions = withMachines(questionSummaries(workers), frame, hub, (machines) => machines.cachedQuestions());
+	return respond({ questions, revision: revisions.questions });
 }
 
-function validateAnswerMap(value: unknown, fail: CommandContext["fail"]): Record<string, string> | undefined {
-	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		fail("invalid_request", "questionId and answers are required");
-		return undefined;
-	}
-	if (!Object.values(value).every((answer) => typeof answer === "string")) {
-		fail("invalid_answer", "Every answer must be text");
-		return undefined;
-	}
-	return value as Record<string, string>;
-}
-
-function answerDirectQuestion(
-	questionId: string,
-	answers: Record<string, string>,
-	workers: Map<string, Worker>,
-	respond: CommandContext["respond"],
-	fail: CommandContext["fail"],
-): boolean {
-	for (const worker of workers.values()) {
-		const previousAnswer = worker.answeredDirectQuestions.get(questionId);
-		if (previousAnswer) {
-			if (!sameAnswers(previousAnswer.answers, answers)) {
-				fail("already_resolved", "Question was answered with different values");
-				return true;
-			}
-			respond({ question: previousAnswer.question, delivery: "accepted" });
-			return true;
-		}
-		const direct = worker.directQuestions.get(questionId);
-		if (!direct) continue;
-		if (direct.questions.some((question) => !answers[question.question]?.trim())) {
-			fail("invalid_answer", "An answer is required for every question");
-			return true;
-		}
-		if (!worker.child.stdin?.writable) {
-			fail("stale_runtime", "Question runtime is not available");
-			return true;
-		}
-		worker.child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: direct.dialogId, answers })}\n`);
-		worker.directQuestions.delete(questionId);
-		const question = {
-			questionId,
-			sessionId: worker.sessionId,
-			originSessionId: worker.sessionId,
-			agentId: null,
-			toolCallId: direct.toolCallId,
-			blocking: direct.blocking,
-			questions: direct.questions,
-			createdAt: direct.createdAt,
-			state: "answered",
-			review: "none",
-			answerable: false,
-			answers,
-			answeredBy: "user",
-			delivery: "accepted",
-		};
-		worker.answeredDirectQuestions.set(questionId, { answers, question });
-		respond({ question, delivery: "accepted" });
-		return true;
-	}
-	return false;
-}
-
-function answerEscalatedQuestion(
-	questionId: string,
-	answers: Record<string, string>,
-	respond: CommandContext["respond"],
-	fail: CommandContext["fail"],
-): void {
-	const center = controlCenter();
-	if (!center) {
-		fail("not_found", `Question not found on this host; the question store is on ${questionStoreHost()}`);
-		return;
-	}
-	const entry = listQuestionEntries(center).find(
-		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === questionId,
-	);
-	if (!entry) {
-		fail("not_found", "Question not found");
-		return;
-	}
-	if (entry.state === "answered" && sameAnswers(entry.answers, answers)) {
-		respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
-		return;
-	}
-	if (entry.state !== "open") {
-		fail("already_resolved", "Question is no longer pending");
-		return;
-	}
-	answerAgentQuestion(center, entry, answers);
-	const updated = listQuestionEntries(center).find(
-		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === questionId,
-	);
-	const question = updated
-		? makeQuestionSummary(updated)
-		: makeQuestionSummary({ ...entry, state: "answered", answers, answeredBy: "user" });
-	respond({ question, delivery: "delivered" });
-}
-
-async function handleAnswerQuestion({ frame, workers, respond, fail }: CommandContext): Promise<void> {
-	if (typeof frame.questionId !== "string") return fail("invalid_request", "questionId and answers are required");
-	const answers = validateAnswerMap(frame.answers, fail);
-	if (!answers) return;
-	if (answerDirectQuestion(frame.questionId, answers, workers, respond, fail)) return;
-	answerEscalatedQuestion(frame.questionId, answers, respond, fail);
+async function handleListMachines({ client, hub, respond, fail }: CommandContext) {
+	if (!hub) return fail("not_hub", "This server is not the hub");
+	client.subscriptions.add("machines");
+	return respond({ machines: hub.machines() });
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
@@ -581,170 +332,36 @@ const commandHandlers: Record<string, CommandHandler> = {
 	session_rpc: handleSessionRpc,
 	list_questions: handleListQuestions,
 	answer_question: handleAnswerQuestion,
+	list_machines: handleListMachines,
 };
 
-async function handleCommand(
-	frame: Record<string, unknown>,
-	client: Client,
-	workers: Map<string, Worker>,
-	serverInstanceId: string,
-	revisions: RevisionCounters,
-	publishUpdates: () => void,
-): Promise<void> {
+/** Runs one client frame: forwards it to a spoke when its hostId names one, otherwise handles it here. */
+export async function handleCommand(frame: Record<string, unknown>, client: Client, state: ServerState): Promise<void> {
 	const type = frame.type;
 	const respond = (data: unknown) =>
-		writeFrame(client.socket, { type: "response", id: frame.id, command: type, success: true, data });
+		client.send({ type: "response", id: frame.id, command: type, success: true, data });
 	const fail = (code: string, message: string) =>
-		writeFrame(client.socket, {
-			type: "response",
-			id: frame.id,
-			command: type,
-			success: false,
-			error: { code, message },
-		});
+		client.send({ type: "response", id: frame.id, command: type, success: false, error: { code, message } });
+	const { hub } = state;
+	if (frame.hostId !== undefined && frame.hostId !== (hub?.hostId ?? serverHostId())) {
+		if (!hub || !client.hubClient) return fail("not_hub", "Only the hub forwards frames to other machines");
+		if (!hub.forward(client.hubClient, frame))
+			return fail("machine_offline", `Machine ${String(frame.hostId)} is offline`);
+		if (type === "list_sessions") client.subscriptions.add("sessions");
+		if (type === "list_questions") client.subscriptions.add("questions");
+		return;
+	}
 	const handler = Object.hasOwn(commandHandlers, String(type)) ? commandHandlers[String(type)] : undefined;
 	if (!handler) return fail("unknown_command", `Unknown server command: ${String(type)}`);
 	try {
-		await handler({ frame, client, workers, serverInstanceId, revisions, publishUpdates, respond, fail });
+		await handler({ ...state, frame, client, respond, fail });
 	} catch (error) {
 		return fail("server_error", errorMessage(error));
 	}
 }
 
-async function runStdioConnector(path: string): Promise<void> {
-	const socket = createConnection(path);
-	await new Promise<void>((resolve, reject) => {
-		socket.once("connect", resolve);
-		socket.once("error", reject);
-	});
-	process.stdin.pipe(socket);
-	socket.pipe(process.stdout);
-	await new Promise<void>((resolve) => socket.once("close", resolve));
-}
-
-async function runServer(): Promise<void> {
-	const path = socketPath();
-	mkdirSync(dirname(path), { recursive: true, mode: SERVER_DIR_MODE });
-	chmodSync(dirname(path), SERVER_DIR_MODE);
-	await removeStaleSocket(path);
-	const workers = new Map<string, Worker>();
-	const clients = new Set<Client>();
-	const serverInstanceId = crypto.randomUUID();
-	const revisions: RevisionCounters = { sessions: 0, questions: 0 };
-	let previousSessions = new Map<string, string>();
-	let previousQuestions = new Map<string, string>();
-	const publishUpdates = () => {
-		try {
-			const currentSessions = new Map(
-				sessionSummaries(workers).map((session) => [session.sessionId, JSON.stringify(session)]),
-			);
-			const currentQuestions = new Map(
-				questionUpdates(workers).map((question) => [String(question.questionId), JSON.stringify(question)]),
-			);
-			const sessionEvents: unknown[] = [];
-			for (const [sessionId, value] of currentSessions) {
-				if (previousSessions.get(sessionId) !== value)
-					sessionEvents.push({
-						type: "session_updated",
-						revision: ++revisions.sessions,
-						session: JSON.parse(value),
-					});
-			}
-			for (const sessionId of previousSessions.keys()) {
-				if (!currentSessions.has(sessionId))
-					sessionEvents.push({ type: "session_removed", revision: ++revisions.sessions, sessionId });
-			}
-			const questionEvents: unknown[] = [];
-			for (const [questionId, value] of currentQuestions) {
-				if (previousQuestions.get(questionId) !== value)
-					questionEvents.push({
-						type: "question_updated",
-						revision: ++revisions.questions,
-						question: JSON.parse(value),
-					});
-			}
-			for (const client of clients) {
-				if (client.subscriptions.has("sessions"))
-					for (const event of sessionEvents) writeFrame(client.socket, event);
-				if (client.subscriptions.has("questions"))
-					for (const event of questionEvents) writeFrame(client.socket, event);
-			}
-			previousSessions = currentSessions;
-			previousQuestions = currentQuestions;
-		} catch (error) {
-			console.error(`pi server update: ${errorMessage(error)}`);
-		}
-	};
-	const updateTimer = setInterval(publishUpdates, 500);
-	const server = createServer((socket) => {
-		const client: Client = { socket, attachments: new Map(), subscriptions: new Set() };
-		clients.add(client);
-		socket.setEncoding("utf8");
-		let buffered = "";
-		socket.on("data", (chunk: string) => {
-			buffered += chunk;
-			for (;;) {
-				const newline = buffered.indexOf("\n");
-				if (newline < 0) {
-					if (Buffer.byteLength(buffered) > MAX_FRAME_BYTES) socket.destroy(new Error("Frame exceeds 1 MiB"));
-					break;
-				}
-				const line = buffered.slice(0, newline).replace(/\r$/, "");
-				buffered = buffered.slice(newline + 1);
-				if (Buffer.byteLength(line) > MAX_FRAME_BYTES) {
-					socket.destroy(new Error("Frame exceeds 1 MiB"));
-					return;
-				}
-				try {
-					void handleCommand(
-						JSON.parse(line) as Record<string, unknown>,
-						client,
-						workers,
-						serverInstanceId,
-						revisions,
-						publishUpdates,
-					);
-				} catch {
-					writeFrame(socket, {
-						type: "response",
-						success: false,
-						error: { code: "invalid_json", message: "Invalid JSON frame" },
-					});
-				}
-			}
-		});
-		socket.on("close", () => {
-			clients.delete(client);
-			for (const sessionId of client.attachments.keys()) workers.get(sessionId)?.clients.delete(client);
-			client.attachments.clear();
-		});
-	});
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(path, () => resolve());
-	});
-	chmodSync(path, SOCKET_MODE);
-	const close = () => {
-		clearInterval(updateTimer);
-		for (const worker of workers.values()) worker.child.kill("SIGTERM");
-		server.close();
-		rmSync(path, { force: true });
-	};
-	process.once("SIGTERM", close);
-	process.once("SIGINT", close);
-	await new Promise<void>((resolve) => server.once("close", resolve));
-}
-
-/** Runs `pi server` or the SSH stdio connector. */
-export async function handleServerCommand(args: string[]): Promise<boolean> {
-	if (args[0] !== "server") return false;
-	try {
-		if (args.length === 2 && args[1] === "--stdio") await runStdioConnector(socketPath());
-		else if (args.length === 1) await runServer();
-		else throw new Error("Usage: pi server [--stdio]");
-	} catch (error) {
-		console.error(`pi server: ${errorMessage(error)}`);
-		process.exitCode = 1;
-	}
-	return true;
+/** Drops a closed client's attachments; its workers keep running. */
+export function releaseClient(client: Client, workers: Map<string, Worker>): void {
+	for (const sessionId of client.attachments.keys()) workers.get(sessionId)?.clients.delete(client);
+	client.attachments.clear();
 }
