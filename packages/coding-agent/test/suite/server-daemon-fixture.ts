@@ -39,13 +39,13 @@ export class ServerClient {
 		return new ServerClient(socket);
 	}
 
-	request(type: string, fields: Frame = {}): Promise<Frame> {
+	request(type: string, fields: Frame = {}, timeoutMs = 30_000): Promise<Frame> {
 		const id = `test-${++this.requestId}`;
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				this.pending.delete(id);
 				reject(new Error(`Timed out waiting for ${type}`));
-			}, 30_000);
+			}, timeoutMs);
 			this.pending.set(id, (frame) => {
 				clearTimeout(timeout);
 				resolve(frame);

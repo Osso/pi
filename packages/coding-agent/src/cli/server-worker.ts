@@ -69,16 +69,26 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 /** Commands answered only when an extension command they run finishes, which can wait on a person in a dialog. */
 const UNBOUNDED_COMMANDS = new Set(["prompt", "steer", "follow_up"]);
 
-export function rpcCommand(worker: Worker, command: Record<string, unknown>): Promise<RpcResponse> {
+/**
+ * Send one RPC command and await its response. Commands time out after 30 seconds, except the unbounded ones
+ * and `options.untilExit`: the startup `get_state` of a worker that loads a large session waits as long as
+ * the worker lives.
+ */
+export function rpcCommand(
+	worker: Worker,
+	command: Record<string, unknown>,
+	options: { untilExit?: boolean } = {},
+): Promise<RpcResponse> {
 	const id = `server-${++worker.requestNumber}`;
 	return new Promise((resolve, reject) => {
 		// A worker that exits answers every pending command (see startWorker), so an unbounded command cannot hang.
-		const timeout = UNBOUNDED_COMMANDS.has(String(command.type))
-			? undefined
-			: setTimeout(() => {
-					worker.pending.delete(id);
-					reject(new Error("RPC worker did not answer within 30 seconds"));
-				}, 30_000);
+		const timeout =
+			options.untilExit || UNBOUNDED_COMMANDS.has(String(command.type))
+				? undefined
+				: setTimeout(() => {
+						worker.pending.delete(id);
+						reject(new Error("RPC worker did not answer within 30 seconds"));
+					}, 30_000);
 		worker.pending.set(id, (response) => {
 			clearTimeout(timeout);
 			resolve(response);

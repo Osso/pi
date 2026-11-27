@@ -3,6 +3,12 @@ import { createConnection } from "node:net";
 import type { AssistantMessage, Context, Model, StreamOptions } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 
+// Simulates an RPC worker that takes long to load its session (pi server startup-timeout tests).
+const workerStartupDelay = Number(process.env.PI_TEST_RPC_WORKER_STARTUP_DELAY_MS ?? 0);
+if (workerStartupDelay > 0 && process.argv.includes("rpc")) {
+	await new Promise((resolve) => setTimeout(resolve, workerStartupDelay));
+}
+
 const socketPath = process.env.PI_HEADLESS_PROVIDER_SOCKET;
 if (!socketPath) {
 	throw new Error("PI_HEADLESS_PROVIDER_SOCKET is required");

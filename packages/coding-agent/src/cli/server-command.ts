@@ -177,7 +177,8 @@ async function registerStartedWorker(
 	const reservation = resumeSessionId ?? `starting:${worker.runtimeInstanceId}`;
 	workers.set(reservation, worker);
 	try {
-		const state = await rpcCommand(worker, { type: "get_state" });
+		// Loading a large session (hundreds of MB) can take longer than the usual 30 s RPC limit.
+		const state = await rpcCommand(worker, { type: "get_state" }, { untilExit: true });
 		const stateData = (state as RpcCommandResponse).data;
 		if (!state.success || !stateData || typeof stateData !== "object")
 			throw new Error(`RPC worker startup failed: ${JSON.stringify(state)}`);
