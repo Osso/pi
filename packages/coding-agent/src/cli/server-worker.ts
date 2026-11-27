@@ -1,17 +1,35 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
-import { getControlDbPath } from "../core/session-control-db.ts";
+import { isResidentSession } from "../core/resident-session.ts";
+import type { SessionMetadata } from "../core/session-control-db/types.ts";
+import { getControlDbPath, listResumeSessionMetadata } from "../core/session-control-db.ts";
 import { listSessions } from "../core/session-directory.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { ServerSessionSummary, Worker } from "./server-command.ts";
 import { workerLaunchPrefix } from "./server-launch.ts";
 
+/** The sessions `pi -r` offers (indexed, not archived, not a sub-agent or resident, with messages), by id. */
+function resumableSessions(controlDbPath: string): Map<string, SessionMetadata> {
+	const sessions = listResumeSessionMetadata(controlDbPath, { archived: false }).filter(
+		(session) => session.messageCount > 0 && !isResidentSession({ id: session.id, path: session.sessionPath }),
+	);
+	return new Map(sessions.map((session) => [session.id, session] as const));
+}
+
+/** The sessions `pi -r` offers, plus every session that runs now; unnamed ones carry their first message. */
 export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
 	const owned = new Map([...workers.values()].map((worker) => [worker.sessionId, worker] as const));
-	return listSessions(getControlDbPath(), { includeEnded: true }).map((entry) => {
+	const controlDbPath = getControlDbPath();
+	const resumable = resumableSessions(controlDbPath);
+	const listed = listSessions(controlDbPath, { includeEnded: true }).filter(
+		(entry) => owned.has(entry.sessionId) || entry.status !== "ended" || resumable.has(entry.sessionId),
+	);
+	return listed.map((entry) => {
 		const worker = owned.get(entry.sessionId);
+		const firstMessage = resumable.get(entry.sessionId)?.firstMessage;
 		return {
+			...(firstMessage ? { firstMessage } : {}),
 			sessionId: entry.sessionId,
 			name: entry.name,
 			cwd: entry.cwd,

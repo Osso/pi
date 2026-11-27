@@ -15,6 +15,8 @@ export const PROTOCOL_VERSION = 1;
 export type ServerSessionSummary = {
 	sessionId: string;
 	name: string | null;
+	/** The first user message, as `pi -r` shows it; absent when the session is not in the resume index. */
+	firstMessage?: string;
 	cwd: string | null;
 	status: "running" | "idle" | "ended";
 	checkStatus: string;

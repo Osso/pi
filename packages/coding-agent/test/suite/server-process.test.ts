@@ -7,6 +7,8 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
+import { getControlDbPath, writeSessionHealth, writeSessionMetadata } from "../../src/core/session-control-db.ts";
+import { emptySessionHealth } from "../../src/core/session-health.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
 
@@ -231,6 +233,46 @@ describe("pi server process", () => {
 				if (connector.exitCode === null) {
 					await new Promise<void>((resolve) => connector.once("exit", () => resolve()));
 				}
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
+	it("lists the ended sessions pi -r offers, with their first message", async () => {
+		await withHeadlessPi(async (agent) => {
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			const ended = [
+				{ id: "resumable", messageCount: 2, firstMessage: "fix the sidebar" },
+				{ id: "empty", messageCount: 0, firstMessage: "(no messages)" },
+				{ id: "child", messageCount: 3, firstMessage: "child task", isSubagent: true },
+			];
+			for (const session of ended) {
+				writeSessionMetadata(controlDbPath, {
+					...session,
+					sessionPath: join(agent.paths.sessionDir, `${session.id}.jsonl`),
+					cwd: agent.paths.workspaceDir,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					modifiedAt: "2026-01-01T00:10:00.000Z",
+				});
+				writeSessionHealth(controlDbPath, {
+					...emptySessionHealth(session.id),
+					agentGeneration: 1,
+					checkStatus: "dead",
+					checkedGeneration: 1,
+				});
+			}
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const sessions = await list(client);
+				const ids = sessions.map((session) => session.sessionId);
+				expect(ids).toContain(agent.sessionId);
+				expect(ids).not.toContain("empty");
+				expect(ids).not.toContain("child");
+				expect(sessions).toContainEqual(
+					expect.objectContaining({ sessionId: "resumable", status: "ended", firstMessage: "fix the sidebar" }),
+				);
+			} finally {
+				client.close();
 				await stopDaemon(daemon, runtimeDir);
 			}
 		});
