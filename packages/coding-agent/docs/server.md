@@ -30,4 +30,6 @@ A session attachment includes a snapshot of RPC state, messages, and agents plus
 
 `hello` reports `questionStoreHost`: the configured `supervisor.host`, or this host when no Supervisor host is set. `list_questions` returns direct user questions on the current host and escalated questions only on the Supervisor host. Questions under Supervisor or parent review, child-agent questions, and unsupervised TUI dialogs are not included in this slice. Clients merge `list_questions` results from every machine. Answer a direct question on its origin host; answer an escalated question on the Supervisor host. A question ID that belongs to another host returns `not_found`.
 
+`stop_session` ends the worker and returns `{ session }` with the session's ended summary from the session directory. A session that never persisted a transcript leaves the directory when its worker exits; the response is then its last directory entry with `status: "ended"`, `owner: "external"` and `attachment: "none"`. A worker that already exited on its own is no longer owned, so `stop_session` for it fails with `not_managed`.
+
 The daemon does not recover active turns after a daemon or host failure. Resume an ended transcript explicitly. Use `pi server --help` is not currently supported; see this page for the v1 contract.

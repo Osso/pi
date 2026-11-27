@@ -253,6 +253,19 @@ describe("pi server process", () => {
 				if (started.success !== true) throw new Error(JSON.stringify(started));
 				const session = (started.data as { session: Frame }).session;
 				const sessionId = session.sessionId as string;
+				// A session stopped before any prompt still reports its ended summary.
+				const empty = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (empty.success !== true) throw new Error(JSON.stringify(empty));
+				const emptySession = (empty.data as { session: Frame }).session;
+				expect(
+					await client.request("stop_session", {
+						sessionId: emptySession.sessionId,
+						runtimeInstanceId: emptySession.runtimeInstanceId,
+					}),
+				).toMatchObject({
+					success: true,
+					data: { session: { sessionId: emptySession.sessionId, status: "ended" } },
+				});
 				const workerPids = readFileSync(`/proc/${daemon.pid}/task/${daemon.pid}/children`, "utf8")
 					.trim()
 					.split(/\s+/)
@@ -426,7 +439,10 @@ describe("pi server process", () => {
 					);
 					await reconnected.request("detach_session", { sessionId, runtimeInstanceId });
 					const stopped = await reconnected.request("stop_session", { sessionId, runtimeInstanceId });
-					expect(stopped.success).toBe(true);
+					expect(stopped).toMatchObject({
+						success: true,
+						data: { session: { sessionId, status: "ended", owner: "external" } },
+					});
 					const visibleSessions = await list(reconnected);
 					expect(visibleSessions).toContainEqual(
 						expect.objectContaining({ sessionId, status: "ended", owner: "external" }),

@@ -349,13 +349,20 @@ async function handleStopSession({ frame, workers, respond, fail }: CommandConte
 	if (!worker) return fail("not_managed", "Session is not owned by this server");
 	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
 		return fail("stale_runtime", "Runtime instance ID does not match");
+	const running = sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId);
 	workers.delete(worker.sessionId);
 	if (worker.child.exitCode === null && worker.child.signalCode === null) {
 		const exited = new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
 		worker.child.stdin?.end();
 		await exited;
 	}
-	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId) });
+	const ended = sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId);
+	if (ended) return respond({ session: ended });
+	// A session with no persisted transcript leaves the directory when its worker exits:
+	// report its last directory entry, now ended and no longer owned.
+	if (!running) return fail("not_found", "Stopped session is not in the session directory");
+	const { runtimeInstanceId: _released, ...last } = running;
+	return respond({ session: { ...last, status: "ended", owner: "external", attachment: "none" } });
 }
 
 async function handleAttachSession({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
