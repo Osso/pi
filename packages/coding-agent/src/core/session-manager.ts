@@ -18,8 +18,8 @@ import {
 } from "fs";
 import { readdir, stat } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
-import { createInterface } from "readline";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
+import { readJsonlLines } from "../modes/rpc/jsonl.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import {
 	type BashExecutionMessage,
@@ -740,12 +740,7 @@ export async function buildSessionInfo(filePath: string): Promise<SessionInfo | 
 		const stats = await stat(filePath);
 		let header: SessionHeader | null = null;
 		const accumulator = createSessionInfoAccumulator();
-		const rl = createInterface({
-			input: createSessionTranscriptReadStream(filePath),
-			crlfDelay: Infinity,
-		});
-
-		for await (const line of rl) {
+		for await (const line of readJsonlLines(createSessionTranscriptReadStream(filePath))) {
 			const entry = parseSessionEntryLine(line);
 			if (!entry) continue;
 

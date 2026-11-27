@@ -124,6 +124,29 @@ describe("active-slice session metadata", () => {
 		]);
 	});
 
+	it("counts a message whose text contains U+2028 as one entry", async () => {
+		const timestamp = "1970-01-01T00:00:00.000Z";
+		const entries: FileEntry[] = [
+			{ type: "session", version: 3, id: "separator", timestamp, cwd: dir },
+			{
+				type: "message",
+				id: "user",
+				parentId: null,
+				timestamp,
+				message: { role: "user", content: "Fix the parser\u2028and the lexer", timestamp: 1000 },
+			},
+			{ type: "message", id: "assistant", parentId: "user", timestamp, message: assistantMessage(2000) },
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		expect(await buildSessionInfo(file)).toMatchObject({
+			id: "separator",
+			messageCount: 2,
+			firstMessage: expect.stringContaining("Fix the parser"),
+			modified: new Date(2000),
+		});
+	});
+
 	it("uses the authoritative indexed values rather than rebuilding an active slice's metadata", async () => {
 		writeCompactedSession(file, dir, false);
 		writeSessionMetadata(controlDbPath, {

@@ -311,6 +311,10 @@
 
 ### Fixed
 
+- `pi server` reads RPC worker output with LF-only JSONL framing. It used Node `readline`, which also ends a line at U+2028/U+2029; JSON leaves these unescaped inside strings, so when a session's messages contained one, the `get_messages` response and events carrying it were dropped and every `attach_session` failed with "RPC worker did not answer within 30 seconds" while the worker kept running. The cross-host relay and the session list (`pi -r` message counts and first message) had the same split.
+
+- Reading a JSONL line now takes time linear in its length: the RPC client, RPC input, and `pi server` frame readers rescanned the buffered line on every chunk, so a 50 MB attach snapshot took about 30 s to read (now under 0.3 s).
+
 - `pi server` no longer crashes or fails `start_session` when `server-sessions.json` is not a valid list of owned sessions: it reports the file, reads it as empty, and rewrites it on the next change.
 
 - `pi server` frames may be up to 64 MiB (was 1 MiB). Attaching to a long session sent a snapshot over 1 MiB, which closed the connection; on a spoke it broke the hub link every few seconds, so the machine kept going offline.

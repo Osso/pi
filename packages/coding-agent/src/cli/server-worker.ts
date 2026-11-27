@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 import { getAgentDir } from "../config.ts";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import { isResidentSession } from "../core/resident-session.ts";
@@ -7,6 +6,7 @@ import type { SessionMetadata } from "../core/session-control-db/types.ts";
 import { getControlDbPath, listResumeSessionMetadata } from "../core/session-control-db.ts";
 import { listSessions } from "../core/session-directory.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
+import { attachJsonlLineReader } from "../modes/rpc/jsonl.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { ServerSessionSummary, Worker } from "./server-command.ts";
 import { workerLaunchPrefix } from "./server-launch.ts";
@@ -164,8 +164,8 @@ export function startWorker(cwd: string, resumePath?: string, name?: string): Wo
 		child.kill();
 		throw new Error("RPC worker stdout is not piped");
 	}
-	const stdout = createInterface({ input: childStdout, crlfDelay: Infinity });
-	stdout.on("line", (line) => parseWorkerLine(worker, line));
+	// Strict LF framing: readline also splits at U+2028/U+2029, which JSON leaves unescaped inside strings.
+	attachJsonlLineReader(childStdout, (line) => parseWorkerLine(worker, line));
 	child.stderr?.on("data", (chunk: Buffer) => {
 		worker.stderr = `${worker.stderr}${chunk.toString()}`.slice(-16_384);
 	});

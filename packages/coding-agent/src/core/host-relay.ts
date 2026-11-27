@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
-import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { attachJsonlLineReader } from "../modes/rpc/jsonl.ts";
 import {
 	ackRelayChannel,
 	ackRelayMailbox,
@@ -77,7 +77,6 @@ function relayStepError(step: string, error: unknown): Error {
 /** One mailbox and one channel in flight; retries preserve persisted sequence and channel origin. */
 export function runHostRelay(options: HostRelayOptions): Promise<void> {
 	const host = options.host ?? hostname();
-	const lines = createInterface({ input: options.input, crlfDelay: Infinity });
 	return new Promise((resolve, reject) => {
 		let peer: string | undefined;
 		let mailbox: RelayMailbox | undefined;
@@ -100,8 +99,9 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 			options.signal?.removeEventListener("abort", stop);
 			options.input.off("error", fail);
 			options.output.off("error", fail);
-			lines.removeAllListeners();
-			lines.close();
+			detachLines();
+			options.input.off("end", stop);
+			options.input.pause();
 			if (error) reject(error);
 			else resolve();
 		};
@@ -118,8 +118,8 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 		options.input.on("error", fail);
 		options.output.on("error", fail);
 		options.signal?.addEventListener("abort", stop, { once: true });
-		lines.on("close", stop);
-		lines.on("line", (line) => {
+		// Strict LF framing: readline also splits at U+2028/U+2029, which JSON leaves unescaped inside strings.
+		const detachLines = attachJsonlLineReader(options.input, (line) => {
 			let step = "frame parse";
 			try {
 				const frame = parseFrame(line);
@@ -151,6 +151,7 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 				fail(relayStepError(step, error));
 			}
 		});
+		options.input.on("end", stop);
 		if (options.signal?.aborted) stop();
 		else send({ type: "hello", host });
 	});

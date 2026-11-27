@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { createConnection, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
+import { attachJsonlLineReader } from "../../src/modes/rpc/jsonl.ts";
 import type { HeadlessPi } from "./headless-pi.ts";
 
 export type Frame = Record<string, unknown>;
@@ -13,7 +13,7 @@ export type Frame = Record<string, unknown>;
 export const FOREIGN_SUPERVISOR_HOST = `${hostname()}-remote-supervisor`;
 
 export class ServerClient {
-	private readonly lines: ReturnType<typeof createInterface>;
+	private readonly detachLines: () => void;
 	readonly socket: Socket;
 	private readonly pending = new Map<string, (frame: Frame) => void>();
 	private readonly events: Frame[] = [];
@@ -21,8 +21,7 @@ export class ServerClient {
 
 	constructor(socket: Socket) {
 		this.socket = socket;
-		this.lines = createInterface({ input: socket, crlfDelay: Infinity });
-		this.lines.on("line", (line) => {
+		this.detachLines = attachJsonlLineReader(socket, (line) => {
 			const frame = JSON.parse(line) as Frame;
 			if (frame.type === "response" && typeof frame.id === "string") {
 				this.pending.get(frame.id)?.(frame);
@@ -56,7 +55,7 @@ export class ServerClient {
 	}
 
 	close(): void {
-		this.lines.close();
+		this.detachLines();
 		this.socket.destroy();
 	}
 

@@ -175,6 +175,16 @@ describe("cross-host relay", () => {
 		second.stop();
 		await second.done;
 	});
+	it("forwards a message body containing U+2028 and U+2029 intact", async () => {
+		queue(dbA, "agent-server", "separators", "line one\u2028line two\u2029paragraph");
+		const connection = connect();
+		await expect.poll(() => count(dbB)).toBe(1);
+		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((message) => message.body)).toEqual([
+			"line one\u2028line two\u2029paragraph",
+		]);
+		connection.stop();
+		await connection.done;
+	});
 	it("names the relay step that failed", async () => {
 		const input = new PassThrough();
 		const relay = runHostRelay({ controlDbPath: dbB, host: "agent-server", input, output: new PassThrough() });

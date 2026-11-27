@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
+import { createJsonlLineSplitter } from "../modes/rpc/jsonl.ts";
 
 /** One frame carries a whole attach snapshot (`get_messages` of a long session), so the limit only stops runaway output. */
 export const MAX_FRAME_BYTES = 64 * 1_048_576;
@@ -46,29 +47,21 @@ export function readFrames(
 	onInvalid: (line: string) => void,
 ): void {
 	stream.setEncoding("utf8");
-	let buffered = "";
-	stream.on("data", (chunk: string) => {
-		buffered += chunk;
-		for (;;) {
-			const newline = buffered.indexOf("\n");
-			const pending = newline < 0 ? buffered : buffered.slice(0, newline);
-			if (Buffer.byteLength(pending) > MAX_FRAME_BYTES) {
-				stream.destroy(new Error("Frame exceeds 64 MiB"));
-				return;
-			}
-			if (newline < 0) return;
-			const line = pending.replace(/\r$/, "");
-			buffered = buffered.slice(newline + 1);
-			if (!line.trim()) continue;
-			let frame: unknown;
-			try {
-				frame = JSON.parse(line);
-			} catch {
-				onInvalid(line);
-				continue;
-			}
-			if (frame && typeof frame === "object" && !Array.isArray(frame)) onFrame(frame as Record<string, unknown>);
-			else onInvalid(line);
+	const tooLarge = () => stream.destroy(new Error("Frame exceeds 64 MiB"));
+	const splitter = createJsonlLineSplitter((line) => {
+		if (stream.destroyed || !line.trim()) return;
+		if (Buffer.byteLength(line) > MAX_FRAME_BYTES) return tooLarge();
+		let frame: unknown;
+		try {
+			frame = JSON.parse(line);
+		} catch {
+			return onInvalid(line);
 		}
+		if (frame && typeof frame === "object" && !Array.isArray(frame)) onFrame(frame as Record<string, unknown>);
+		else onInvalid(line);
+	});
+	stream.on("data", (chunk: string | Buffer) => {
+		splitter.write(chunk);
+		if (splitter.pendingBytes() > MAX_FRAME_BYTES) tooLarge();
 	});
 }
