@@ -141,6 +141,71 @@ async function list(client: ServerClient): Promise<Frame[]> {
 }
 
 describe("pi server process", () => {
+	it("forwards hello and list_sessions through the stdio connector", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { daemon, client, runtimeDir } = await startDaemon(agent);
+			client.close();
+			const cliPath = join(import.meta.dirname, "../../src/cli.ts");
+			const connector = spawn(
+				process.execPath,
+				["--experimental-strip-types", ...process.execArgv, cliPath, "server", "--stdio"],
+				{
+					cwd: agent.paths.workspaceDir,
+					env: {
+						...process.env,
+						XDG_RUNTIME_DIR: runtimeDir,
+						PI_CODING_AGENT_DIR: agent.paths.agentDir,
+						PI_CODING_AGENT_STATE_DIR: agent.paths.agentDir,
+						PI_CODING_AGENT_SESSION_DIR: agent.paths.sessionDir,
+					},
+					stdio: ["pipe", "pipe", "pipe"],
+				},
+			);
+			const stdout = connector.stdout;
+			if (!stdout) throw new Error("stdio connector stdout is not piped");
+			const lines = createInterface({ input: stdout, crlfDelay: Infinity });
+			const pending = new Map<string, (frame: Frame) => void>();
+			lines.on("line", (line) => {
+				const frame = JSON.parse(line) as Frame;
+				if (typeof frame.id === "string") pending.get(frame.id)?.(frame);
+				if (typeof frame.id === "string") pending.delete(frame.id);
+			});
+			const request = (id: string, type: string, fields: Frame = {}) =>
+				new Promise<Frame>((resolve, reject) => {
+					const timeout = setTimeout(() => {
+						pending.delete(id);
+						reject(new Error(`Timed out waiting for stdio ${type}`));
+					}, 10_000);
+					pending.set(id, (frame) => {
+						clearTimeout(timeout);
+						resolve(frame);
+					});
+					connector.stdin?.write(`${JSON.stringify({ id, type, ...fields })}\n`);
+				});
+			try {
+				const hello = await request("stdio-hello", "hello", { version: 1 });
+				expect(hello).toMatchObject({
+					type: "response",
+					command: "hello",
+					success: true,
+					data: { questionStoreHost: "agent-server" },
+				});
+				const sessions = await request("stdio-sessions", "list_sessions", { includeEnded: true });
+				expect(sessions).toMatchObject({ type: "response", command: "list_sessions", success: true });
+				expect((sessions.data as { sessions: Frame[] }).sessions).toContainEqual(
+					expect.objectContaining({ sessionId: agent.sessionId }),
+				);
+			} finally {
+				connector.stdin?.end();
+				lines.close();
+				if (connector.exitCode === null) {
+					await new Promise<void>((resolve) => connector.once("exit", () => resolve()));
+				}
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
 	it("starts, attaches, streams, reconnects, answers questions, lists external sessions, and stops workers", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { daemon, client, runtimeDir } = await startDaemon(agent);
