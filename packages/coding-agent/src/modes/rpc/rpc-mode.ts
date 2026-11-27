@@ -650,19 +650,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 				return success(id, "get_fork_messages", { messages });
 			}
 
-			case "get_entries": {
-				const sessionManager = session.sessionManager;
-				let entries = sessionManager.getEntries();
-				if (command.since !== undefined) {
-					const sinceIndex = entries.findIndex((e) => e.id === command.since);
-					if (sinceIndex === -1) {
-						return error(id, "get_entries", `Entry not found: ${command.since}`);
-					}
-					entries = entries.slice(sinceIndex + 1);
-				}
-				return success(id, "get_entries", { entries, leafId: sessionManager.getLeafId() });
-			}
-
 			case "get_last_assistant_text": {
 				const text = session.getLastAssistantText();
 				return success(id, "get_last_assistant_text", { text });

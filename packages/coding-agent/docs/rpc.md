@@ -766,6 +766,11 @@ With a cursor:
 {"type": "get_entries", "since": "abc123"}
 ```
 
+Only the custom entries of one type (for example the Supervisor status lines the TUI shows as `[Supervisor]`), after the optional cursor:
+```json
+{"type": "get_entries", "customType": "supervisor-status"}
+```
+
 Response:
 ```json
 {

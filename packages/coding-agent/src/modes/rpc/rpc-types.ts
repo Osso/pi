@@ -64,7 +64,6 @@ export type RpcCommand =
 	| { id?: string; type: "fork"; entryId: string }
 	| { id?: string; type: "clone" }
 	| { id?: string; type: "get_fork_messages" }
-	| { id?: string; type: "get_entries"; since?: string }
 	| { id?: string; type: "get_last_assistant_text" }
 	| { id?: string; type: "set_session_name"; name: string }
 
@@ -103,6 +102,7 @@ export type RpcInfoCommand =
 
 /** Session-tree commands behind the TUI's `/tree`. */
 export type RpcTreeCommand =
+	| { id?: string; type: "get_entries"; since?: string; customType?: string }
 	| { id?: string; type: "get_tree" }
 	| { id?: string; type: "navigate_tree"; entryId: string; summarize?: boolean; customInstructions?: string }
 	| { id?: string; type: "abort_branch_summary" };
