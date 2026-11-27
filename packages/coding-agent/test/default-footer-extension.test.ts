@@ -162,10 +162,11 @@ describe("default footer extension status lines", () => {
 describe("default footer extension", () => {
 	it("shows background compaction status only while generation is running", async () => {
 		type CapturedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-		const handlers = new Map<string, CapturedHandler>();
+		// The runner calls every handler registered for an event, in order.
+		const handlers = new Map<string, CapturedHandler[]>();
 		const pi = {
 			on: (eventName: string, handler: CapturedHandler) => {
-				handlers.set(eventName, handler);
+				handlers.set(eventName, [...(handlers.get(eventName) ?? []), handler]);
 			},
 		} as unknown as ExtensionAPI;
 		const setStatus = vi.fn();
@@ -178,9 +179,11 @@ describe("default footer extension", () => {
 			},
 		} as unknown as ExtensionContext;
 		const requireHandler = (eventName: string): CapturedHandler => {
-			const handler = handlers.get(eventName);
-			if (!handler) throw new Error(`Missing ${eventName} handler`);
-			return handler;
+			const registered = handlers.get(eventName);
+			if (!registered) throw new Error(`Missing ${eventName} handler`);
+			return async (event, handlerCtx) => {
+				for (const handler of registered) await handler(event, handlerCtx);
+			};
 		};
 
 		defaultFooterExtension(pi);
