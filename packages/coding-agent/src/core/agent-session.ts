@@ -310,10 +310,7 @@ function installRuntimeMailboxSignalKeepalive(): void {
 export function getAssistantMessageText(message: AssistantMessage): string {
 	const content = message.content;
 	if (typeof content === "string") return content;
-	return content
-		.filter((item): item is TextContent => item.type === "text")
-		.map((item) => item.text)
-		.join("");
+	return content.map((item) => getAssistantContentText(item) ?? "").join("");
 }
 
 type AgentMessageEvent = Extract<AgentEvent, { type: "message_start" | "message_update" | "message_end" }>;

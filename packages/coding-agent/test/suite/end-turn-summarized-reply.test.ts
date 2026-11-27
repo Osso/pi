@@ -1,6 +1,7 @@
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import { getControlDbPath, readLastMessage } from "../../src/core/session-control-db.ts";
 import { createHarness, getMessageText } from "./harness.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
@@ -51,6 +52,23 @@ it("accepts end_turn alongside public signed narration without asking for a rege
 		expect(replies).toHaveLength(1);
 		expect(replies[0].content[0]).toEqual(narration);
 	});
+}, 60_000);
+
+it("records a narration-only reply as the last assistant message for pi control last", async () => {
+	const harness = await createHarness();
+	try {
+		harness.setResponses([
+			fauxAssistantMessage([narration, fauxToolCall("end_turn", { reason: "Explained relay ssh" })], {
+				stopReason: "toolUse",
+			}),
+		]);
+
+		await harness.session.prompt("How does the relay run ssh?");
+
+		expect(readLastMessage(getControlDbPath(harness.tempDir))?.content).toBe(narration.thinking);
+	} finally {
+		harness.cleanup();
+	}
 }, 60_000);
 
 it("rejects a thinking-only end_turn, then ends after the model writes a visible reply", async () => {
