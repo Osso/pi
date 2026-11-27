@@ -36,3 +36,11 @@ export function listDetachedArtifactAgentsUpdatedAtOrBefore(
 		});
 	});
 }
+
+/** Every agent ID with a row, so artifact cleanup can tell owned job directories from orphaned ones. */
+export function listMultiAgentAgentIds(controlDbPath: string): Set<string> {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db.prepare("SELECT DISTINCT agent_id FROM multi_agent_agents").all() as Array<{ agent_id: string }>;
+		return new Set(rows.map((row) => row.agent_id));
+	});
+}

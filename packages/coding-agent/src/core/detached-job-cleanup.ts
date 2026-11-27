@@ -11,6 +11,7 @@ import { ARCHIVED_SESSION_SUFFIX, isArchivedSessionFile } from "./session-archiv
 import {
 	deleteReleasedTerminalMultiAgentAgents,
 	listDetachedArtifactAgentsUpdatedAtOrBefore,
+	listMultiAgentAgentIds,
 	type MultiAgentAgentKey,
 } from "./session-control-db.ts";
 
@@ -57,9 +58,10 @@ export function cleanupDetachedJobArtifacts(
 	// A directory with a terminal row is already a candidate; its marker must not count its bytes twice.
 	const terminalPaths = new Set(terminal.candidates.map((candidate) => candidate.directoryPath));
 	const candidates = terminal.candidates.concat(
-		collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors).filter(
-			(candidate) => !terminalPaths.has(candidate.directoryPath),
-		),
+		collectForegroundArtifactCandidates(options.artifactRoot, processReferences, errors, {
+			ownedJobIds: listMultiAgentAgentIds(controlDbPath),
+			expiredAt: now - DETACHED_ARTIFACT_MAX_AGE_MS,
+		}).filter((candidate) => !terminalPaths.has(candidate.directoryPath)),
 	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
@@ -220,15 +222,25 @@ function collectTerminalArtifactCandidates(
 	return { candidates: [...candidatesByPath.values()], ownersByPath, staleRowsWithoutDirectory };
 }
 
+interface OrphanJobPolicy {
+	/** Job IDs that have an agent row; their directories belong to that row. */
+	ownedJobIds: ReadonlySet<string>;
+	/** Orphaned directories last written at or before this time are expired. */
+	expiredAt: number;
+}
+
 /**
  * Job directories of Bash (under the agent directory) and Pyrun (beside each session file) calls that finished in
  * the foreground. They take the same age and size retention as terminal detached jobs, dated by their marker.
+ * Directories with neither a marker nor an agent row are orphans of foreground calls that were aborted or whose
+ * runner was killed; they expire 24 hours after their last write.
  * A backlog can hold over 100k directories, so callers must not spread the result into push(...).
  */
 function collectForegroundArtifactCandidates(
 	artifactRoot: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
+	orphans: OrphanJobPolicy,
 ): DetachedArtifactRetentionCandidate[] {
 	const sessionsRoot = join(artifactRoot, "sessions");
 	const roots = [artifactRoot, ...listChildDirectories(sessionsRoot).map((name) => join(sessionsRoot, name))];
@@ -241,6 +253,7 @@ function collectForegroundArtifactCandidates(
 					join(jobsRoot, sessionName, jobId),
 					processReferences,
 					errors,
+					orphans.ownedJobIds.has(jobId) ? undefined : orphans.expiredAt,
 				);
 				if (candidate) candidates.push(candidate);
 			}
@@ -249,13 +262,16 @@ function collectForegroundArtifactCandidates(
 	return candidates;
 }
 
+/** `orphanExpiredAt` is set only for a directory no agent row owns; without a marker it then dates by its last write. */
 function foregroundArtifactCandidate(
 	directoryPath: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
+	orphanExpiredAt: number | undefined,
 ): DetachedArtifactRetentionCandidate | undefined {
 	try {
-		const terminalAt = lstatSync(join(directoryPath, FOREGROUND_COMPLETION_MARKER)).mtimeMs;
+		const terminalAt = foregroundTerminalAt(directoryPath, orphanExpiredAt);
+		if (terminalAt === undefined) return undefined;
 		const byteSize = readDirectoryByteSize(directoryPath, errors);
 		if (byteSize === undefined) return undefined;
 		const canonicalPath = realpathSync(directoryPath);
@@ -270,6 +286,20 @@ function foregroundArtifactCandidate(
 		errors.push(`Could not inspect foreground job directory ${directoryPath}: ${errorMessage(error)}`);
 		return undefined;
 	}
+}
+
+function foregroundTerminalAt(directoryPath: string, orphanExpiredAt: number | undefined): number | undefined {
+	try {
+		return lstatSync(join(directoryPath, FOREGROUND_COMPLETION_MARKER)).mtimeMs;
+	} catch (error) {
+		if (!isMissingPathError(error) || orphanExpiredAt === undefined) throw error;
+	}
+	const lastWrite = readdirSync(directoryPath).reduce(
+		(latest, name) => Math.max(latest, lstatSync(join(directoryPath, name)).mtimeMs),
+		lstatSync(directoryPath).mtimeMs,
+	);
+	// A recent orphan may still be a foreground call in progress, so only an expired one is a candidate.
+	return lastWrite <= orphanExpiredAt ? lastWrite : undefined;
 }
 
 /** Real subdirectories, skipping symlinks and directories quarantined by a concurrent cleanup. */

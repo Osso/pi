@@ -16,7 +16,10 @@ export {
 	isKnownLocalSession,
 	readRunningSessionIdByPid,
 } from "./session-control-db/control-db-path.ts";
-export { listDetachedArtifactAgentsUpdatedAtOrBefore } from "./session-control-db/detached-job-artifacts.ts";
+export {
+	listDetachedArtifactAgentsUpdatedAtOrBefore,
+	listMultiAgentAgentIds,
+} from "./session-control-db/detached-job-artifacts.ts";
 export type { MultiAgentRuntimeOwnershipIdentity } from "./session-control-db/detached-job-finalization.ts";
 export { finalizeDetachedJob } from "./session-control-db/detached-job-finalization.ts";
 export {

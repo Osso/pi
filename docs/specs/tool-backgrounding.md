@@ -52,6 +52,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       suppressing terminal state or the outbox row. Attended runner-owned jobs deliver results in-band through
       the waiting tool call without a mailbox wakeup; terminal outbox rows and lifecycle events remain unconditional.
 - [x] Terminal detached-job artifact directories are pruned at Pi startup and after terminal outbox delivery.
+- [x] A job directory with neither a foreground completion marker nor an agent row (a foreground call that was aborted or whose runner was killed) is pruned 24 hours after its last write; a recent one is kept, because it may be a foreground call in progress (`detached-job-foreground-cleanup.test.ts`).
 - [x] Cleanup removes artifacts at least 24 hours old, then removes the oldest terminal artifacts until
       retained terminal artifacts are at most 2 GiB. Each removed directory's terminal agent row is deleted with it;
       an expired row whose output directory is already gone is deleted alone.

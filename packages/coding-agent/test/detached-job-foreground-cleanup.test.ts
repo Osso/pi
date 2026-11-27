@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupDetachedJobArtifacts } from "../src/core/detached-job-cleanup.ts";
+import { withControlDb } from "../src/core/session-control-db/connection.ts";
 import { getControlDbPath } from "../src/core/session-control-db.ts";
 
 const HOUR_MS = 60 * 60 * 1_000;
@@ -20,6 +21,18 @@ afterEach(async () => {
 	for (const root of roots) rmSync(root, { force: true, recursive: true });
 	roots.clear();
 });
+
+/** A running detached job row: cleanup must leave its directory to the row. */
+function writeMultiAgentAgentRow(controlDbPath: string, sessionPath: string, agentId: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare("INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)").run(
+			sessionPath,
+			agentId,
+			JSON.stringify({ id: agentId, lifecycle: "running", detached: true }),
+			new Date().toISOString(),
+		);
+	});
+}
 
 function createRoot(): string {
 	const root = join(tmpdir(), `pi-foreground-cleanup-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -65,6 +78,32 @@ describe("foreground job directory cleanup", () => {
 		expect(existsSync(expiredPyrun)).toBe(false);
 		expect(existsSync(recentPyrun)).toBe(true);
 		expect(existsSync(running)).toBe(true);
+	});
+
+	it("deletes an orphaned job directory 24 hours after its last write and keeps recent or row-owned ones", () => {
+		const root = createRoot();
+		const now = Date.now();
+		const sessionDirectory = join(root, "sessions", "--project--");
+		const backdate = (directory: string, at: number) => {
+			for (const name of ["launch.json", "output.log"]) utimesSync(join(directory, name), at / 1_000, at / 1_000);
+			utimesSync(directory, at / 1_000, at / 1_000);
+		};
+		// An aborted foreground Pyrun call or a killed runner leaves launch.json without the completion marker.
+		const expiredOrphan = writeForegroundJob(sessionDirectory, "pyrun_orphan_old", {});
+		backdate(expiredOrphan, now - 25 * HOUR_MS);
+		const recentOrphan = writeForegroundJob(sessionDirectory, "pyrun_orphan_new", {});
+		backdate(recentOrphan, now - 2 * HOUR_MS);
+		const owned = writeForegroundJob(root, "bash_owned", {});
+		backdate(owned, now - 25 * HOUR_MS);
+		const controlDbPath = getControlDbPath(root);
+		writeMultiAgentAgentRow(controlDbPath, join(root, "session.jsonl"), "bash_owned");
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now });
+
+		expect(result.errors).toEqual([]);
+		expect(result.deletedDirectories).toEqual([expiredOrphan]);
+		expect(existsSync(recentOrphan)).toBe(true);
+		expect(existsSync(owned)).toBe(true);
 	});
 
 	it("keeps an expired foreground job directory that a live process still uses", async () => {
