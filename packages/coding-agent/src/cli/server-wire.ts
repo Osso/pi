@@ -2,7 +2,8 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
-export const MAX_FRAME_BYTES = 1_048_576;
+/** One frame carries a whole attach snapshot (`get_messages` of a long session), so the limit only stops runaway output. */
+export const MAX_FRAME_BYTES = 64 * 1_048_576;
 
 type FrameSink = Pick<Writable, "destroyed" | "writableLength" | "write" | "destroy">;
 
@@ -24,13 +25,13 @@ export function writeFrame(sink: FrameSink, frame: unknown): void {
 	if (sink.destroyed) return;
 	const line = `${JSON.stringify(frame)}\n`;
 	if (sink.writableLength + Buffer.byteLength(line) > MAX_FRAME_BYTES) {
-		sink.destroy(new Error("Output buffer exceeds 1 MiB"));
+		sink.destroy(new Error("Output buffer exceeds 64 MiB"));
 		return;
 	}
 	sink.write(line);
 }
 
-/** Calls onFrame for every JSONL object on the stream; destroys the stream on a frame over 1 MiB. */
+/** Calls onFrame for every JSONL object on the stream; destroys the stream on a frame over 64 MiB. */
 export function readFrames(
 	stream: Readable,
 	onFrame: (frame: Record<string, unknown>) => void,
@@ -44,7 +45,7 @@ export function readFrames(
 			const newline = buffered.indexOf("\n");
 			const pending = newline < 0 ? buffered : buffered.slice(0, newline);
 			if (Buffer.byteLength(pending) > MAX_FRAME_BYTES) {
-				stream.destroy(new Error("Frame exceeds 1 MiB"));
+				stream.destroy(new Error("Frame exceeds 64 MiB"));
 				return;
 			}
 			if (newline < 0) return;

@@ -297,6 +297,8 @@
 
 ### Fixed
 
+- `pi server` frames may be up to 64 MiB (was 1 MiB). Attaching to a long session sent a snapshot over 1 MiB, which closed the connection; on a spoke it broke the hub link every few seconds, so the machine kept going offline.
+
 - `pi server` passes a dialog answer (`extension_ui_response`) to the worker with its dialog id, so `/delete` and other extension command dialogs work from pi-desktop; before, the id was replaced and the dialog never closed. `prompt`, `steer` and `follow_up` no longer fail after 30 seconds while such a dialog is open.
 
 - `pi server` `list_sessions` lists ended sessions only when `pi -r` offers them, so sub-agent and empty sessions no longer fill pi-desktop's sidebar; entries carry `firstMessage` for unnamed sessions. The unnamed Supervisor session is listed as `Supervisor`. New `delete_session` deletes an ended session as `pi -r` does.

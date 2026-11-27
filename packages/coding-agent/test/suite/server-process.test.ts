@@ -408,6 +408,48 @@ describe("pi server process", () => {
 		});
 	}, 90_000);
 
+	it("attaches to a session whose transcript is over 1 MiB", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				const longPrompt = `Read this: ${"x".repeat(1_500_000)}`;
+				await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: { type: "prompt", message: longPrompt },
+				});
+				const request = await agent.waitForLlmRequest((item) => item.userMessages.includes(longPrompt));
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage([{ type: "text", text: "Read." }, fauxToolCall("end_turn", { reason: "done" })], {
+						stopReason: "toolUse",
+					}),
+				);
+				await client.waitForEvent(
+					(event) => event.sessionId === sessionId && (event.event as Frame | undefined)?.type === "agent_end",
+				);
+				const observer = await ServerClient.connect(join(runtimeDir, "pi", "server.sock"));
+				try {
+					const attached = await observer.request("attach_session", { sessionId, mode: "observe" });
+					expect(attached.success).toBe(true);
+					const snapshot = (attached.data as { snapshot: Frame }).snapshot;
+					expect(JSON.stringify(snapshot.get_messages)).toContain(longPrompt);
+				} finally {
+					observer.close();
+				}
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 90_000);
+
 	it("restarts over a stale socket, refuses a live one, and releases a worker that exits on its own", async () => {
 		await withHeadlessPi(async (agent) => {
 			const first = await startDaemon(agent, null);
