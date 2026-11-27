@@ -8,7 +8,7 @@ import type { HubClient, ServerHub } from "./server-hub.ts";
 import { handleAnswerQuestion } from "./server-question-handlers.ts";
 import { questionStoreHost, questionSummaries } from "./server-question-utils.ts";
 import { errorMessage, serverHostId } from "./server-wire.ts";
-import { rpcCommand, sessionPathForId, sessionSummaries, startWorker } from "./server-worker.ts";
+import { rpcCommand, sessionPathForId, sessionSummaries, startWorker, writeWorkerLine } from "./server-worker.ts";
 
 type RpcCommandResponse = Extract<RpcResponse, { command: "get_state" }>;
 
@@ -325,6 +325,12 @@ async function handleSessionRpc({ frame, client, workers, respond, fail }: Comma
 		].includes(String(command.type))
 	)
 		return fail("read_only", "Observer attachment cannot send this RPC command");
+	if (command.type === "extension_ui_response") {
+		await writeWorkerLine(worker, command);
+		return respond({
+			response: { type: "response", command: "extension_ui_response", success: true, id: command.id },
+		});
+	}
 	const response = await rpcCommand(worker, command);
 	return respond({ response: { ...response, id: command.id } });
 }

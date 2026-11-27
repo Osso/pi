@@ -55,30 +55,39 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 	});
 }
 
+/** Commands answered only when an extension command they run finishes, which can wait on a person in a dialog. */
+const UNBOUNDED_COMMANDS = new Set(["prompt", "steer", "follow_up"]);
+
 export function rpcCommand(worker: Worker, command: Record<string, unknown>): Promise<RpcResponse> {
 	const id = `server-${++worker.requestNumber}`;
 	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			worker.pending.delete(id);
-			reject(new Error("RPC worker did not answer within 30 seconds"));
-		}, 30_000);
+		// A worker that exits answers every pending command (see startWorker), so an unbounded command cannot hang.
+		const timeout = UNBOUNDED_COMMANDS.has(String(command.type))
+			? undefined
+			: setTimeout(() => {
+					worker.pending.delete(id);
+					reject(new Error("RPC worker did not answer within 30 seconds"));
+				}, 30_000);
 		worker.pending.set(id, (response) => {
 			clearTimeout(timeout);
 			resolve(response);
 		});
-		if (!worker.child.stdin?.writable) {
+		writeWorkerLine(worker, { ...command, id }).catch((error: unknown) => {
 			clearTimeout(timeout);
 			worker.pending.delete(id);
+			reject(error);
+		});
+	});
+}
+
+/** Write one frame to the worker. A dialog answer (`extension_ui_response`) gets no RPC response and keeps its id. */
+export function writeWorkerLine(worker: Worker, frame: Record<string, unknown>): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (!worker.child.stdin?.writable) {
 			reject(new Error("RPC worker stdin is closed"));
 			return;
 		}
-		worker.child.stdin.write(`${JSON.stringify({ ...command, id })}\n`, (error) => {
-			if (error) {
-				clearTimeout(timeout);
-				worker.pending.delete(id);
-				reject(error);
-			}
-		});
+		worker.child.stdin.write(`${JSON.stringify(frame)}\n`, (error) => (error ? reject(error) : resolve()));
 	});
 }
 

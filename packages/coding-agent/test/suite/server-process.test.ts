@@ -347,6 +347,67 @@ describe("pi server process", () => {
 		});
 	}, 60_000);
 
+	it("runs /delete (after its confirm dialog) and /archive, then ends the worker", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			const runCommand = async (command: "/delete" | "/archive") => {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				const rpc = (rpcCommand: Frame) =>
+					client.request("session_rpc", { sessionId, runtimeInstanceId, command: rpcCommand });
+				const firstMessage = `Before ${command}.`;
+				await rpc({ type: "prompt", message: firstMessage });
+				const request = await agent.waitForLlmRequest((item) => item.userMessages.includes(firstMessage));
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage([{ type: "text", text: "ok" }, fauxToolCall("end_turn", { reason: "done" })], {
+						stopReason: "toolUse",
+					}),
+				);
+				await client.waitForEvent(
+					(event) => event.sessionId === sessionId && (event.event as Frame | undefined)?.type === "agent_end",
+				);
+				const sessionPath = (await list(client)).find((entry) => entry.sessionId === sessionId)
+					?.sessionPath as string;
+				expect(existsSync(sessionPath)).toBe(true);
+				// /delete asks first: its prompt is answered only after the dialog, so answer the dialog before awaiting it.
+				const prompt = rpc({ type: "prompt", message: command });
+				if (command === "/delete") {
+					const dialog = await client.waitForEvent(
+						(event) =>
+							event.sessionId === sessionId &&
+							(event.event as Frame | undefined)?.type === "extension_ui_request" &&
+							(event.event as Frame | undefined)?.method === "confirm",
+					);
+					const answer = await rpc({
+						type: "extension_ui_response",
+						id: (dialog.event as Frame).id,
+						confirmed: true,
+					});
+					expect(answer).toMatchObject({ success: true });
+				}
+				expect(await prompt).toMatchObject({ success: true, data: { response: { success: true } } });
+				const deadline = Date.now() + 20_000;
+				while ((await list(client)).some((entry) => entry.sessionId === sessionId) && Date.now() < deadline)
+					await new Promise((resolve) => setTimeout(resolve, 100));
+				expect((await list(client)).map((entry) => entry.sessionId)).not.toContain(sessionId);
+				return sessionPath;
+			};
+			try {
+				expect(existsSync(await runCommand("/delete"))).toBe(false);
+				const archivedPath = await runCommand("/archive");
+				expect(existsSync(archivedPath)).toBe(false);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 90_000);
+
 	it("restarts over a stale socket, refuses a live one, and releases a worker that exits on its own", async () => {
 		await withHeadlessPi(async (agent) => {
 			const first = await startDaemon(agent, null);

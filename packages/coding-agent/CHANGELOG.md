@@ -297,6 +297,8 @@
 
 ### Fixed
 
+- `pi server` passes a dialog answer (`extension_ui_response`) to the worker with its dialog id, so `/delete` and other extension command dialogs work from pi-desktop; before, the id was replaced and the dialog never closed. `prompt`, `steer` and `follow_up` no longer fail after 30 seconds while such a dialog is open.
+
 - `pi server` `list_sessions` lists ended sessions only when `pi -r` offers them, so sub-agent and empty sessions no longer fill pi-desktop's sidebar; entries carry `firstMessage` for unnamed sessions. The unnamed Supervisor session is listed as `Supervisor`. New `delete_session` deletes an ended session as `pi -r` does.
 - `pi server` reports a pending question that ends without an answer (dismissed dialog, stopped worker) as `question_updated` with `state: "cancelled"`; before, the hub and clients kept it pending forever.
 - Fixed the `end_turn` guideline telling the model that all thinking is hidden from the user. Signed narration arrives in a thinking block but is shown as the reply, so on replay the model concluded it had never answered and repeated the same reply on every continuation; the guideline now covers only private thinking
