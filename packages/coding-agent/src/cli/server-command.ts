@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,6 +8,7 @@ import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { listSessions } from "../core/session-directory.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
+import { removeStaleSocket, workerLaunchPrefix } from "./server-launch.ts";
 
 type RpcCommandResponse = Extract<RpcResponse, { command: "get_state" }>;
 
@@ -186,9 +187,7 @@ function parseWorkerLine(worker: Worker, line: string): void {
 }
 
 function startWorker(cwd: string, resumePath?: string, name?: string): Worker {
-	const cliEntry = process.argv[1];
-	if (!cliEntry) throw new Error("Cannot locate Pi CLI entry point");
-	const args = [...process.execArgv, cliEntry, "--mode", "rpc"];
+	const args = [...workerLaunchPrefix(), "--mode", "rpc"];
 	if (resumePath) args.push("--session", resumePath);
 	if (name) args.push("--name", name);
 	const child = spawn(process.execPath, args, { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
@@ -324,6 +323,10 @@ async function registerStartedWorker(
 			throw new Error("Session is already managed by this server");
 		workers.delete(reservation);
 		workers.set(sessionId, worker);
+		// A worker that exits on its own is no longer owned; the directory then lists the session as ended.
+		worker.child.once("exit", () => {
+			if (workers.get(sessionId) === worker) workers.delete(sessionId);
+		});
 		return sessionId;
 	} catch (error) {
 		workers.delete(reservation);
@@ -347,8 +350,11 @@ async function handleStopSession({ frame, workers, respond, fail }: CommandConte
 	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
 		return fail("stale_runtime", "Runtime instance ID does not match");
 	workers.delete(worker.sessionId);
-	worker.child.stdin?.end();
-	await new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
+	if (worker.child.exitCode === null && worker.child.signalCode === null) {
+		const exited = new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
+		worker.child.stdin?.end();
+		await exited;
+	}
 	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId) });
 }
 
@@ -613,13 +619,7 @@ async function runServer(): Promise<void> {
 	const path = socketPath();
 	mkdirSync(dirname(path), { recursive: true, mode: SERVER_DIR_MODE });
 	chmodSync(dirname(path), SERVER_DIR_MODE);
-	try {
-		const stat = statSync(path);
-		if (stat.isSocket()) throw new Error(`Server socket already exists at ${path}`);
-		throw new Error(`Refusing to replace non-socket at ${path}`);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-	}
+	await removeStaleSocket(path);
 	const workers = new Map<string, Worker>();
 	const clients = new Set<Client>();
 	const serverInstanceId = crypto.randomUUID();

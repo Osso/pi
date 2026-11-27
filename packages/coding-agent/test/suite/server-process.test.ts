@@ -86,6 +86,29 @@ async function startDaemon(
 	if (supervisorHost !== null) storedSettings.supervisor = { host: supervisorHost, sessionId: "remote-supervisor" };
 	else delete storedSettings.supervisor;
 	writeFileSync(settingsPath, JSON.stringify(storedSettings));
+	const { daemon, stderr } = spawnDaemon(agent, runtimeDir, preloadPath, cliPath);
+	// Connect, not just check the file: a crashed server's stale socket file exists before the new server binds.
+	const deadline = Date.now() + 30_000;
+	while (Date.now() < deadline) {
+		if (daemon.exitCode !== null) throw new Error(`pi server exited: ${stderr()}`);
+		if (existsSync(socketPath)) {
+			try {
+				return { daemon, client: await ServerClient.connect(socketPath), runtimeDir };
+			} catch {
+				// Not listening yet.
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	throw new Error(`pi server did not accept connections: ${stderr()}`);
+}
+
+function spawnDaemon(
+	agent: HeadlessPi,
+	runtimeDir: string,
+	preloadPath: string,
+	cliPath: string,
+): { daemon: ChildProcess; stderr: () => string } {
 	const daemon = spawn(
 		process.execPath,
 		[
@@ -113,13 +136,7 @@ async function startDaemon(
 	daemon.stderr?.on("data", (chunk: Buffer) => {
 		stderr += chunk.toString();
 	});
-	const deadline = Date.now() + 30_000;
-	while (!existsSync(socketPath) && Date.now() < deadline) {
-		if (daemon.exitCode !== null) throw new Error(`pi server exited: ${stderr}`);
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-	if (!existsSync(socketPath)) throw new Error(`pi server did not create socket: ${stderr}`);
-	return { daemon, client: await ServerClient.connect(socketPath), runtimeDir };
+	return { daemon, stderr: () => stderr };
 }
 
 function stopDaemon(daemon: ChildProcess, runtimeDir: string): Promise<void> {
@@ -209,6 +226,58 @@ describe("pi server process", () => {
 			}
 		});
 	}, 60_000);
+
+	it("restarts over a stale socket, refuses a live one, and releases a worker that exits on its own", async () => {
+		await withHeadlessPi(async (agent) => {
+			const first = await startDaemon(agent, null);
+			first.client.close();
+			// A second daemon must not take over a socket that a running server answers on.
+			const second = spawnDaemon(
+				agent,
+				first.runtimeDir,
+				join(import.meta.dirname, "fixtures/headless-pi-provider-preload.ts"),
+				join(import.meta.dirname, "../../src/cli.ts"),
+			);
+			const secondExit = await new Promise<number | null>((resolve) => second.daemon.once("exit", resolve));
+			expect(secondExit).not.toBe(0);
+			expect(second.stderr()).toMatch(/already running/);
+			// SIGKILL leaves the socket file behind, as a crash would.
+			await new Promise<void>((resolve) => {
+				first.daemon.once("exit", () => resolve());
+				first.daemon.kill("SIGKILL");
+			});
+			expect(existsSync(join(first.runtimeDir, "pi", "server.sock"))).toBe(true);
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const session = (started.data as { session: Frame }).session;
+				const sessionId = session.sessionId as string;
+				const workerPids = readFileSync(`/proc/${daemon.pid}/task/${daemon.pid}/children`, "utf8")
+					.trim()
+					.split(/\s+/)
+					.map(Number);
+				for (const pid of workerPids) process.kill(pid, "SIGKILL");
+				const deadline = Date.now() + 10_000;
+				while (Date.now() < deadline) {
+					const owned = (await list(client)).some(
+						(entry) => entry.sessionId === sessionId && entry.owner === "server",
+					);
+					if (!owned) break;
+					await new Promise((resolve) => setTimeout(resolve, 50));
+				}
+				expect(await list(client)).not.toContainEqual(expect.objectContaining({ sessionId, owner: "server" }));
+				const stopped = await client.request("stop_session", {
+					sessionId,
+					runtimeInstanceId: session.runtimeInstanceId,
+				});
+				expect(stopped).toMatchObject({ success: false, error: { code: "not_managed" } });
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 90_000);
 
 	it("starts, attaches, streams, reconnects, answers questions, lists external sessions, and stops workers", async () => {
 		await withHeadlessPi(async (agent) => {
