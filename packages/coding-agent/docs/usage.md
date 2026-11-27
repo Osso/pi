@@ -230,7 +230,7 @@ cat README.md | pi -p "Summarize this text"
 | Option | Description |
 |--------|-------------|
 | `-c`, `--continue` | Continue the most recent session |
-| `-r`, `--resume` | Browse and select a session |
+| `-r`, `--resume` | Browse and select a session (needs an interactive terminal on stdin) |
 | `--session <path\|id>` | Use a specific session file or partial UUID |
 | `--fork <path\|id>` | Fork a session file or partial UUID into a new session |
 | `--session-dir <dir>` | Custom session storage directory |

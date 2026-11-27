@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- `pi --resume` with non-terminal stdin now exits with an error suggesting `--session <id>` instead of showing a session picker that can never receive keys.
 - `pi config` without a terminal (piped or redirected stdio) now exits with an error instead of writing escape codes into the pipe and waiting forever for keys.
 - Remote `pyrun_eval` (`host`) keeps `session_id` ctx between calls: each call got its own remote session because the session key used the per-call tool-execution ID. Remote `browser-cli` failed with `invalid_cwd` when the caller's working directory did not exist on the target; it now starts in the target's home directory (`start_session` accepts `cwd: "~"`).
 - `pi questions` without a terminal (piped or redirected stdio) now exits with an error pointing to `pi control questions list` instead of writing escape codes into the pipe and waiting forever for keys.

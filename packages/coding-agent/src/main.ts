@@ -160,9 +160,7 @@ const OFFLINE_FETCH: typeof fetch = () => Promise.reject(new Error("Network disa
  */
 async function readPipedStdin(): Promise<string | undefined> {
 	// If stdin is a TTY, we're running interactively - don't read stdin
-	if (process.stdin.isTTY) {
-		return undefined;
-	}
+	if (process.stdin.isTTY) return undefined;
 
 	return new Promise((resolve) => {
 		let data = "";
@@ -434,6 +432,7 @@ async function createSessionManager(
 	}
 
 	if (parsed.resume) {
+		if (!process.stdin.isTTY) throw new Error("--resume needs an interactive terminal; pass --session <id> instead");
 		try {
 			const selectedPath = await selectSession(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress, controlDbPath),

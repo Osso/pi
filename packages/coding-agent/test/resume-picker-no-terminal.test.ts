@@ -1,0 +1,46 @@
+import { spawn } from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
+
+const cliPath = resolve(__dirname, "../src/cli.ts");
+const tempDirs: string[] = [];
+
+afterEach(() => {
+	for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+it("pi --resume with non-terminal stdin exits with an error instead of waiting forever on the session picker", async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-resume-no-tty-")));
+	tempDirs.push(root);
+	let stdout = "";
+	let stderr = "";
+	const child = spawn(process.execPath, [cliPath, "--resume"], {
+		cwd: root,
+		env: {
+			...process.env,
+			[ENV_AGENT_DIR]: join(root, "agent"),
+			[ENV_STATE_DIR]: join(root, "state"),
+			PI_OFFLINE: "1",
+		},
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+	child.stdout.on("data", (chunk) => {
+		stdout += chunk.toString();
+	});
+	child.stderr.on("data", (chunk) => {
+		stderr += chunk.toString();
+	});
+	const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+	const code = await new Promise<number | null>((resolveExit, reject) => {
+		child.on("error", reject);
+		child.on("close", resolveExit);
+	});
+	clearTimeout(timer);
+
+	expect(code).toBe(1);
+	expect(stdout).toBe("");
+	expect(stderr).toContain("--resume needs an interactive terminal; pass --session <id> instead");
+}, 30_000);
