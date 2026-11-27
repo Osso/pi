@@ -6,7 +6,7 @@ Contract: [Change working directory tool](../../specs/change-working-directory-t
 
 [`change-working-directory.ts`](../../../packages/coding-agent/src/core/tools/change-working-directory.ts) registers a sequential built-in tool accepting exactly one nonempty `path` or `id`. Paths resolve against current `ctx.cwd` and must exist as directories. IDs use [`resume-session.ts`](../../../packages/coding-agent/src/core/tools/resume-session.ts) to locate a session file; selecting the current file is rejected. No referenced session is resumed or modified.
 
-**Current limitation:** ID lookup reads `readSessionHeader(sessionPath).cwd`, which is the referenced session's immutable initial cwd, not its current control-DB cwd after relocation. Adopting a relocated session's current cwd is therefore not implemented by this path.
+ID lookup reads the referenced session's current cwd from control metadata (`readSessionMetadata`), so a relocated session yields its current cwd. It falls back to `readSessionHeader(sessionPath).cwd`, the immutable initial cwd, only when no metadata exists.
 
 ## Runtime handoff
 
