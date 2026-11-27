@@ -6,7 +6,12 @@ import {
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	sendDesktopNotification,
 } from "../desktop-notification.ts";
-import type { ExtensionContext, ExtensionUIContext, ToolDefinition } from "../extensions/types.ts";
+import type {
+	ExtensionContext,
+	ExtensionUIContext,
+	ExtensionUIDialogOptions,
+	ToolDefinition,
+} from "../extensions/types.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
 	type RuntimeMailboxAddress,
@@ -151,11 +156,13 @@ function cancelQuestionRaceOnAbort(race: QuestionPanelRace, signal: AbortSignal 
 }
 
 type QuestionUiContext = Pick<ExtensionContext, "ui" | "sessionManager" | "mode">;
+type QuestionDialogMetadata = Pick<ExtensionUIDialogOptions, "blocking" | "toolCallId">;
 
 async function showQuestions(
 	ctx: QuestionUiContext,
 	questions: AskQuestionsToolInput["questions"],
 	race: QuestionPanelRace,
+	metadata?: QuestionDialogMetadata,
 ): Promise<AskQuestionsAnswer> {
 	if (race.result) return race.result;
 	const notification = notifyAskQuestionsWaiting(questions.length, ctx.sessionManager);
@@ -164,7 +171,7 @@ async function showQuestions(
 			// A Supervisor answer or cancellation dismisses the client's questions.
 			const dismissal = new AbortController();
 			race.close = () => dismissal.abort();
-			const result = await ctx.ui.questions(questions, { signal: dismissal.signal });
+			const result = await ctx.ui.questions(questions, { signal: dismissal.signal, ...metadata });
 			race.result ??= result;
 			return race.result;
 		}
@@ -193,10 +200,11 @@ function queueQuestions(
 	ctx: QuestionUiContext,
 	questions: AskQuestionsToolInput["questions"],
 	race: QuestionPanelRace = {},
+	metadata?: QuestionDialogMetadata,
 ): Promise<AskQuestionsAnswer> {
 	const ui = ctx.ui;
 	const previous = questionQueues.get(ui) ?? Promise.resolve();
-	const result = previous.then(() => showQuestions(ctx, questions, race));
+	const result = previous.then(() => showQuestions(ctx, questions, race, metadata));
 	// A cancellation or Supervisor answer settles the request without waiting for earlier panels.
 	const settledEarly = new Promise<AskQuestionsAnswer>((resolve) => {
 		race.settleQueued = resolve;
@@ -254,7 +262,10 @@ async function askQuestions(
 		settleQuestionRace(race, supervisorAnswerResult(reply));
 	});
 	try {
-		const result = await queueQuestions(ctx, params.questions, race);
+		const result = await queueQuestions(ctx, params.questions, race, {
+			blocking: params.blocking,
+			toolCallId: requestId,
+		});
 		if (result.answeredBy) supervisor?.stop();
 		else supervisor?.withdraw(result.cancelled ? undefined : result.answers);
 		return result;

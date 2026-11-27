@@ -1,0 +1,11 @@
+[Unit]
+Description=Pi session server
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/pi server
+Restart=on-failure
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

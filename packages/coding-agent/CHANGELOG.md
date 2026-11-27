@@ -39,6 +39,7 @@
 
 ### Added
 
+- Added `pi server` with a private Unix socket, SSH stdio connector, managed RPC workers, and an inbox for escalated Supervisor questions. See `docs/server.md`.
 - Added RPC commands `get_tools`, `get_extensions`, `get_changelog`, `share_session`, `get_keybindings`, `get_scoped_models`, `set_scoped_models`, `clear_session_name`, `continue`, `reload`, `import_session`, `set_cwd`, `get_project_trust`, and `set_project_trust`, plus a `working_status` event for extension working messages.
 
 ### Changed

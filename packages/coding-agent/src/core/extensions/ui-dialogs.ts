@@ -6,6 +6,8 @@ export interface ExtensionUIDialogOptions {
 	timeout?: number;
 	/** Mask entered characters in interactive text input. */
 	secret?: boolean;
+	blocking?: boolean;
+	toolCallId?: string;
 }
 
 /** One ask_questions question as shown to a UI. */
@@ -17,7 +19,6 @@ export interface ExtensionUIQuestion {
 	multiSelect?: boolean;
 }
 
-/** Answers keyed by question text; multi-select answers are comma-joined labels. */
 export interface ExtensionUIQuestionsResult {
 	answers: Record<string, string>;
 	cancelled: boolean;
