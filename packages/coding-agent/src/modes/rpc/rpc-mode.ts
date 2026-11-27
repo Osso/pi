@@ -3,11 +3,8 @@
  *
  * Receives commands as JSON on stdin, outputs events and responses as JSON on stdout.
  *
- * Protocol:
- * - Commands: JSON objects with `type` field, optional `id` for correlation
- * - Responses: JSON objects with `type: "response"`, `command`, `success`, and optional `data`/`error`
- * - Events: AgentSessionEvent objects streamed as they occur
- * - Extension UI: Extension UI requests are emitted, client responds with extension_ui_response
+ * Commands and responses use JSON records with optional correlation IDs.
+ * Events and extension UI requests are streamed to stdout.
  */
 
 import * as crypto from "node:crypto";
@@ -157,8 +154,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			),
 
 		questions: (questions, opts) =>
-			createDialogPromise(opts, { answers: {}, cancelled: true }, { method: "questions", questions }, (r) =>
-				"answers" in r ? { answers: r.answers, cancelled: false } : { answers: {}, cancelled: true },
+			createDialogPromise(
+				opts,
+				{ answers: {}, cancelled: true },
+				{ method: "questions", questions, blocking: opts?.blocking, toolCallId: opts?.toolCallId },
+				(r) => ("answers" in r ? { answers: r.answers, cancelled: false } : { answers: {}, cancelled: true }),
 			),
 
 		notify(message: string, type?: "info" | "warning" | "error"): void {

@@ -366,7 +366,14 @@ export type RpcExtensionUIRequest =
 			timeout?: number;
 	  }
 	| { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string }
-	| { type: "extension_ui_request"; id: string; method: "questions"; questions: ExtensionUIQuestion[] }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "questions";
+			questions: ExtensionUIQuestion[];
+			blocking?: boolean;
+			toolCallId?: string;
+	  }
 	| {
 			type: "extension_ui_request";
 			id: string;
