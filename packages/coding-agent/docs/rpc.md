@@ -226,12 +226,13 @@ Response:
     "sessionName": "my-feature-work",
     "autoCompactionEnabled": true,
     "messageCount": 5,
-    "pendingMessageCount": 0
+    "pendingMessageCount": 0,
+    "extensionStatuses": {"goal": "Goal: fix the footer", "bwrap": "bwrap: workspace"}
   }
 }
 ```
 
-The `model` field is a full [Model](#model) object or `null`. The `sessionName` field is the display name set via `set_session_name`, or omitted if not set.
+The `model` field is a full [Model](#model) object or `null`. The `sessionName` field is the display name set via `set_session_name`, or omitted if not set. `extensionStatuses` holds the current footer statuses extensions set with `setStatus` (goal, mission, bwrap, ...), so a client that connects after they were set can show them; later changes arrive as `setStatus` requests.
 
 #### get_messages
 

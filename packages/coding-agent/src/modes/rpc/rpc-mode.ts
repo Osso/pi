@@ -92,6 +92,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		{ resolve: (value: RpcExtensionUIResponse) => void; reject: (error: Error) => void }
 	>();
 
+	/** Current extension statuses, so a client that connects later gets them from `get_state`. */
+	const extensionStatuses = new Map<string, string>();
 	let shutdownRequested = false;
 	let commandsInFlight = 0;
 	let shuttingDown = false;
@@ -178,12 +180,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		},
 
 		setStatus(key: string, status: ExtensionStatus | undefined): void {
+			const statusText = typeof status === "function" ? status(undefined) : status;
+			if (statusText === undefined) extensionStatuses.delete(key);
+			else extensionStatuses.set(key, statusText);
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
 				method: "setStatus",
 				statusKey: key,
-				statusText: typeof status === "function" ? status(undefined) : status,
+				statusText,
 			} as RpcExtensionUIRequest);
 		},
 
@@ -487,6 +492,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 					autoCompactionEnabled: session.autoCompactionEnabled,
 					messageCount: session.messages.length,
 					pendingMessageCount: session.pendingMessageCount,
+					extensionStatuses: Object.fromEntries(extensionStatuses),
 				};
 				return success(id, "get_state", state);
 			}

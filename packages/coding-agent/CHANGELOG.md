@@ -39,6 +39,8 @@
 
 ### Added
 
+- RPC `get_state` returns `extensionStatuses`, the current footer statuses (goal, mission, bwrap, ...), so a client that attaches after they were set (pi-desktop) shows them.
+
 - RPC `get_entries` takes `customType` to return only custom entries of that type (for example `supervisor-status`, the TUI's `[Supervisor]` lines), so clients like pi-desktop can show them without loading every entry.
 
 - Added `pi server` with a private Unix socket, SSH stdio connector, managed RPC workers, and an inbox for escalated Supervisor questions. See `docs/server.md`.

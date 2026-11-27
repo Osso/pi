@@ -168,6 +168,8 @@ export interface RpcSessionState {
 	autoCompactionEnabled: boolean;
 	messageCount: number;
 	pendingMessageCount: number;
+	/** Footer statuses extensions set (`setStatus`), by key: goal, mission, bwrap, ... */
+	extensionStatuses: Record<string, string>;
 }
 
 // ============================================================================
