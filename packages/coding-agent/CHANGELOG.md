@@ -297,7 +297,7 @@
 
 ### Fixed
 
-- `pi server` `list_sessions` lists ended sessions only when `pi -r` offers them, so sub-agent and empty sessions no longer fill pi-desktop's sidebar; entries carry `firstMessage` for unnamed sessions. New `delete_session` deletes an ended session as `pi -r` does.
+- `pi server` `list_sessions` lists ended sessions only when `pi -r` offers them, so sub-agent and empty sessions no longer fill pi-desktop's sidebar; entries carry `firstMessage` for unnamed sessions. The unnamed Supervisor session is listed as `Supervisor`. New `delete_session` deletes an ended session as `pi -r` does.
 - Fixed the `end_turn` guideline telling the model that all thinking is hidden from the user. Signed narration arrives in a thinking block but is shown as the reply, so on replay the model concluded it had never answered and repeated the same reply on every continuation; the guideline now covers only private thinking
 - Fixed goal reviews never returning `wait` while a session waited on its child agents: reviews now receive the running child agents as `activeAgents` (or `activeAgentsError` when the list cannot be read), so the Supervisor can verify the wait instead of rejecting it as an unsupported claim
 - Fixed compaction and branch summaries dropping replies the user saw as signed Anthropic narration: the summarizer kept only text blocks, so a summary could miss every answer given through narration

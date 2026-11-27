@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { getAgentDir } from "../config.ts";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import { isResidentSession } from "../core/resident-session.ts";
 import type { SessionMetadata } from "../core/session-control-db/types.ts";
 import { getControlDbPath, listResumeSessionMetadata } from "../core/session-control-db.ts";
 import { listSessions } from "../core/session-directory.ts";
+import { SettingsManager } from "../core/settings-manager.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { ServerSessionSummary, Worker } from "./server-command.ts";
 import { workerLaunchPrefix } from "./server-launch.ts";
@@ -17,11 +19,18 @@ function resumableSessions(controlDbPath: string): Map<string, SessionMetadata> 
 	return new Map(sessions.map((session) => [session.id, session] as const));
 }
 
+/** The configured Supervisor session, named `Supervisor` when it has no name of its own. */
+function supervisorSessionId(): string | undefined {
+	const settings = SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
+	return settings.getMergedSettings().supervisor?.sessionId;
+}
+
 /** The sessions `pi -r` offers, plus every session that runs now; unnamed ones carry their first message. */
 export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
 	const owned = new Map([...workers.values()].map((worker) => [worker.sessionId, worker] as const));
 	const controlDbPath = getControlDbPath();
 	const resumable = resumableSessions(controlDbPath);
+	const supervisorId = supervisorSessionId();
 	const listed = listSessions(controlDbPath, { includeEnded: true }).filter(
 		(entry) => owned.has(entry.sessionId) || entry.status !== "ended" || resumable.has(entry.sessionId),
 	);
@@ -31,7 +40,7 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 		return {
 			...(firstMessage ? { firstMessage } : {}),
 			sessionId: entry.sessionId,
-			name: entry.name,
+			name: entry.name ?? (entry.sessionId === supervisorId ? "Supervisor" : null),
 			cwd: entry.cwd,
 			status: entry.status,
 			checkStatus: entry.checkStatus,

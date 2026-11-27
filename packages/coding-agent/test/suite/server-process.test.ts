@@ -245,6 +245,7 @@ describe("pi server process", () => {
 				{ id: "resumable", messageCount: 2, firstMessage: "fix the sidebar" },
 				{ id: "empty", messageCount: 0, firstMessage: "(no messages)" },
 				{ id: "child", messageCount: 3, firstMessage: "child task", isSubagent: true },
+				{ id: "supervisor-main", messageCount: 1, firstMessage: '<file name="a.png">' },
 			];
 			const resumablePath = join(agent.paths.sessionDir, "resumable.jsonl");
 			writeFileSync(resumablePath, "");
@@ -283,6 +284,12 @@ describe("pi server process", () => {
 				});
 				expect(existsSync(resumablePath)).toBe(false);
 				expect((await list(client)).map((session) => session.sessionId)).not.toContain("resumable");
+				const settingsPath = join(agent.paths.agentDir, "settings.json");
+				const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+				writeFileSync(settingsPath, JSON.stringify({ ...settings, supervisor: { sessionId: "supervisor-main" } }));
+				expect(await list(client)).toContainEqual(
+					expect.objectContaining({ sessionId: "supervisor-main", name: "Supervisor" }),
+				);
 			} finally {
 				client.close();
 				await stopDaemon(daemon, runtimeDir);
