@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { RuntimeMailboxEvent } from "../../../src/core/extensions/types.ts";
 import { readQueuedQuestionAnswers, readQueuedQuestionRequestId } from "../../../src/core/tools/ask-questions.ts";
+import type { ActiveAgentEvidence } from "./goal-scheduling.ts";
 import type {
 	Goal,
 	GoalEvidenceReview,
@@ -17,6 +18,7 @@ import type {
 interface GoalReviewEvidenceStore {
 	loadActiveGoal(ctx: ExtensionContext): Goal | null;
 	saveGoal(ctx: ExtensionContext, goal: Goal): void;
+	listActiveAgents(): Promise<ActiveAgentEvidence[]>;
 }
 
 export interface GoalReviewEvidenceController {
@@ -119,6 +121,16 @@ function createOpenQuestionTracker() {
 	};
 }
 
+/** A failed agent listing is reported to the Supervisor instead of aborting the review. */
+async function readActiveAgentEvidence(store: GoalReviewEvidenceStore): Promise<Record<string, unknown>> {
+	try {
+		const activeAgents = await store.listActiveAgents();
+		return activeAgents.length > 0 ? { activeAgents } : {};
+	} catch (error) {
+		return { activeAgentsError: error instanceof Error ? error.message : String(error) };
+	}
+}
+
 export function createGoalReviewEvidenceController(
 	store: GoalReviewEvidenceStore,
 	reviewGoal: GoalSupervisorReview,
@@ -158,14 +170,16 @@ export function createGoalReviewEvidenceController(
 			appendEvidence(store, ctx, { kind: "user", text: answers });
 		},
 		consume: consumeEvidence.bind(undefined, store),
-		review(input) {
+		async review(input) {
 			const sessionId = input.ctx.sessionManager.getSessionId();
 			const messages = userMessages.get(sessionId);
 			const open = openQuestions.get(sessionId);
+			const agentEvidence = await readActiveAgentEvidence(store);
 			const payload = {
 				...input.payload,
 				...(messages ? { userMessages: messages } : {}),
 				...(open ? { openQuestions: open } : {}),
+				...agentEvidence,
 			};
 			return review({ ...input, payload });
 		},

@@ -1597,9 +1597,9 @@ describe("goal extension", () => {
 
 			await harness.runAgentEnd();
 
-			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
-			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
-			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
+			expect(harness.callTool).toHaveBeenNthCalledWith(2, "list_agents", { parentId: "main" });
+			expect(harness.callTool.mock.calls[2]?.slice(0, 2)).toEqual(["wait_agent", {}]);
+			expect(harness.callTool.mock.calls[2]?.[2]).toBeInstanceOf(AbortSignal);
 			expect(harness.appendEntry).toHaveBeenCalledWith(
 				"supervisor-status",
 				expect.objectContaining({
@@ -1733,6 +1733,38 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("gives goal reviews the running child agents and reports a failed agent listing", async () => {
+		const agent = (id: string, displayName: string, lifecycle: string) => ({
+			id,
+			displayName,
+			agentType: "implement",
+			lifecycle,
+		});
+		let listing: AgentToolResult<unknown> = {
+			content: [],
+			details: {
+				activeCount: 1,
+				agents: [agent("agent_7", "fix-footer", "running"), agent("agent_3", "old-probe", "completed")],
+			},
+		};
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "pause", reason: "checked" });
+		const harness = createGoalHarness(cwd, { callTool: async () => listing, reviewGoal });
+		await harness.runCommand("set wait for footer fix");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[0]?.[0].payload.activeAgents).toEqual([
+			{ id: "agent_7", name: "fix-footer", type: "implement", lifecycle: "running" },
+		]);
+
+		listing = { content: [{ type: "text", text: "store locked" }], details: {}, isError: true };
+		await harness.runCommand("resume");
+		await harness.runAgentEnd();
+
+		const failedPayload = reviewGoal.mock.calls[1]?.[0].payload;
+		expect(failedPayload).toMatchObject({ activeAgentsError: "store locked" });
+		expect(failedPayload).not.toHaveProperty("activeAgents");
+	});
+
 	it("persists a fifty-five-minute countdown for active-agent waits while retaining wait_agent wakeup", async () => {
 		vi.useFakeTimers();
 		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValueOnce({
@@ -1753,9 +1785,9 @@ describe("goal extension", () => {
 			await harness.runCommand("set wait for child countdown");
 			await harness.runAgentEnd();
 
-			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
-			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
-			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
+			expect(harness.callTool).toHaveBeenNthCalledWith(2, "list_agents", { parentId: "main" });
+			expect(harness.callTool.mock.calls[2]?.slice(0, 2)).toEqual(["wait_agent", {}]);
+			expect(harness.callTool.mock.calls[2]?.[2]).toBeInstanceOf(AbortSignal);
 			expect(harness.appendEntry).toHaveBeenCalledWith(
 				"supervisor-status",
 				expect.objectContaining({

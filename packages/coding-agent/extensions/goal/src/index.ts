@@ -19,7 +19,7 @@ import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
 import { parseGoalJson } from "./goal-parsing.ts";
 import { goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import { createGoalReviewEvidenceController, type GoalReviewEvidenceController } from "./goal-review-evidence.ts";
-import { createGoalScheduler, type GoalScheduler } from "./goal-scheduling.ts";
+import { createGoalScheduler, type GoalScheduler, listActiveChildAgents } from "./goal-scheduling.ts";
 import {
 	clearGoal,
 	createGoal,
@@ -731,7 +731,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		options.reviewGoal ?? reviewGoalWithResidentSupervisor,
 	);
 	const evidence = createGoalReviewEvidenceController(
-		{ loadActiveGoal: loadOrMigrateActiveGoal, saveGoal },
+		{ loadActiveGoal: loadOrMigrateActiveGoal, saveGoal, listActiveAgents: () => listActiveChildAgents(pi) },
 		supervisorReview,
 	);
 	pi.registerEntryRenderer("supervisor-status", createSupervisorStatusEntryRenderer(countdownRefresher));

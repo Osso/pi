@@ -129,6 +129,7 @@ export const SUPERVISOR_REQUEST_POLICY = [
 	"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
 	"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",
 	"Do not use wait while other authorized goal work can proceed without that result; use continue.",
+	"payload.activeAgents lists the session's running child agents; when it and payload.activeAgentsError are absent, no child agent is running. A claim of waiting on an agent is evidence only when that agent is listed there.",
 	"Use pause only when progress requires user action or input and cannot advance automatically.",
 	"payload.openQuestions lists the session's unanswered nonblocking ask_questions requests; a question not listed there is answered, cancelled, or closed by a restart.",
 	"",

@@ -1,4 +1,6 @@
 import type { AgentEndEvent, AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isActiveLifecycle } from "../../../src/core/multi-agent-mailbox-state.ts";
+import type { AgentSnapshot } from "../../../src/core/multi-agent-types.ts";
 
 const PENDING_DECISION_RETRY_DELAY_MS = 1_000;
 const WAIT_REVIEW_DELAY_MS = 55 * 60 * 1_000;
@@ -64,6 +66,24 @@ function hasActiveCount(details: unknown): details is { activeCount: unknown } {
 function activeAgentCount(details: unknown): number {
 	if (!hasActiveCount(details)) return 0;
 	return typeof details.activeCount === "number" ? details.activeCount : 0;
+}
+
+export interface ActiveAgentEvidence {
+	id: string;
+	name: string;
+	type: string;
+	lifecycle: string;
+}
+
+/** Running child agents of the main session, as review evidence the session cannot fabricate. */
+export async function listActiveChildAgents(pi: ExtensionAPI): Promise<ActiveAgentEvidence[]> {
+	const result = await pi.callTool("list_agents", { parentId: "main" });
+	const listError = toolError(result, "list_agents");
+	if (listError) throw listError;
+	const details = result.details as { agents?: AgentSnapshot[] } | undefined;
+	return (details?.agents ?? [])
+		.filter((agent) => isActiveLifecycle(agent.lifecycle))
+		.map((agent) => ({ id: agent.id, name: agent.displayName, type: agent.agentType, lifecycle: agent.lifecycle }));
 }
 
 function waitWakeEvidence(result: AgentToolResult<unknown>): Record<string, unknown> {

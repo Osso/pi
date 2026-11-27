@@ -7,7 +7,7 @@ import type { RuntimeMailboxMessage } from "../src/core/session-control-db.ts";
 function captureReviews() {
 	const requests: Array<Record<string, unknown>> = [];
 	const controller = createGoalReviewEvidenceController(
-		{ loadActiveGoal: () => null, saveGoal: () => {} },
+		{ loadActiveGoal: () => null, saveGoal: () => {}, listActiveAgents: async () => [] },
 		async ({ payload }) => {
 			requests.push(payload);
 			return { kind: "set", objective: "Prove a clean workflow", reason: "User scope" };
