@@ -86,6 +86,53 @@ describe("session naming tool extension", () => {
 		expect(harness.sessionManager.getSessionName()).toBe("name" in scenario ? scenario.name : undefined);
 	});
 
+	it.each([
+		{ session: "unnamed main", options: {}, reminded: true },
+		{ session: "named main", options: {}, name: "Manual Name", reminded: false },
+		{ session: "explicitly cleared main", options: {}, name: undefined, reminded: false },
+		{ session: "ephemeral", options: { persistedSession: false }, reminded: false },
+		{ session: "child", options: { multiAgentAgentId: "agent_1" }, reminded: false },
+	])("reminds the model to name a $session session: $reminded", async (scenario) => {
+		const harness = await createSessionNameHarness(scenario.options);
+		if ("name" in scenario) harness.sessionManager.setSessionName(scenario.name);
+		let sent = "";
+		harness.setResponses([
+			(context) => {
+				sent = JSON.stringify(context.messages);
+				return endTurn();
+			},
+		]);
+
+		await harness.session.prompt("Explain what 6 multiplied by 7 equals.");
+
+		expect(sent.includes("This session has no name yet. Call set_session_name now")).toBe(scenario.reminded);
+	});
+
+	it("stops reminding once the session is named", async () => {
+		const harness = await createSessionNameHarness();
+		const reminders: number[] = [];
+		const countReminders = (context: { messages: unknown[] }) =>
+			JSON.stringify(context.messages).split("This session has no name yet.").length - 1;
+		harness.setResponses([
+			(context) => {
+				reminders.push(countReminders(context));
+				return nameCall("Multiply numbers");
+			},
+			endTurn(),
+			(context) => {
+				reminders.push(countReminders(context));
+				return endTurn();
+			},
+		]);
+
+		await harness.session.prompt("Explain what 6 multiplied by 7 equals.");
+		await harness.session.prompt("And 6 times 8?");
+
+		// The first prompt's reminder stays in history; the second prompt adds none.
+		expect(reminders).toEqual([1, 1]);
+		expect(harness.sessionManager.getSessionName()).toBe("Multiply numbers");
+	});
+
 	it("issues no provider request of its own when a user message starts", async () => {
 		const harness = await createSessionNameHarness();
 		harness.setResponses([

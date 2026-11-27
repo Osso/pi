@@ -1,7 +1,8 @@
 //! Session naming tool for main sessions.
 //!
 //! The model names the session itself through the `set_session_name` tool instead of
-//! an extension-issued title request, so naming costs no extra provider call.
+//! an extension-issued title request, so naming costs no extra provider call. Until an
+//! eligible session is named, each prompt carries a hidden reminder to name it.
 
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
@@ -45,6 +46,23 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 			};
 		},
 	});
+
+	// The guideline alone is sometimes ignored: while an eligible session has
+	// no name, each prompt carries a hidden reminder to name it.
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (!needsName(ctx)) return;
+		return { message: { customType: NAME_REMINDER_TYPE, content: NAME_REMINDER, display: false } };
+	});
+}
+
+const NAME_REMINDER_TYPE = "session-name-reminder";
+const NAME_REMINDER =
+	"This session has no name yet. Call set_session_name now with a concise 2-4 word title for the user's request, then continue with the task.";
+
+/** An eligible main session that was never named and not explicitly cleared. */
+function needsName(ctx: ExtensionContext): boolean {
+	if (describeIneligibleSession(ctx, "name")) return false;
+	return ctx.sessionManager.getSessionName() === undefined && !ctx.sessionManager.hasSessionNameState();
 }
 
 /** Revision of this tool's latest successful write to this session, or null when it never named this session. */

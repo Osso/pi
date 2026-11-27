@@ -58,6 +58,7 @@
 
 ### Changed
 
+- Until an eligible main session is named, each prompt carries a hidden reminder to call `set_session_name`; models that skipped the naming guideline left sessions unnamed.
 - `pi questions` no longer shows a Quit row below the list; Escape (or Ctrl+C) quits.
 - `pi questions` uses configurable `app.questions.new` (Ctrl+N) and `app.questions.refresh` (Ctrl+R) shortcuts instead of ask and refresh action rows; Ctrl+R keeps the selected question, and the footer wraps its key hints at narrow widths.
 - The generic goal continuation (`/goal` reminder and Supervisor `continue`) now tells the agent to ask questions and report blockers with `ask_questions` instead of plain text

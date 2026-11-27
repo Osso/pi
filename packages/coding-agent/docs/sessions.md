@@ -95,7 +95,7 @@ pi --name "CI audit" -p "Review this build failure"
 
 Named sessions are easier to find in `/resume` and `pi -r`.
 
-The default session-autoname extension lets the model name the current session itself through the `set_session_name` tool, so a session gets a short title describing your request without any extra model call. It only names persisted main sessions, never overwrites a name you set with `/name` or `--name`, and leaves a session unnamed after `/unname`.
+The default session-autoname extension lets the model name the current session itself through the `set_session_name` tool, so a session gets a short title describing your request without any extra model call. It only names persisted main sessions, never overwrites a name you set with `/name` or `--name`, and leaves a session unnamed after `/unname`. Until such a session has a name, each prompt carries a hidden reminder asking the model to call `set_session_name`, so a model that skips the instruction is asked again on the next prompt.
 
 ## Branching with `/tree`
 
