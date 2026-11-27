@@ -243,6 +243,16 @@ describe("pi server process", () => {
 						answers: { "Which value should I use?": "42" },
 					});
 					expect(answer).toMatchObject({ success: true, data: { delivery: "accepted" } });
+					const answerRetry = await reconnected.request("answer_question", {
+						questionId: directQuestion?.questionId,
+						answers: { "Which value should I use?": "42" },
+					});
+					expect(answerRetry).toMatchObject({ success: true, data: { delivery: "accepted" } });
+					const conflictingAnswer = await reconnected.request("answer_question", {
+						questionId: directQuestion?.questionId,
+						answers: { "Which value should I use?": "43" },
+					});
+					expect(conflictingAnswer).toMatchObject({ success: false, error: { code: "already_resolved" } });
 					const followUp = await agent.waitForLlmRequest((item) => JSON.stringify(item.messages).includes("42"));
 					agent.respondToLlmRequest(
 						followUp.id,

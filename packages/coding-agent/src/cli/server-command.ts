@@ -55,6 +55,7 @@ type Worker = {
 		string,
 		{ dialogId: string; toolCallId: string; blocking: boolean; createdAt: string; questions: ExtensionUIQuestion[] }
 	>;
+	answeredDirectQuestions: Map<string, { answers: Record<string, string>; question: Record<string, unknown> }>;
 	stderr: string;
 };
 
@@ -216,6 +217,7 @@ function startWorker(cwd: string, resumePath?: string, name?: string): Worker {
 		pending: new Map(),
 		clients: new Set(),
 		directQuestions: new Map(),
+		answeredDirectQuestions: new Map(),
 		stderr: "",
 	};
 	const childStdout = child.stdout;
@@ -244,6 +246,14 @@ function startWorker(cwd: string, resumePath?: string, name?: string): Worker {
 function sessionPathForId(sessionId: string): string | undefined {
 	return listSessions(getControlDbPath(), { includeEnded: true }).find((session) => session.sessionId === sessionId)
 		?.sessionPath;
+}
+
+function sameAnswers(left: Record<string, string> | undefined, right: Record<string, string>): boolean {
+	if (!left) return false;
+	const entries = Object.entries(right);
+	return (
+		entries.length === Object.keys(left).length && entries.every(([question, answer]) => left[question] === answer)
+	);
 }
 
 function controlCenter() {
@@ -459,10 +469,19 @@ async function handleCommand(
 					Array.isArray(frame.answers)
 				)
 					return fail("invalid_request", "questionId and answers are required");
+				const answerValues = Object.values(frame.answers);
+				if (answerValues.some((answer) => typeof answer !== "string"))
+					return fail("invalid_answer", "Every answer must be text");
+				const answers = frame.answers as Record<string, string>;
 				for (const worker of workers.values()) {
+					const previousAnswer = worker.answeredDirectQuestions.get(frame.questionId);
+					if (previousAnswer) {
+						if (!sameAnswers(previousAnswer.answers, answers))
+							return fail("already_resolved", "Question was answered with different values");
+						return respond({ question: previousAnswer.question, delivery: "accepted" });
+					}
 					const direct = worker.directQuestions.get(frame.questionId);
 					if (!direct) continue;
-					const answers = frame.answers as Record<string, string>;
 					if (
 						direct.questions.some((question) => {
 							const answer = answers[question.question];
@@ -483,7 +502,7 @@ async function handleCommand(
 						toolCallId: direct.toolCallId,
 						blocking: direct.blocking,
 						questions: direct.questions,
-						createdAt: new Date().toISOString(),
+						createdAt: direct.createdAt,
 						state: "answered",
 						review: "none",
 						answerable: false,
@@ -491,6 +510,7 @@ async function handleCommand(
 						answeredBy: "user",
 						delivery: "accepted",
 					};
+					worker.answeredDirectQuestions.set(frame.questionId, { answers, question });
 					for (const subscriber of clients)
 						if (subscriber.subscriptions.has("questions"))
 							writeFrame(subscriber.socket, { type: "question_updated", revision: Date.now(), question });
@@ -501,8 +521,10 @@ async function handleCommand(
 					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
 				);
 				if (!entry) return fail("not_found", "Question not found");
+				if (entry.state === "answered" && sameAnswers(entry.answers, answers))
+					return respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
 				if (entry.state !== "open") return fail("already_resolved", "Question is no longer pending");
-				answerAgentQuestion(center, entry, frame.answers as Record<string, string>);
+				answerAgentQuestion(center, entry, answers);
 				const updated = listQuestionEntries(center).find(
 					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
 				);
@@ -512,7 +534,7 @@ async function handleCommand(
 						: makeQuestionSummary({
 								...entry,
 								state: "answered",
-								answers: frame.answers as Record<string, string>,
+								answers,
 								answeredBy: "user",
 							}),
 					delivery: "delivered",
