@@ -248,11 +248,11 @@ Response:
   "type": "response",
   "command": "get_messages",
   "success": true,
-  "data": {"messages": [...]}
+  "data": {"messages": [...], "toolCallStarts": {"toolu_01...": 1795800739079}}
 }
 ```
 
-Messages are `AgentMessage` objects (see [Message Types](#message-types)).
+Messages are `AgentMessage` objects (see [Message Types](#message-types)). `toolCallStarts` maps each tool call ID on the current branch to when the call started (Unix ms): the time its assistant message was saved. An assistant message's own `timestamp` is when it began streaming; with the tool result's `timestamp`, `toolCallStarts` gives a call's duration.
 
 ### Model
 

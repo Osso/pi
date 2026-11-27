@@ -36,6 +36,7 @@ import { runRpcBash } from "./rpc-bash.ts";
 import { detachRunningTool } from "./rpc-detach.ts";
 import { handleRpcInfoCommand, isRpcInfoCommand } from "./rpc-info.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
+import { rpcMessages } from "./rpc-messages.ts";
 import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
 import { listRpcSessions } from "./rpc-sessions.ts";
 import { handleRpcTreeCommand, isRpcTreeCommand } from "./rpc-tree.ts";
@@ -678,7 +679,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			// =================================================================
 
 			case "get_messages": {
-				return success(id, "get_messages", { messages: session.messages });
+				return success(id, "get_messages", rpcMessages(session));
 			}
 
 			// =================================================================

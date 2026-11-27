@@ -326,7 +326,13 @@ export type RpcResponse =
 	| { id?: string; type: "response"; command: "set_session_name"; success: true }
 
 	// Messages
-	| { id?: string; type: "response"; command: "get_messages"; success: true; data: { messages: AgentMessage[] } }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_messages";
+			success: true;
+			data: { messages: AgentMessage[]; toolCallStarts: Record<string, number> };
+	  }
 
 	// Commands
 	| {

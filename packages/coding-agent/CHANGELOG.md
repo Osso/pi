@@ -39,6 +39,8 @@
 
 ### Added
 
+- RPC `get_messages` returns `toolCallStarts`, when each tool call on the branch started, so a client that loads history can show tool durations.
+
 - `pi server` reopens the sessions its workers owned when it restarts (recorded in `server-sessions.json` in the agent directory); a reopened worker continues an interrupted run. Sessions stopped with `stop_session` or whose worker quit are not reopened.
 
 - RPC `get_state` returns `extensionStatuses`, the current footer statuses (goal, mission, bwrap, ...), so a client that attaches after they were set (pi-desktop) shows them.

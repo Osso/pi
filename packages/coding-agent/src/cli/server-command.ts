@@ -216,6 +216,8 @@ async function handleStartSession({ frame, workers, respond, fail }: CommandCont
  */
 export async function restoreOwnedSessions(workers: Map<string, Worker>): Promise<void> {
 	for (const { sessionId, cwd } of readOwnedSessions()) {
+		// A client may have reopened it while an earlier one was restoring.
+		if (workers.has(sessionId)) continue;
 		try {
 			const resumePath = sessionPathForId(sessionId);
 			if (!resumePath) throw new Error("it is not in the session directory");
@@ -223,7 +225,7 @@ export async function restoreOwnedSessions(workers: Map<string, Worker>): Promis
 			if (listed && listed.status !== "ended") throw new Error("it has a live writer");
 			await registerStartedWorker(startWorker(cwd, resumePath), workers, sessionId);
 		} catch (error) {
-			forgetOwnedSession(sessionId);
+			if (!workers.has(sessionId)) forgetOwnedSession(sessionId);
 			console.error(`pi server: not reopening session ${sessionId}: ${errorMessage(error)}`);
 		}
 	}
