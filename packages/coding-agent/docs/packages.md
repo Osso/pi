@@ -216,7 +216,7 @@ Filter what a package loads using the object form in settings:
 
 ## Enable and Disable Resources
 
-Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. Works for both global (`~/.config/pi/agent`) and project (`.pi/`) scopes.
+Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. Works for both global (`~/.config/pi/agent`) and project (`.pi/`) scopes. It needs an interactive terminal; with redirected stdin or stdout it exits with status 1.
 
 ## Scope and Deduplication
 

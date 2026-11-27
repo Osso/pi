@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- `pi config` without a terminal (piped or redirected stdio) now exits with an error instead of writing escape codes into the pipe and waiting forever for keys.
 - Remote `pyrun_eval` (`host`) keeps `session_id` ctx between calls: each call got its own remote session because the session key used the per-call tool-execution ID. Remote `browser-cli` failed with `invalid_cwd` when the caller's working directory did not exist on the target; it now starts in the target's home directory (`start_session` accepts `cwd: "~"`).
 - `pi questions` without a terminal (piped or redirected stdio) now exits with an error pointing to `pi control questions list` instead of writing escape codes into the pipe and waiting forever for keys.
 - Detached-job cleanup now removes job directories that no agent row owns and that have no foreground completion marker, 24 hours after their last write. Aborted foreground Pyrun and Bash calls, and runners killed by a `pi-server` restart, left such directories forever (357 on agent-server, the oldest from 2026-10-08).

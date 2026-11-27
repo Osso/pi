@@ -549,9 +549,8 @@ export async function handleConfigCommand(
 	args: string[],
 	runtimeOptions: PackageCommandRuntimeOptions = {},
 ): Promise<boolean> {
-	if (args[0] !== "config") {
-		return false;
-	}
+	if (args[0] !== "config") return false;
+	if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("pi config requires an interactive terminal");
 
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
