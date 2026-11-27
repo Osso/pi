@@ -55,6 +55,7 @@
 - Added the `pi server` hub topology: with `server.hub` set to another host, the server keeps one outbound link (`server.hubCommand`, default `ssh -T -o BatchMode=yes -o ConnectTimeout=10 <hub> ~/.local/bin/pi server --link`) and reconnects with backoff; the hub accepts spokes over `pi server --link`, forwards frames that carry `hostId`, tags spoke responses and events with `hostId`, adds `list_machines` and `machine_updated`, aggregates `list_sessions` and `list_questions` across machines, and keeps an offline spoke's last snapshot marked `stale`. See `docs/server.md#hub`.
 - Added RPC commands `get_tools`, `get_extensions`, `get_changelog`, `share_session`, `get_keybindings`, `get_scoped_models`, `set_scoped_models`, `clear_session_name`, `continue`, `reload`, `import_session`, `set_cwd`, `get_project_trust`, and `set_project_trust`, plus a `working_status` event for extension working messages.
 - Added the RPC `detach_running_tool` command to move a running tool call to a background job and report whether it detached.
+- `pi server` session summaries (`list_sessions`, `session_updated`, and the hub's spoke summaries) carry `agents`, the non-terminal sub-agents of each session that is not ended, as `{ id, parentId, displayName, agentType, lifecycle, activity }`, read from the shared control database; terminal sessions included. Sub-agent changes reach `sessions` subscribers, at most one `session_updated` per session every 2 seconds. See [docs/server.md](docs/server.md#protocol-v1).
 
 ### Changed
 

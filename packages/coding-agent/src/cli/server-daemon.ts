@@ -30,6 +30,41 @@ function broadcast(clients: Set<Client>, subscription: Subscription, frames: unk
 	}
 }
 
+/** A session gets at most one session_updated per interval, so the activity of a busy session's agents cannot flood. */
+const SESSION_UPDATE_INTERVAL_MS = 2_000;
+
+/**
+ * The session events between the published and the current summaries, and the summaries published after them.
+ * A change within the interval after a session's previous update stays unpublished until a later call.
+ */
+function sessionChanges(
+	published: Map<string, string>,
+	current: Map<string, string>,
+	updatedAt: Map<string, number>,
+	revisions: RevisionCounters,
+): { events: unknown[]; published: Map<string, string> } {
+	const now = Date.now();
+	const events: unknown[] = [];
+	const next = new Map<string, string>();
+	for (const [sessionId, value] of current) {
+		const previous = published.get(sessionId);
+		const throttled = now - (updatedAt.get(sessionId) ?? 0) < SESSION_UPDATE_INTERVAL_MS;
+		if (previous !== undefined && (previous === value || throttled)) {
+			next.set(sessionId, previous);
+			continue;
+		}
+		events.push({ type: "session_updated", revision: ++revisions.sessions, session: JSON.parse(value) });
+		updatedAt.set(sessionId, now);
+		next.set(sessionId, value);
+	}
+	for (const sessionId of published.keys()) {
+		if (current.has(sessionId)) continue;
+		events.push({ type: "session_removed", revision: ++revisions.sessions, sessionId });
+		updatedAt.delete(sessionId);
+	}
+	return { events, published: next };
+}
+
 /** Returns a function that emits session and question changes since its previous call to subscribed clients. */
 function createUpdatePublisher(
 	workers: Map<string, Worker>,
@@ -37,6 +72,7 @@ function createUpdatePublisher(
 	revisions: RevisionCounters,
 ): () => void {
 	let previousSessions = new Map<string, string>();
+	const sessionUpdatedAt = new Map<string, number>();
 	let previousQuestions = new Map<string, string>();
 	return () => {
 		try {
@@ -46,19 +82,7 @@ function createUpdatePublisher(
 			const currentQuestions = new Map(
 				questionUpdates(workers).map((question) => [String(question.questionId), JSON.stringify(question)]),
 			);
-			const sessionEvents: unknown[] = [];
-			for (const [sessionId, value] of currentSessions) {
-				if (previousSessions.get(sessionId) !== value)
-					sessionEvents.push({
-						type: "session_updated",
-						revision: ++revisions.sessions,
-						session: JSON.parse(value),
-					});
-			}
-			for (const sessionId of previousSessions.keys()) {
-				if (!currentSessions.has(sessionId))
-					sessionEvents.push({ type: "session_removed", revision: ++revisions.sessions, sessionId });
-			}
+			const sessions = sessionChanges(previousSessions, currentSessions, sessionUpdatedAt, revisions);
 			const questionEvents: unknown[] = [];
 			for (const [questionId, value] of currentQuestions) {
 				if (previousQuestions.get(questionId) !== value)
@@ -79,9 +103,9 @@ function createUpdatePublisher(
 						question: { ...previous, state: "cancelled", answerable: false },
 					});
 			}
-			broadcast(clients, "sessions", sessionEvents);
+			broadcast(clients, "sessions", sessions.events);
 			broadcast(clients, "questions", questionEvents);
-			previousSessions = currentSessions;
+			previousSessions = sessions.published;
 			previousQuestions = currentQuestions;
 		} catch (error) {
 			console.error(`pi server update: ${errorMessage(error)}`);

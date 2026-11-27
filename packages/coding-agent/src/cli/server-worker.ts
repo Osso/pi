@@ -10,6 +10,7 @@ import { attachJsonlLineReader } from "../modes/rpc/jsonl.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { ServerSessionSummary, Worker } from "./server-command.ts";
 import { workerLaunchPrefix } from "./server-launch.ts";
+import { readActiveSessionAgents } from "./server-session-agents.ts";
 
 /** The sessions `pi -r` offers (indexed, not archived, not a sub-agent or resident, with messages), by id. */
 function resumableSessions(controlDbPath: string): Map<string, SessionMetadata> {
@@ -25,7 +26,10 @@ function supervisorSessionId(): string | undefined {
 	return settings.getMergedSettings().supervisor?.sessionId;
 }
 
-/** The sessions `pi -r` offers, plus every session that runs now; unnamed ones carry their first message. */
+/**
+ * The sessions `pi -r` offers, plus every session that runs now; unnamed ones carry their first message.
+ * A session that is not ended carries its non-terminal sub-agents, when it has any.
+ */
 export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
 	const owned = new Map([...workers.values()].map((worker) => [worker.sessionId, worker] as const));
 	const controlDbPath = getControlDbPath();
@@ -34,9 +38,14 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 	const listed = listSessions(controlDbPath, { includeEnded: true }).filter(
 		(entry) => owned.has(entry.sessionId) || entry.status !== "ended" || resumable.has(entry.sessionId),
 	);
+	const agents = readActiveSessionAgents(
+		controlDbPath,
+		listed.filter((entry) => entry.status !== "ended").map((entry) => entry.sessionPath),
+	);
 	return listed.map((entry) => {
 		const worker = owned.get(entry.sessionId);
 		const firstMessage = resumable.get(entry.sessionId)?.firstMessage;
+		const sessionAgents = entry.status === "ended" ? undefined : agents.get(entry.sessionPath);
 		return {
 			...(firstMessage ? { firstMessage } : {}),
 			sessionId: entry.sessionId,
@@ -51,6 +60,7 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 			attachment: worker ? "rpc" : entry.status === "running" || entry.status === "idle" ? "terminal" : "none",
 			...(worker ? { runtimeInstanceId: worker.runtimeInstanceId } : {}),
 			sessionPath: entry.sessionPath,
+			...(sessionAgents ? { agents: sessionAgents } : {}),
 		};
 	});
 }

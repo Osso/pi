@@ -9,6 +9,7 @@ import { handleAnswerQuestion } from "./server-question-handlers.ts";
 import { questionStoreHost, questionSummaries } from "./server-question-utils.ts";
 import { forgetOwnedSession, readOwnedSessions, rememberOwnedSession } from "./server-restore.ts";
 import { handleArchiveSession, handleRenameSession } from "./server-session-admin.ts";
+import type { ServerSessionAgent } from "./server-session-agents.ts";
 import { errorMessage, serverHostId } from "./server-wire.ts";
 import { rpcCommand, sessionPathForId, sessionSummaries, startWorker, writeWorkerLine } from "./server-worker.ts";
 
@@ -31,6 +32,8 @@ export type ServerSessionSummary = {
 	attachment: "rpc" | "terminal" | "none";
 	runtimeInstanceId?: string;
 	sessionPath?: string;
+	/** Non-terminal sub-agents of a session that is not ended; absent when there are none. */
+	agents?: ServerSessionAgent[];
 };
 
 export type Worker = {
