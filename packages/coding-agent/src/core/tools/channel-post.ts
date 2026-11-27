@@ -1,7 +1,7 @@
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { advanceSharedChannelCursor, postSharedChannelMessage } from "../session-control-db.ts";
+import { postSharedChannelMessage } from "../session-control-db.ts";
 
 const channelPostSchema = Type.Object({
 	message: Type.String({
@@ -46,9 +46,9 @@ export function createChannelPostToolDefinition(): ToolDefinition<typeof channel
 				agentId: ctx?.multiAgentAgentId ?? null,
 				sessionId: ctx?.sessionManager.getSessionId() ?? "unknown-session",
 			};
+			// Drains already skip the sender's own posts; advancing the cursor here would also skip
+			// unread posts from other sessions.
 			const messageId = postSharedChannelMessage(controlDbPath, { body: message, sender });
-			// The sender already knows what it wrote; skip self-echo on the next idle drain.
-			advanceSharedChannelCursor(controlDbPath, sender, messageId);
 			return {
 				content: [{ type: "text", text: `Posted shared channel message ${messageId}.` }],
 				details: { messageId },

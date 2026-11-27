@@ -329,6 +329,7 @@
 - Fixed Pyrun `pi.messages.last()` returning no text for a reply delivered as signed Anthropic narration
 - Fixed the `end_turn` rejection for a turn without a visible reply saying that all thinking is hidden; it now says private thinking, matching the guideline, because signed narration is shown to the user
 - Fixed the Claude bridge dropping replies the user saw as signed Anthropic narration from another provider; they are now replayed as text
+- Fixed `channel_post` marking unread shared-channel posts from other sessions as seen: posting advanced the sender's cursor past every earlier message, so a post that arrived since the last drain was never delivered
 - Fixed the `end_turn` guideline telling the model that all thinking is hidden from the user. Signed narration arrives in a thinking block but is shown as the reply, so on replay the model concluded it had never answered and repeated the same reply on every continuation; the guideline now covers only private thinking
 - Fixed goal reviews never returning `wait` while a session waited on its child agents: reviews now receive the running child agents as `activeAgents` (or `activeAgentsError` when the list cannot be read), so the Supervisor can verify the wait instead of rejecting it as an unsupported claim
 - Fixed compaction and branch summaries dropping replies the user saw as signed Anthropic narration: the summarizer kept only text blocks, so a summary could miss every answer given through narration

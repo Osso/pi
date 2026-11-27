@@ -3,11 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+	advanceSharedChannelCursor,
 	archiveSession,
 	claimNextSupervisorRequest,
 	getControlDbPath,
+	hasPendingRuntimeCoordinationMessage,
 	listPendingArchitectRequests,
 	listSharedChannelMessagesAfter,
+	postSharedChannelMessage,
+	readSharedChannelCursor,
 	registerRuntimeMailboxListener,
 	writeSessionHealth,
 	writeSessionMetadata,
@@ -35,6 +39,34 @@ describe("session coordination tools", () => {
 			expect(activeTools).toContain("channel_post");
 		} finally {
 			harness.cleanup();
+		}
+	});
+
+	it("keeps another session's unread post pending after this session posts", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-channel-post-unread-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			const poster = { sessionId: "main-session", agentId: null };
+			advanceSharedChannelCursor(controlDbPath, poster, 0);
+			const otherPost = postSharedChannelMessage(controlDbPath, {
+				body: "Restart after the pi runtime replacement.",
+				sender: { sessionId: "other-session", agentId: null },
+			});
+			const tool = createChannelPostToolDefinition();
+
+			await tool.execute("channel-post", { message: "Pause edits to /shared/project." }, undefined, undefined, {
+				controlDbPath,
+				sessionManager: { getSessionId: () => "main-session" },
+			} as Parameters<typeof tool.execute>[4]);
+
+			expect(hasPendingRuntimeCoordinationMessage(controlDbPath, poster)).toBe(true);
+			const unread = listSharedChannelMessagesAfter(
+				controlDbPath,
+				readSharedChannelCursor(controlDbPath, poster) ?? 0,
+			);
+			expect(unread.map((entry) => entry.id)).toContain(otherPost);
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
 		}
 	});
 
