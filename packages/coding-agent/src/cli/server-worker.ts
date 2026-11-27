@@ -61,6 +61,7 @@ export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSum
 			...(worker ? { runtimeInstanceId: worker.runtimeInstanceId } : {}),
 			sessionPath: entry.sessionPath,
 			...(sessionAgents ? { agents: sessionAgents } : {}),
+			...(entry.sessionId === supervisorId ? { supervisor: true as const } : {}),
 		};
 	});
 }

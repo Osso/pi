@@ -34,6 +34,8 @@ export type ServerSessionSummary = {
 	sessionPath?: string;
 	/** Non-terminal sub-agents of a session that is not ended; absent when there are none. */
 	agents?: ServerSessionAgent[];
+	/** The configured Supervisor session (`supervisor.sessionId`); absent on other sessions. */
+	supervisor?: true;
 };
 
 export type Worker = {

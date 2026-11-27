@@ -141,8 +141,9 @@ describe("pi server process", () => {
 				const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
 				writeFileSync(settingsPath, JSON.stringify({ ...settings, supervisor: { sessionId: "supervisor-main" } }));
 				expect(await list(client)).toContainEqual(
-					expect.objectContaining({ sessionId: "supervisor-main", name: "Supervisor" }),
+					expect.objectContaining({ sessionId: "supervisor-main", name: "Supervisor", supervisor: true }),
 				);
+				expect((await list(client)).filter((session) => session.supervisor)).toHaveLength(1);
 			} finally {
 				client.close();
 				await stopDaemon(daemon, runtimeDir);

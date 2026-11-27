@@ -11,6 +11,8 @@ export type ServerSessionAgent = {
 	lifecycle: string;
 	/** `"thinking"`, `"<tool>: <detail>"` or the tool name while it acts, else its last activity, else `""`. */
 	activity: string;
+	/** `"<provider>/<modelId>"` the agent runs on, when its snapshot records one. */
+	model?: string;
 };
 
 type ActiveAgentRow = {
@@ -24,6 +26,8 @@ type ActiveAgentRow = {
 	tool_name: string | null;
 	detail: string | null;
 	last_description: string | null;
+	provider_id: string | null;
+	model_id: string | null;
 };
 
 // The multi-agent store of every Pi process on the machine (server workers and terminal sessions) lives here.
@@ -35,7 +39,9 @@ const ACTIVE_AGENTS_SQL = `SELECT session_path, agent_id,
 		json_extract(data, '$.currentActivity.phase') AS phase,
 		json_extract(data, '$.currentActivity.toolName') AS tool_name,
 		json_extract(data, '$.currentActivity.detail') AS detail,
-		json_extract(data, '$.lastActivity.description') AS last_description
+		json_extract(data, '$.lastActivity.description') AS last_description,
+		json_extract(data, '$.model.providerId') AS provider_id,
+		json_extract(data, '$.model.modelId') AS model_id
 	FROM multi_agent_agents
 	WHERE session_path IN (SELECT value FROM json_each(?)) AND json_valid(data)
 		AND json_extract(data, '$.lifecycle') NOT IN (SELECT value FROM json_each(?))
@@ -70,6 +76,7 @@ export function readActiveSessionAgents(
 			agentType: row.agent_type,
 			lifecycle: row.lifecycle,
 			activity: describeActivity(row),
+			...(row.model_id ? { model: row.provider_id ? `${row.provider_id}/${row.model_id}` : row.model_id } : {}),
 		});
 		bySession.set(row.session_path, agents);
 	}

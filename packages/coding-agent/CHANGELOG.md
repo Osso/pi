@@ -59,6 +59,7 @@
 
 ### Changed
 
+- pi server session summaries' `agents` entries carry the sub-agent's `model` (`<provider>/<modelId>`), and the configured Supervisor session's summary has `supervisor: true`.
 - Until an eligible main session is named, each prompt carries a hidden reminder to call `set_session_name`; models that skipped the naming guideline left sessions unnamed.
 - `pi questions` no longer shows a Quit row below the list; Escape (or Ctrl+C) quits.
 - `pi questions` uses configurable `app.questions.new` (Ctrl+N) and `app.questions.refresh` (Ctrl+R) shortcuts instead of ask and refresh action rows; Ctrl+R keeps the selected question, and the footer wraps its key hints at narrow widths.

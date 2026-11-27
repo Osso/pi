@@ -79,6 +79,7 @@ describe("pi server session agents", () => {
 					agentType: "default",
 					lifecycle: "running",
 					activity: "thinking",
+					model: "headless-faux/headless-faux-1",
 				};
 				expect(agentsOf((await listedSession(client, sessionId)) ?? {})).toEqual([thinking]);
 				const pushed = await waitForSessionUpdate(client, sessionId, 0, (summary) =>
