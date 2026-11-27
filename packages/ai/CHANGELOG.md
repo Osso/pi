@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic models answering the same question again after replying in signed narration: replay sent the reply back only as thinking, so the model concluded it had not answered. Completed turns now also carry the narration as text after the unchanged signed block
 - Fixed a model switch dropping replies the user saw as signed Anthropic narration: thinking from another model is still dropped, but narration is now replayed as text; added `isServerNarrationSignature`
 - Fixed proxy rate-limit errors with a `reset after` cooldown duration dropping the retry delay
 - Fixed Google Generative AI and Vertex errors dropping provider-requested retry delays
