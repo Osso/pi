@@ -74,7 +74,8 @@ export function transformMessages<TApi extends Api>(
 	const imageAwareMessages = downgradeUnsupportedImages(messages, model);
 
 	// First pass: transform messages (unsupported image downgrade, thinking blocks, tool call ID normalization)
-	const transformed = imageAwareMessages.map((msg) => {
+	const lastUserIndex = imageAwareMessages.map((msg) => msg.role).lastIndexOf("user");
+	const transformed = imageAwareMessages.map((msg, messageIndex) => {
 		// User messages pass through unchanged
 		if (msg.role === "user") {
 			return msg;
@@ -107,6 +108,13 @@ export function transformMessages<TApi extends Api>(
 						return isServerNarrationSignature(block.thinkingSignature)
 							? { type: "text" as const, text: block.thinking }
 							: [];
+					}
+					// Signed narration is the reply the user saw. Replayed only as thinking, the model reads
+					// it as private and answers again, so completed turns also carry it as text.
+					const isCompletedTurn = messageIndex < lastUserIndex;
+					if (isCompletedTurn && block.thinking.trim() && isServerNarrationSignature(block.thinkingSignature)) {
+						const copy: TextContent = { type: "text", text: block.thinking };
+						return [block, copy];
 					}
 					// Keep redacted and signed blocks even if the thinking text is empty
 					// (OpenAI encrypted reasoning); they are needed for replay.

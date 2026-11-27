@@ -34,7 +34,6 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.ts";
-import { isServerNarrationSignature } from "../utils/narration.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { getErrorRetryAfterMs, getRetryAfterMsFromText } from "../utils/retry-after.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
@@ -1011,9 +1010,7 @@ function convertMessages(
 	// Transform messages for cross-provider compatibility
 	const transformedMessages = transformMessages(messages, model, normalizeToolCallId);
 
-	const groupedMessages = groupToolResults(transformedMessages);
-	const lastUserIndex = groupedMessages.findLastIndex((message) => message.role === "user");
-	for (const [messageIndex, msg] of groupedMessages.entries()) {
+	for (const msg of groupToolResults(transformedMessages)) {
 		if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				if (msg.content.trim().length > 0) {
@@ -1070,12 +1067,6 @@ function convertMessages(
 							thinking: sanitizeSurrogates(block.thinking),
 							signature: block.thinkingSignature,
 						});
-						// Signed narration is the reply the user saw. Replayed only as thinking, the model
-						// reads it as private and answers again, so completed turns also get it as text.
-						const isCompletedTurn = messageIndex < lastUserIndex;
-						if (isCompletedTurn && block.thinking.trim() && isServerNarrationSignature(block.thinkingSignature)) {
-							blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
-						}
 					}
 				} else if (block.type === "toolCall") {
 					blocks.push({
