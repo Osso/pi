@@ -4,21 +4,22 @@ import { createConnection, createServer, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { getAgentDir } from "../config.ts";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { listSessions } from "../core/session-directory.ts";
-import { SettingsManager } from "../core/settings-manager.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 
 type RpcCommandResponse = Extract<RpcResponse, { command: "get_state" }>;
 
+import { type AgentQuestionEntry, answerAgentQuestion, listQuestionEntries } from "../questions/question-center.ts";
 import {
-	type AgentQuestionEntry,
-	answerAgentQuestion,
-	listQuestionEntries,
-	openQuestionCenter,
-} from "../questions/question-center.ts";
+	controlCenter,
+	makeQuestionSummary,
+	questionStoreHost,
+	questionSummaries,
+	questionUpdates,
+	sameAnswers,
+} from "./server-question-utils.ts";
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 1_048_576;
@@ -40,7 +41,7 @@ type ServerSessionSummary = {
 	sessionPath?: string;
 };
 
-type Worker = {
+export type Worker = {
 	child: ChildProcess;
 	sessionId: string;
 	sessionPath?: string;
@@ -106,36 +107,6 @@ function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] 
 			sessionPath: entry.sessionPath,
 		};
 	});
-}
-
-function questionUpdates(workers: Map<string, Worker>): Array<Record<string, unknown>> {
-	const center = controlCenter();
-	const stored = (center ? listQuestionEntries(center) : [])
-		.filter((entry): entry is AgentQuestionEntry => entry.direction === "agent" && entry.state !== "supervisor")
-		.map(makeQuestionSummary);
-	const pending = [...workers.values()].flatMap((worker) =>
-		[...worker.directQuestions].map(([questionId, question]) => ({
-			questionId,
-			sessionId: worker.sessionId,
-			originSessionId: worker.sessionId,
-			agentId: null,
-			toolCallId: question.toolCallId,
-			blocking: question.blocking,
-			questions: question.questions,
-			createdAt: question.createdAt,
-			state: "pending",
-			review: "none",
-			answerable: true,
-		})),
-	);
-	const answered = [...workers.values()].flatMap((worker) =>
-		[...worker.answeredDirectQuestions.values()].map((answer) => answer.question),
-	);
-	return [...stored, ...pending, ...answered];
-}
-
-function questionSummaries(workers: Map<string, Worker>): Array<Record<string, unknown>> {
-	return questionUpdates(workers).filter((question) => question.state === "pending");
 }
 
 function rpcCommand(worker: Worker, command: Record<string, unknown>): Promise<RpcResponse> {
@@ -263,46 +234,6 @@ function sessionPathForId(sessionId: string): string | undefined {
 		?.sessionPath;
 }
 
-function sameAnswers(left: Record<string, string> | undefined, right: Record<string, string>): boolean {
-	if (!left) return false;
-	const entries = Object.entries(right);
-	return (
-		entries.length === Object.keys(left).length && entries.every(([question, answer]) => left[question] === answer)
-	);
-}
-
-function serverSettings(): SettingsManager {
-	return SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
-}
-
-function questionStoreHost(settings: SettingsManager): string {
-	return settings.getMergedSettings().supervisor?.host ?? hostname();
-}
-
-function controlCenter() {
-	const settings = serverSettings();
-	if (questionStoreHost(settings) !== hostname()) return undefined;
-	return openQuestionCenter(settings, getControlDbPath());
-}
-
-function makeQuestionSummary(entry: AgentQuestionEntry) {
-	return {
-		questionId: entry.ref,
-		sessionId: entry.session.sessionId,
-		originSessionId: entry.session.sessionId,
-		agentId: null,
-		toolCallId: entry.toolCallId,
-		blocking: entry.blocking,
-		questions: entry.questions,
-		createdAt: entry.createdAt,
-		state: entry.state === "open" ? "pending" : entry.state,
-		review: "escalated",
-		answerable: entry.state === "open",
-		...(entry.answers ? { answers: entry.answers } : {}),
-		...(entry.answeredBy ? { answeredBy: entry.answeredBy } : {}),
-	};
-}
-
 type CommandContext = {
 	frame: Record<string, unknown>;
 	client: Client;
@@ -324,7 +255,7 @@ async function handleHello({ frame, serverInstanceId, respond, fail }: CommandCo
 		hostId: hostname(),
 		serverInstanceId,
 		features: ["sessions", "rpc", "questions"],
-		questionStoreHost: questionStoreHost(serverSettings()),
+		questionStoreHost: questionStoreHost(),
 	});
 }
 
@@ -591,10 +522,7 @@ function answerEscalatedQuestion(
 ): void {
 	const center = controlCenter();
 	if (!center) {
-		fail(
-			"not_found",
-			`Question not found on this host; the question store is on ${questionStoreHost(serverSettings())}`,
-		);
+		fail("not_found", `Question not found on this host; the question store is on ${questionStoreHost()}`);
 		return;
 	}
 	const entry = listQuestionEntries(center).find(
