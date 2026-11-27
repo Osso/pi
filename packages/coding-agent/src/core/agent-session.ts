@@ -2033,13 +2033,12 @@ export class AgentSession {
 		const loaderAppendSystemPrompt = this._resourceLoader.getAppendSystemPrompt();
 		const appendSystemPrompt =
 			loaderAppendSystemPrompt.length > 0 ? loaderAppendSystemPrompt.join("\n\n") : undefined;
-		const loadedSkills = this._resourceLoader.getSkills().skills;
 		const loadedContextFiles = this._resourceLoader.getAgentsFiles().agentsFiles;
 		const rulesContent = this._resourceLoader.getRulesContent();
 
 		this._baseSystemPromptOptions = {
 			cwd: this._cwd,
-			skills: loadedSkills,
+			skills: this._resourceLoader.getSkills().skills,
 			contextFiles: loadedContextFiles,
 			rulesContent,
 			customPrompt: loaderSystemPrompt,
@@ -2047,6 +2046,7 @@ export class AgentSession {
 			selectedTools: validToolNames,
 			toolSnippets,
 			promptGuidelines,
+			childAgent: this._multiAgentAgentId !== undefined || this._multiAgentRequiresAgentId,
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
 	}

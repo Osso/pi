@@ -64,6 +64,9 @@ Runtime roles are exclusive:
 - A child runtime is address-scoped and never receives execution capability. The only delegation
   exception is the [restricted explore consultation](multi-agent.md#core-runtime); all other child
   orchestration commands fail before creating lifecycle rows.
+- A child runtime's system prompt omits the main-session delegation guidelines (implement, verifier,
+  documentation-update, reviewer), because those spawns always fail there; it keeps the explore guideline
+  (`test/suite/child-system-prompt-delegation.test.ts`).
 - Help/inventory startup paths that do not construct an `AgentSession` are outside this invariant.
 
 Every lifecycle mutation must match the persisted agent and exact owner process identity

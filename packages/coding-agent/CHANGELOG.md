@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- Child agents no longer get the system-prompt guidelines that tell them to spawn implement, verifier, documentation-update, or reviewer agents. A child may only spawn explore consultations, so following those guidelines always failed with "Child agents can only spawn explore consultations." (34 failed calls on agent-server in 6 hours).
 - Remote `bash`, `pyrun_eval`, and `browser-cli` calls (`host`) reuse one remote session per agent, host and `cwd` instead of a new one per call. A `browser-cli` `open` in one call is now still there for the next call (it failed with "session '<key>' has no tab" and left the tab open), and Pyrun `session_id` ctx persists. Esc now aborts a running remote call and stops its remote session; the remote sessions stop when the local session ends.
 - Fixed running Bash and Pyrun jobs dying when `pi-server.service` restarts: runners launched from a systemd user service now start in their own scope.
 - `pi server` waits for a new RPC worker's first `get_state` as long as the worker runs, instead of 30 seconds. A worker that resumed a large session (900 MB) took longer to load, so `start_session` failed and a server restart did not reopen the session ("not reopening session …: RPC worker did not answer within 30 seconds").

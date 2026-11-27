@@ -44,6 +44,8 @@ export interface BuildSystemPromptOptions {
 	rulesContent?: string;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
+	/** Child agents may only spawn explore consultations, so they get no implement/verifier/docs/reviewer delegation guidelines. */
+	childAgent?: boolean;
 }
 
 /** Build the system prompt with tools, guidelines, and context */
@@ -58,6 +60,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		contextFiles: providedContextFiles,
 		rulesContent,
 		skills: providedSkills,
+		childAgent,
 	} = options;
 	const resolvedCwd = cwd;
 	const promptCwd = resolvedCwd.replace(/\\/g, "/");
@@ -142,6 +145,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		addGuideline(
 			'For codebase research, exploration, or file-reading investigation, you must use spawn_agent with agentType "explore" before direct file search, unless the user explicitly asks you not to delegate.',
 		);
+	}
+	if (hasSpawnAgent && !childAgent) {
 		addGuideline(
 			'For scoped code changes, use spawn_agent with agentType "implement" unless the change is trivial or the user explicitly asks you not to delegate.',
 		);
