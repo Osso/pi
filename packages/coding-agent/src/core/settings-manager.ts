@@ -93,7 +93,6 @@ export interface PermissionRulesSettings {
 export type DefaultProjectTrust = "ask" | "always" | "never";
 
 export type TransportSetting = Transport;
-
 /**
  * Package source for npm/git packages.
  * - String form: load all resources from the package
@@ -111,6 +110,7 @@ export type PackageSource =
 
 export interface Settings {
 	relay?: RelaySettings;
+	server?: { hub?: string; hubCommand?: string[] };
 	/** Interactive Supervisor session; `host` when remote; `tasksUrl`: llm-tasks server whose due tasks it delivers. */
 	supervisor?: { sessionId?: string; host?: string; tasksUrl?: string };
 	lastChangelogVersion?: string;
