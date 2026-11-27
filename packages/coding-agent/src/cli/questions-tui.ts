@@ -342,6 +342,11 @@ export async function handleQuestionsCommand(args: string[]): Promise<boolean> {
 		return true;
 	}
 	if (args[0] !== "questions") return false;
+	if (!process.stdin.isTTY || !process.stdout.isTTY) {
+		process.stderr.write("pi questions requires an interactive terminal; use pi control questions list\n");
+		process.exitCode = 1;
+		return true;
+	}
 	const settingsManager = SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
 	const center = openQuestionCenter(settingsManager, getControlDbPath());
 	const ui = await createStartupTui(settingsManager);
