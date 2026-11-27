@@ -46,7 +46,8 @@ describe("pi server attach to a session whose messages contain U+2028", () => {
 						},
 						{ timeout: 30_000, interval: 100 },
 					)
-					.toMatchObject({ isStreaming: false, messageCount: 3 });
+					// Prompt, hidden set_session_name reminder (the session is unnamed), reply, end_turn result.
+					.toMatchObject({ isStreaming: false, messageCount: 4 });
 
 				const observer = await ServerClient.connect(join(runtimeDir, "pi", "server.sock"));
 				try {
