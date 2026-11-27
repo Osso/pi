@@ -253,6 +253,12 @@ describe("pi server process", () => {
 						answers: { "Which value should I use?": "43" },
 					});
 					expect(conflictingAnswer).toMatchObject({ success: false, error: { code: "already_resolved" } });
+					await reconnected.waitForEvent(
+						(event) =>
+							event.type === "question_updated" &&
+							(event.question as Frame | undefined)?.questionId === directQuestion?.questionId &&
+							(event.question as Frame | undefined)?.state === "answered",
+					);
 					const followUp = await agent.waitForLlmRequest((item) => JSON.stringify(item.messages).includes("42"));
 					agent.respondToLlmRequest(
 						followUp.id,

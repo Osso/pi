@@ -44,6 +44,8 @@ export interface AgentQuestionEntry {
 	id: number;
 	createdAt: string;
 	session: SessionAddress;
+	toolCallId: string;
+	blocking: boolean;
 	questions: AskQuestionsToolInput["questions"];
 	/** `supervisor`: the Supervisor is deciding; `open`: waiting for the user. */
 	state: "supervisor" | "open" | "answered" | "cancelled";
@@ -92,6 +94,8 @@ function toAgentEntry(request: SupervisorRequest): AgentQuestionEntry {
 		id: request.id,
 		createdAt: request.createdAt,
 		session: { sessionId: request.senderSessionId, host: request.replyTo?.host },
+		toolCallId: request.replyTo?.requestId ?? `a${request.id}`,
+		blocking: request.payload.blocking === true,
 		questions: request.payload.questions as AskQuestionsToolInput["questions"],
 		state: agentState(request),
 		...(response

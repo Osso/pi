@@ -65,6 +65,7 @@ type Attachment = {
 	events: Array<{ sequence: number; event: RpcEvent }>;
 };
 type Client = { socket: Socket; attachments: Map<string, Attachment>; subscriptions: Set<"sessions" | "questions"> };
+type RevisionCounters = { sessions: number; questions: number };
 
 function socketPath(): string {
 	const runtimeDir = process.env.XDG_RUNTIME_DIR;
@@ -77,7 +78,13 @@ function errorMessage(error: unknown): string {
 }
 
 function writeFrame(socket: Socket, frame: unknown): void {
-	if (!socket.destroyed) socket.write(`${JSON.stringify(frame)}\n`);
+	if (socket.destroyed) return;
+	const line = `${JSON.stringify(frame)}\n`;
+	if (socket.writableLength + Buffer.byteLength(line) > MAX_FRAME_BYTES) {
+		socket.destroy(new Error("Client output buffer exceeds 1 MiB"));
+		return;
+	}
+	socket.write(line);
 }
 
 function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
@@ -101,17 +108,17 @@ function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] 
 	});
 }
 
-function questionSummaries(workers: Map<string, Worker>): Array<Record<string, unknown>> {
+function questionUpdates(workers: Map<string, Worker>): Array<Record<string, unknown>> {
 	const stored = listQuestionEntries(controlCenter())
-		.filter((entry): entry is AgentQuestionEntry => entry.direction === "agent" && entry.state === "open")
+		.filter((entry): entry is AgentQuestionEntry => entry.direction === "agent" && entry.state !== "supervisor")
 		.map(makeQuestionSummary);
-	const direct = [...workers.values()].flatMap((worker) =>
+	const pending = [...workers.values()].flatMap((worker) =>
 		[...worker.directQuestions].map(([questionId, question]) => ({
 			questionId,
 			sessionId: worker.sessionId,
 			originSessionId: worker.sessionId,
 			agentId: null,
-			toolCallId: question.dialogId,
+			toolCallId: question.toolCallId,
 			blocking: question.blocking,
 			questions: question.questions,
 			createdAt: question.createdAt,
@@ -120,7 +127,14 @@ function questionSummaries(workers: Map<string, Worker>): Array<Record<string, u
 			answerable: true,
 		})),
 	);
-	return [...stored, ...direct];
+	const answered = [...workers.values()].flatMap((worker) =>
+		[...worker.answeredDirectQuestions.values()].map((answer) => answer.question),
+	);
+	return [...stored, ...pending, ...answered];
+}
+
+function questionSummaries(workers: Map<string, Worker>): Array<Record<string, unknown>> {
+	return questionUpdates(workers).filter((question) => question.state === "pending");
 }
 
 function rpcCommand(worker: Worker, command: Record<string, unknown>): Promise<RpcResponse> {
@@ -267,8 +281,8 @@ function makeQuestionSummary(entry: AgentQuestionEntry) {
 		sessionId: entry.session.sessionId,
 		originSessionId: entry.session.sessionId,
 		agentId: null,
-		toolCallId: entry.ref,
-		blocking: false,
+		toolCallId: entry.toolCallId,
+		blocking: entry.blocking,
 		questions: entry.questions,
 		createdAt: entry.createdAt,
 		state: entry.state === "open" ? "pending" : entry.state,
@@ -283,8 +297,9 @@ async function handleCommand(
 	frame: Record<string, unknown>,
 	client: Client,
 	workers: Map<string, Worker>,
-	clients: Set<Client>,
 	serverInstanceId: string,
+	revisions: RevisionCounters,
+	publishUpdates: () => void,
 ): Promise<void> {
 	const id = frame.id;
 	const type = frame.type;
@@ -304,11 +319,12 @@ async function handleCommand(
 					features: ["sessions", "rpc", "questions"],
 				});
 			case "list_sessions": {
+				publishUpdates();
 				client.subscriptions.add("sessions");
 				const sessions = sessionSummaries(workers);
 				const visibleSessions =
 					frame.includeEnded === false ? sessions.filter((session) => session.status !== "ended") : sessions;
-				return respond({ sessions: visibleSessions, revision: Date.now() });
+				return respond({ sessions: visibleSessions, revision: revisions.sessions });
 			}
 			case "start_session": {
 				if (typeof frame.cwd !== "string" || !frame.cwd)
@@ -458,8 +474,9 @@ async function handleCommand(
 				return respond({ response: { ...response, id: command.id } });
 			}
 			case "list_questions": {
+				publishUpdates();
 				client.subscriptions.add("questions");
-				return respond({ questions: questionSummaries(workers), revision: Date.now() });
+				return respond({ questions: questionSummaries(workers), revision: revisions.questions });
 			}
 			case "answer_question": {
 				if (
@@ -511,9 +528,6 @@ async function handleCommand(
 						delivery: "accepted",
 					};
 					worker.answeredDirectQuestions.set(frame.questionId, { answers, question });
-					for (const subscriber of clients)
-						if (subscriber.subscriptions.has("questions"))
-							writeFrame(subscriber.socket, { type: "question_updated", revision: Date.now(), question });
 					return respond({ question, delivery: "accepted" });
 				}
 				const center = controlCenter();
@@ -528,17 +542,10 @@ async function handleCommand(
 				const updated = listQuestionEntries(center).find(
 					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
 				);
-				return respond({
-					question: updated
-						? makeQuestionSummary(updated)
-						: makeQuestionSummary({
-								...entry,
-								state: "answered",
-								answers,
-								answeredBy: "user",
-							}),
-					delivery: "delivered",
-				});
+				const question = updated
+					? makeQuestionSummary(updated)
+					: makeQuestionSummary({ ...entry, state: "answered", answers, answeredBy: "user" });
+				return respond({ question, delivery: "delivered" });
 			}
 			default:
 				return fail("unknown_command", `Unknown server command: ${String(type)}`);
@@ -573,8 +580,7 @@ async function runServer(): Promise<void> {
 	const workers = new Map<string, Worker>();
 	const clients = new Set<Client>();
 	const serverInstanceId = crypto.randomUUID();
-	let sessionRevision = 0;
-	let questionRevision = 0;
+	const revisions: RevisionCounters = { sessions: 0, questions: 0 };
 	let previousSessions = new Map<string, string>();
 	let previousQuestions = new Map<string, string>();
 	const publishUpdates = () => {
@@ -583,33 +589,35 @@ async function runServer(): Promise<void> {
 				sessionSummaries(workers).map((session) => [session.sessionId, JSON.stringify(session)]),
 			);
 			const currentQuestions = new Map(
-				questionSummaries(workers).map((question) => [String(question.questionId), JSON.stringify(question)]),
+				questionUpdates(workers).map((question) => [String(question.questionId), JSON.stringify(question)]),
 			);
+			const sessionEvents: unknown[] = [];
+			for (const [sessionId, value] of currentSessions) {
+				if (previousSessions.get(sessionId) !== value)
+					sessionEvents.push({
+						type: "session_updated",
+						revision: ++revisions.sessions,
+						session: JSON.parse(value),
+					});
+			}
+			for (const sessionId of previousSessions.keys()) {
+				if (!currentSessions.has(sessionId))
+					sessionEvents.push({ type: "session_removed", revision: ++revisions.sessions, sessionId });
+			}
+			const questionEvents: unknown[] = [];
+			for (const [questionId, value] of currentQuestions) {
+				if (previousQuestions.get(questionId) !== value)
+					questionEvents.push({
+						type: "question_updated",
+						revision: ++revisions.questions,
+						question: JSON.parse(value),
+					});
+			}
 			for (const client of clients) {
-				if (client.subscriptions.has("sessions")) {
-					for (const [sessionId, value] of currentSessions) {
-						if (previousSessions.get(sessionId) !== value)
-							writeFrame(client.socket, {
-								type: "session_updated",
-								revision: ++sessionRevision,
-								session: JSON.parse(value),
-							});
-					}
-					for (const sessionId of previousSessions.keys()) {
-						if (!currentSessions.has(sessionId))
-							writeFrame(client.socket, { type: "session_removed", revision: ++sessionRevision, sessionId });
-					}
-				}
-				if (client.subscriptions.has("questions")) {
-					for (const [questionId, value] of currentQuestions) {
-						if (previousQuestions.get(questionId) !== value)
-							writeFrame(client.socket, {
-								type: "question_updated",
-								revision: ++questionRevision,
-								question: JSON.parse(value),
-							});
-					}
-				}
+				if (client.subscriptions.has("sessions"))
+					for (const event of sessionEvents) writeFrame(client.socket, event);
+				if (client.subscriptions.has("questions"))
+					for (const event of questionEvents) writeFrame(client.socket, event);
 			}
 			previousSessions = currentSessions;
 			previousQuestions = currentQuestions;
@@ -625,19 +633,26 @@ async function runServer(): Promise<void> {
 		let buffered = "";
 		socket.on("data", (chunk: string) => {
 			buffered += chunk;
-			if (Buffer.byteLength(buffered) > MAX_FRAME_BYTES) return socket.destroy(new Error("Frame exceeds 1 MiB"));
 			for (;;) {
 				const newline = buffered.indexOf("\n");
-				if (newline < 0) break;
+				if (newline < 0) {
+					if (Buffer.byteLength(buffered) > MAX_FRAME_BYTES) socket.destroy(new Error("Frame exceeds 1 MiB"));
+					break;
+				}
 				const line = buffered.slice(0, newline).replace(/\r$/, "");
 				buffered = buffered.slice(newline + 1);
+				if (Buffer.byteLength(line) > MAX_FRAME_BYTES) {
+					socket.destroy(new Error("Frame exceeds 1 MiB"));
+					return;
+				}
 				try {
 					void handleCommand(
 						JSON.parse(line) as Record<string, unknown>,
 						client,
 						workers,
-						clients,
 						serverInstanceId,
+						revisions,
+						publishUpdates,
 					);
 				} catch {
 					writeFrame(socket, {
