@@ -296,6 +296,7 @@
 
 ### Fixed
 
+- Fixed the `end_turn` guideline telling the model that all thinking is hidden from the user. Signed narration arrives in a thinking block but is shown as the reply, so on replay the model concluded it had never answered and repeated the same reply on every continuation; the guideline now covers only private thinking
 - Fixed `/run-plan <file>` telling the agent to check off the selected item in `PLAN.md` instead of the named plan file, so the item stayed unchecked and was submitted again
 - Fixed Supervisor requests (goal review, approvals, `ask_supervisor`) failing with `the relay to the Supervisor on host <host> is not running` after this host's relay process exited. Sessions started the relay only at their own startup; a request to a Supervisor on another host now starts the configured relay again.
 - Fixed `app.message.followUp` (Alt+Enter) ignoring an open autocomplete menu and queuing the half-typed text. It now applies the selected suggestion like Enter: a completed command name is queued, and other completions are inserted without queuing (port of upstream 27157503e)
