@@ -133,6 +133,11 @@ export function startWorker(cwd: string, resumePath?: string, name?: string): Wo
 	child.stderr?.on("data", (chunk: Buffer) => {
 		worker.stderr = `${worker.stderr}${chunk.toString()}`.slice(-16_384);
 	});
+	// A spawn failure (e.g. a cwd removed after validation) ends this worker only, never the daemon.
+	child.once("error", (error) => {
+		worker.stderr = `${worker.stderr}${error.message}`.slice(-16_384);
+		child.emit("exit", null, null);
+	});
 	child.on("exit", () => {
 		for (const resolve of worker.pending.values())
 			resolve({

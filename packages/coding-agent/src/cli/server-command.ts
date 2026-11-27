@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { statSync } from "node:fs";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { HubClient, ServerHub } from "./server-hub.ts";
@@ -113,6 +114,14 @@ async function handleListSessions({ frame, client, workers, revisions, publishUp
 
 type SessionStartRequest = { cwd: string; resumeSessionId?: string; resumePath?: string };
 
+function isDirectory(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
 function validateSessionStart(
 	frame: Record<string, unknown>,
 	workers: Map<string, Worker>,
@@ -120,6 +129,10 @@ function validateSessionStart(
 ): SessionStartRequest | undefined {
 	if (typeof frame.cwd !== "string" || !frame.cwd) {
 		fail("invalid_request", "cwd must be a non-empty path");
+		return undefined;
+	}
+	if (!isDirectory(frame.cwd)) {
+		fail("invalid_cwd", `cwd is not a directory on this machine: ${frame.cwd}`);
 		return undefined;
 	}
 	if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string") {

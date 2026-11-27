@@ -258,6 +258,10 @@ describe("pi server process", () => {
 			expect(existsSync(join(first.runtimeDir, "pi", "server.sock"))).toBe(true);
 			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
 			try {
+				// A cwd that does not exist here is refused, and the daemon keeps serving.
+				expect(
+					await client.request("start_session", { cwd: join(agent.paths.tempDir, "no-such-dir") }),
+				).toMatchObject({ success: false, error: { code: "invalid_cwd" } });
 				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
 				if (started.success !== true) throw new Error(JSON.stringify(started));
 				const session = (started.data as { session: Frame }).session;
