@@ -1,3 +1,4 @@
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	type Component,
 	Container,
@@ -13,6 +14,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { getAssistantContentText } from "../../../core/assistant-narration.ts";
 import { buildContextEntries, type SessionTreeNode } from "../../../core/session-manager.ts";
 import { formatReadLineRange } from "../../../core/tools/render-utils.ts";
 import { shortenHomePath } from "../../../utils/paths.ts";
@@ -908,10 +910,10 @@ class TreeList implements Component {
 		if (Array.isArray(content)) {
 			let result = "";
 			for (const c of content) {
-				if (typeof c === "object" && c !== null && "type" in c && c.type === "text") {
-					result += (c as { text: string }).text;
-					if (result.length >= maxLen) return result.slice(0, maxLen);
-				}
+				const text = getAssistantContentText(c as AssistantMessage["content"][number]);
+				if (text === undefined) continue;
+				result += text;
+				if (result.length >= maxLen) return result.slice(0, maxLen);
 			}
 			return result;
 		}
@@ -922,10 +924,7 @@ class TreeList implements Component {
 		if (typeof content === "string") return content.trim().length > 0;
 		if (Array.isArray(content)) {
 			for (const c of content) {
-				if (typeof c === "object" && c !== null && "type" in c && c.type === "text") {
-					const text = (c as { text?: string }).text;
-					if (text && text.trim().length > 0) return true;
-				}
+				if (getAssistantContentText(c as AssistantMessage["content"][number])?.trim()) return true;
 			}
 		}
 		return false;

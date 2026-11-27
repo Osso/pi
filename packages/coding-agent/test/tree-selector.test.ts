@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { stripVTControlCharacters } from "node:util";
 import { setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -86,6 +87,21 @@ function toolCallOnlyAssistant(id: string, parentId: string | null): SessionMess
 	};
 }
 
+const narrationFixture = JSON.parse(
+	readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+) as { content: Array<{ type: "thinking"; thinking: string; thinkingSignature: string }> };
+
+// An assistant reply delivered only as signed narration after private thinking, then end_turn
+function narrationOnlyAssistant(id: string, parentId: string | null): SessionMessageEntry {
+	const entry = toolCallOnlyAssistant(id, parentId);
+	if (entry.message.role !== "assistant") throw new Error("expected assistant");
+	entry.message.content = [
+		...narrationFixture.content,
+		{ type: "toolCall", id: `tc-${id}`, name: "end_turn", arguments: { reason: "answered" } },
+	];
+	return entry;
+}
+
 // Helper to create a model_change entry
 function modelChange(id: string, parentId: string | null): ModelChangeEntry {
 	return {
@@ -127,6 +143,28 @@ function buildTree(entries: Array<SessionEntry>): SessionTreeNode[] {
 }
 
 describe("TreeSelectorComponent", () => {
+	test("shows a narration-only reply in the default filter with its narration text, not private thinking", () => {
+		const [privateThinking, narration] = narrationFixture.content;
+		const entries = [
+			userMessage("user-1", null, "should we batch deploys?"),
+			narrationOnlyAssistant("asst-1", "user-1"),
+			userMessage("user-2", "asst-1", "ok"),
+			assistantMessage("asst-2", "user-2", "done"),
+		];
+		const selector = new TreeSelectorComponent(
+			buildTree(entries),
+			"asst-2",
+			24,
+			() => {},
+			() => {},
+		);
+
+		const plain = selector.getTreeList().render(400).map(stripVTControlCharacters).join("\n");
+		const narrationStart = narration.thinking.replace(/\s+/g, " ").trim().slice(0, 40);
+		expect(plain).toContain(`assistant: ${narrationStart}`);
+		expect(plain).not.toContain(privateThinking.thinking.replace(/\s+/g, " ").trim().slice(0, 40));
+	});
+
 	describe("initial selection with metadata entries", () => {
 		test("focuses nearest visible ancestor when currentLeafId is a model_change with sibling branch", () => {
 			// Tree structure:
