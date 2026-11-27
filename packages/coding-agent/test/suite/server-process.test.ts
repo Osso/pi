@@ -297,6 +297,57 @@ describe("pi server process", () => {
 		});
 	}, 60_000);
 
+	it("renames an ended session and archives it, refusing a running one", async () => {
+		await withHeadlessPi(async (agent) => {
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			const endedPath = join(agent.paths.sessionDir, "old.jsonl");
+			writeFileSync(endedPath, `${JSON.stringify({ type: "session", id: "old", cwd: agent.paths.workspaceDir })}\n`);
+			writeSessionMetadata(controlDbPath, {
+				id: "old",
+				messageCount: 2,
+				firstMessage: "fix the footer",
+				sessionPath: endedPath,
+				cwd: agent.paths.workspaceDir,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:10:00.000Z",
+			});
+			writeSessionHealth(controlDbPath, {
+				...emptySessionHealth("old"),
+				agentGeneration: 1,
+				checkStatus: "dead",
+				checkedGeneration: 1,
+			});
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			const named = async (sessionId: string) =>
+				(await list(client)).find((session) => session.sessionId === sessionId)?.name;
+			try {
+				expect(await client.request("rename_session", { sessionId: "old", name: " Footer fix " })).toMatchObject({
+					success: true,
+					data: { sessionId: "old", name: "Footer fix" },
+				});
+				expect(await named("old")).toBe("Footer fix");
+				expect(await client.request("rename_session", { sessionId: "old", name: "" })).toMatchObject({
+					success: true,
+				});
+				expect(await named("old")).toBeNull();
+				expect(await client.request("archive_session", { sessionId: agent.sessionId })).toMatchObject({
+					success: false,
+					error: { code: "running" },
+				});
+				expect(await client.request("archive_session", { sessionId: "old" })).toMatchObject({
+					success: true,
+					data: { sessionId: "old" },
+				});
+				expect(existsSync(endedPath)).toBe(false);
+				expect(existsSync(`${endedPath}.zst`)).toBe(true);
+				expect((await list(client)).map((session) => session.sessionId)).not.toContain("old");
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
 	it("reports a pending question cancelled when its worker stops", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { daemon, client, runtimeDir } = await startDaemon(agent, null);

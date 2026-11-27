@@ -7,6 +7,7 @@ import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { HubClient, ServerHub } from "./server-hub.ts";
 import { handleAnswerQuestion } from "./server-question-handlers.ts";
 import { questionStoreHost, questionSummaries } from "./server-question-utils.ts";
+import { handleArchiveSession, handleRenameSession } from "./server-session-admin.ts";
 import { errorMessage, serverHostId } from "./server-wire.ts";
 import { rpcCommand, sessionPathForId, sessionSummaries, startWorker, writeWorkerLine } from "./server-worker.ts";
 
@@ -362,6 +363,8 @@ const commandHandlers: Record<string, CommandHandler> = {
 	start_session: handleStartSession,
 	stop_session: handleStopSession,
 	delete_session: handleDeleteSession,
+	rename_session: handleRenameSession,
+	archive_session: handleArchiveSession,
 	attach_session: handleAttachSession,
 	detach_session: handleDetachSession,
 	session_rpc: handleSessionRpc,
