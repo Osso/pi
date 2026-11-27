@@ -39,6 +39,8 @@
 
 ### Added
 
+- In RPC mode the default footer extension publishes the current branch's pull request as the `pull-request` extension status, `<url> <state> ✓ <passed> ○ <running> ✗ <failed>` (read with `github pr branch` every five minutes and on branch changes), so RPC clients such as pi-desktop can link it.
+
 - RPC `get_messages` returns `toolCallStarts`, when each tool call on the branch started, so a client that loads history can show tool durations.
 
 - `pi server` reopens the sessions its workers owned when it restarts (recorded in `server-sessions.json` in the agent directory); a reopened worker continues an interrupted run. Sessions stopped with `stop_session` or whose worker quit are not reopened.

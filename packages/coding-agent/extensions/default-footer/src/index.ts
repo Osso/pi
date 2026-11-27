@@ -17,6 +17,7 @@ import {
 	sanitizeFooterStatusText,
 } from "../../../src/utils/footer-status.ts";
 import { formatPullRequest, type PullRequest } from "./pull-request.ts";
+import { branchCanHavePullRequest, startPullRequestRpcStatus } from "./pull-request-rpc-status.ts";
 import { PullRequestStatus } from "./pull-request-status.ts";
 import { ReplySpeed } from "./reply-speed.ts";
 
@@ -302,11 +303,6 @@ function registerBackgroundCompactionStatus(pi: ExtensionAPI): void {
 	});
 }
 
-/** Outside a repository, or on a detached HEAD, no branch can have a pull request. */
-function branchCanHavePullRequest(branch: string | null): branch is string {
-	return branch !== null && branch !== "detached";
-}
-
 function registerReplySpeed(pi: ExtensionAPI, replySpeed: ReplySpeed): void {
 	pi.on("message_update", async (event) => {
 		replySpeed.recordUpdate(event.message, Date.now());
@@ -325,8 +321,18 @@ export default function defaultFooterExtension(pi: ExtensionAPI, options: Defaul
 	pi.on("session_tree", async () => {
 		usageByLeaf = new WeakMap();
 	});
+	let stopRpcPullRequest: (() => void) | undefined;
+	pi.on("session_shutdown", async () => {
+		stopRpcPullRequest?.();
+		stopRpcPullRequest = undefined;
+	});
 	pi.on("session_start", async (_event, ctx) => {
 		setBackgroundCompactionStatus(ctx, undefined);
+		if (ctx.mode === "rpc") {
+			stopRpcPullRequest?.();
+			stopRpcPullRequest = startPullRequestRpcStatus(ctx);
+			return;
+		}
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {
 			const pullRequestBranch = (): string | null => {
 				const branch = footerData.getGitBranch();

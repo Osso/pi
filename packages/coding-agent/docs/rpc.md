@@ -232,7 +232,7 @@ Response:
 }
 ```
 
-The `model` field is a full [Model](#model) object or `null`. The `sessionName` field is the display name set via `set_session_name`, or omitted if not set. `extensionStatuses` holds the current footer statuses extensions set with `setStatus` (goal, mission, bwrap, ...), so a client that connects after they were set can show them; later changes arrive as `setStatus` requests.
+The `model` field is a full [Model](#model) object or `null`. The `sessionName` field is the display name set via `set_session_name`, or omitted if not set. `extensionStatuses` holds the current footer statuses extensions set with `setStatus` (goal, mission, bwrap, ...), so a client that connects after they were set can show them; later changes arrive as `setStatus` requests. In a git repository the `pull-request` status is the branch's pull request as plain text, `<url> <state> ✓ <passed> ○ <running> ✗ <failed>` (state `open`, `closed` or `merged`); it is absent when the branch has none or `github` cannot read it.
 
 #### get_messages
 
