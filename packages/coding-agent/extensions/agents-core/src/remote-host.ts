@@ -159,7 +159,79 @@ async function stopRemoteToolSession(hub: HubConnection, host: string, session: 
 	}
 }
 
-/** Runs an active tool on another pi-server host. Undefined means the requested host is local. */
+interface CachedRemoteToolSession {
+	hub: HubConnection;
+	host: string;
+	session: RemoteToolSession;
+}
+
+/**
+ * One remote session per (local session, agent, host, cwd), reused across tool calls so remote state
+ * persists between calls: the browser-cli tab key, Pyrun session_id ctx. Stopped by stopRemoteToolSessions.
+ */
+const remoteToolSessions = new Map<string, Promise<CachedRemoteToolSession>>();
+
+function remoteToolSessionKey(ctx: ExtensionContext, host: string, cwd: string): string {
+	const sessionId = ctx.sessionManager?.getSessionId() ?? "";
+	const agentId = ctx.toolExecutionAgentId ?? ctx.multiAgentAgentId ?? "main";
+	return JSON.stringify([sessionId, agentId, host, cwd]);
+}
+
+async function openCachedRemoteToolSession(
+	ctx: ExtensionContext,
+	host: string,
+	cwd: string,
+): Promise<CachedRemoteToolSession> {
+	const hub = await HubConnection.open(ctx);
+	try {
+		return { hub, host, session: await startRemoteToolSession(hub, host, cwd) };
+	} catch (error) {
+		hub.close();
+		throw error;
+	}
+}
+
+function acquireRemoteToolSession(ctx: ExtensionContext, host: string, cwd: string): Promise<CachedRemoteToolSession> {
+	const key = remoteToolSessionKey(ctx, host, cwd);
+	const existing = remoteToolSessions.get(key);
+	if (existing) return existing;
+	const opened = openCachedRemoteToolSession(ctx, host, cwd);
+	remoteToolSessions.set(key, opened);
+	const forget = () => {
+		if (remoteToolSessions.get(key) === opened) remoteToolSessions.delete(key);
+	};
+	opened.then((cached) => cached.hub.onClose(forget), forget);
+	return opened;
+}
+
+async function closeRemoteToolSession(cached: CachedRemoteToolSession): Promise<void> {
+	if (!cached.hub.closed) await stopRemoteToolSession(cached.hub, cached.host, cached.session);
+	cached.hub.close();
+}
+
+/** Stops every remote tool session this process opened. Called when the local session ends. */
+export async function stopRemoteToolSessions(): Promise<void> {
+	const entries = [...remoteToolSessions.values()];
+	remoteToolSessions.clear();
+	await Promise.all(entries.map((entry) => entry.then(closeRemoteToolSession, () => undefined)));
+}
+
+function abortPromise(signal: AbortSignal | undefined): { promise: Promise<never>; dispose: () => void } {
+	let dispose = () => {};
+	const promise = new Promise<never>((_, reject) => {
+		if (!signal) return;
+		const onAbort = () => reject(new Error("Remote tool call aborted"));
+		signal.addEventListener("abort", onAbort, { once: true });
+		dispose = () => signal.removeEventListener("abort", onAbort);
+	});
+	return { promise, dispose };
+}
+
+/**
+ * Runs an active tool on another pi-server host. Undefined means the requested host is local.
+ * Abort, or any hub/session failure, stops the remote session (which ends the remote tool) and drops it,
+ * so the next call starts a new one.
+ */
 export async function runRemoteTool(
 	ctx: ExtensionContext,
 	host: string | undefined,
@@ -172,14 +244,20 @@ export async function runRemoteTool(
 	if (!target || target === serverHostId()) return undefined;
 	if (signal?.aborted) throw new Error("Remote tool call aborted");
 
-	const hub = await HubConnection.open(ctx);
-	let session: RemoteToolSession | undefined;
+	const key = remoteToolSessionKey(ctx, target, cwd);
+	const acquired = acquireRemoteToolSession(ctx, target, cwd);
+	const aborted = abortPromise(signal);
 	try {
-		session = await startRemoteToolSession(hub, target, cwd);
-		if (signal?.aborted) throw new Error("Remote tool call aborted");
-		return await callRemoteToolOnSession(hub, target, session, toolName, params);
+		const cached = await Promise.race([acquired, aborted.promise]);
+		return await Promise.race([
+			callRemoteToolOnSession(cached.hub, target, cached.session, toolName, params),
+			aborted.promise,
+		]);
+	} catch (error) {
+		if (remoteToolSessions.get(key) === acquired) remoteToolSessions.delete(key);
+		await acquired.then(closeRemoteToolSession, () => undefined);
+		throw error;
 	} finally {
-		if (session) await stopRemoteToolSession(hub, target, session);
-		hub.close();
+		aborted.dispose();
 	}
 }

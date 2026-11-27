@@ -81,6 +81,7 @@ import {
 } from "./messaging.ts";
 import { registerQuestionRelayTools } from "./question-relay-tools.ts";
 import { createRemoteAttachedSessionFactory } from "./remote-child-session.ts";
+import { stopRemoteToolSessions } from "./remote-host.ts";
 
 export type {
 	AgentDesktopNotification,
@@ -580,6 +581,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	pi.on?.("session_shutdown", async (event, ctx) => {
 		unsubscribeCloseAll?.();
 		runtimeLifecycleMirror.dispose();
+		// Child agents share this process and its remote tool sessions; only the main runtime stops them.
+		if (!isChildAgentRuntime(ctx)) await stopRemoteToolSessions();
 		if (event.reason === "reload" || isChildAgentRuntime(ctx)) {
 			return;
 		}

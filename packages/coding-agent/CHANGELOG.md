@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- Remote `bash`, `pyrun_eval`, and `browser-cli` calls (`host`) reuse one remote session per agent, host and `cwd` instead of a new one per call. A `browser-cli` `open` in one call is now still there for the next call (it failed with "session '<key>' has no tab" and left the tab open), and Pyrun `session_id` ctx persists. Esc now aborts a running remote call and stops its remote session; the remote sessions stop when the local session ends.
 - `pi server` waits for a new RPC worker's first `get_state` as long as the worker runs, instead of 30 seconds. A worker that resumed a large session (900 MB) took longer to load, so `start_session` failed and a server restart did not reopen the session ("not reopening session …: RPC worker did not answer within 30 seconds").
 - `pi server` reads RPC worker output with LF-only JSONL framing. It used Node `readline`, which also ends a line at U+2028/U+2029; JSON leaves these unescaped inside strings, so when a session's messages contained one, the `get_messages` response and events carrying it were dropped and every `attach_session` failed with "RPC worker did not answer within 30 seconds" while the worker kept running. The cross-host relay and the session list (`pi -r` message counts and first message) had the same split.
 

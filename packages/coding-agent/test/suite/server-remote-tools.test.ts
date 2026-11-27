@@ -31,6 +31,11 @@ async function callTool(
 	return (rpcResponse.data as { result: Frame }).result;
 }
 
+async function runningSpokeSessions(client: { request(type: string, fields?: Frame): Promise<Frame> }) {
+	const sessions = ((await client.request("list_sessions")).data as { sessions: Frame[] }).sessions;
+	return sessions.filter((session) => session.owner === "server" && session.status === "running");
+}
+
 function resultText(result: Frame): string {
 	return (result.content as Array<{ text?: string }>).map((item) => item.text ?? "").join("\n");
 }
@@ -89,6 +94,12 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 					});
 					expect(browser.isError).not.toBe(true);
 					expect(resultText(browser)).toContain("spoke-id:");
+					// A second call reuses the remote session, so browser-cli keeps the same tab key.
+					const browserAgain = await callTool(hub.client, sessionId, runtimeInstanceId, "browser-cli", {
+						host: "spoke-id",
+						commands: [["get", "url"]],
+					});
+					expect(resultText(browserAgain).trim()).toBe(resultText(browser).trim());
 
 					const unknown = await callTool(hub.client, sessionId, runtimeInstanceId, "bash", {
 						host: "unknown-id",
@@ -96,6 +107,14 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 					});
 					expect(unknown.isError).toBe(true);
 					expect(resultText(unknown)).toContain("machine_offline");
+
+					// Ending the local session stops the remote tool sessions it opened on the spoke.
+					expect(await runningSpokeSessions(spoke.client)).not.toHaveLength(0);
+					await hub.client.request("stop_session", { sessionId, runtimeInstanceId });
+					const deadline = Date.now() + 30_000;
+					while ((await runningSpokeSessions(spoke.client)).length > 0 && Date.now() < deadline)
+						await new Promise((resolve) => setTimeout(resolve, 100));
+					expect(await runningSpokeSessions(spoke.client)).toHaveLength(0);
 				} finally {
 					hub.client.close();
 					spoke.client.close();
