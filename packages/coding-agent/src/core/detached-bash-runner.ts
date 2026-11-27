@@ -13,6 +13,7 @@ import {
 	type DetachedJobOwnershipIdentity,
 	type DetachedJobTerminalInput,
 } from "./detached-job-runner.ts";
+import { readOwnCgroup, runnerEnvOutsideService, runnerInvocationOutsideService } from "./detached-runner-scope.ts";
 import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "./runtime-process.ts";
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 import { isSqliteContentionError } from "./sqlite.ts";
@@ -145,15 +146,19 @@ export function getDetachedBashRunnerInvocation(
 	return { args, executable };
 }
 
-export function launchDetachedBashRunner(manifestPath: string, options?: { entryPath?: string }): number {
-	const invocation = getDetachedBashRunnerInvocation(manifestPath, {
-		compiled: isBunBinary,
-		entryPath: options?.entryPath,
-	});
+export function launchDetachedBashRunner(
+	manifestPath: string,
+	options?: { entryPath?: string; cgroup?: string },
+): number {
+	const cgroup = options?.cgroup ?? readOwnCgroup();
+	const invocation = runnerInvocationOutsideService(
+		getDetachedBashRunnerInvocation(manifestPath, { compiled: isBunBinary, entryPath: options?.entryPath }),
+		cgroup,
+	);
 	const child = spawn(invocation.executable, invocation.args, {
 		cwd: dirname(manifestPath),
 		detached: true,
-		env: { HOME: process.env.HOME, PATH: process.env.PATH },
+		env: runnerEnvOutsideService({ HOME: process.env.HOME, PATH: process.env.PATH }, cgroup),
 		stdio: "ignore",
 	});
 	if (!child.pid) throw new Error("Could not launch detached Bash runner");

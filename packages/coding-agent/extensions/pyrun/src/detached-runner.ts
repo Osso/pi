@@ -17,6 +17,7 @@ import {
 	type DetachedJobOutcome,
 	type DetachedJobOwnershipIdentity,
 } from "../../../src/core/detached-job-runner.ts";
+import { readOwnCgroup, runnerInvocationOutsideService } from "../../../src/core/detached-runner-scope.ts";
 import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
 	finalizeDetachedJob,
@@ -115,11 +116,14 @@ export function getDetachedPyrunRunnerInvocation(
 	return { args, executable };
 }
 
-export function launchDetachedPyrunRunner(manifestPath: string, options?: { entryPath?: string }): number {
-	const invocation = getDetachedPyrunRunnerInvocation(manifestPath, {
-		compiled: isBunBinary,
-		entryPath: options?.entryPath,
-	});
+export function launchDetachedPyrunRunner(
+	manifestPath: string,
+	options?: { entryPath?: string; cgroup?: string },
+): number {
+	const invocation = runnerInvocationOutsideService(
+		getDetachedPyrunRunnerInvocation(manifestPath, { compiled: isBunBinary, entryPath: options?.entryPath }),
+		options?.cgroup ?? readOwnCgroup(),
+	);
 	const child = spawn(invocation.executable, invocation.args, {
 		cwd: dirname(manifestPath),
 		detached: true,
