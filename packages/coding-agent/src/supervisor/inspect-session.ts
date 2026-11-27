@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { isServerNarrationSignature } from "../core/assistant-narration.ts";
 import { listSessionMetadata, registerTemporaryRuntimeMailboxWaiter } from "../core/session-control-db.ts";
 import { sendSessionInspectionRequest, sendSessionNamesRequest, watchSupervisorReplies } from "./mail.ts";
 
@@ -17,12 +18,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Text the user saw, including signed narration; private thinking stays out. */
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return content
-		.flatMap((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []))
-		.join(" ");
+	return content.flatMap((part) => (isRecord(part) ? [publicPartText(part)] : [])).join(" ");
+}
+
+function publicPartText(part: Record<string, unknown>): string {
+	if (part.type === "text" && typeof part.text === "string") return part.text;
+	const isNarration =
+		part.type === "thinking" &&
+		typeof part.thinking === "string" &&
+		typeof part.thinkingSignature === "string" &&
+		isServerNarrationSignature(part.thinkingSignature);
+	return isNarration ? (part.thinking as string) : "";
 }
 
 function describeMessage(message: Record<string, unknown>): string[] {

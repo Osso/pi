@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -12,6 +12,9 @@ import {
 import { describeSession, inspectRemoteSession } from "../src/supervisor/inspect-session.ts";
 
 const INSPECTOR = "supervisor-session";
+const narrationFixture = JSON.parse(
+	readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+) as { content: Array<{ type: "thinking"; thinking: string; thinkingSignature: string }> };
 const TARGET = "worker-session";
 
 function transcriptLine(message: Record<string, unknown>): string {
@@ -38,6 +41,7 @@ function writeTargetSession(controlDbPath: string, dir: string): void {
 				toolName: "read",
 				content: [{ type: "text", text: "CREATE TABLE bills" }],
 			}),
+			transcriptLine({ role: "assistant", content: narrationFixture.content }),
 		].join("\n"),
 	);
 	const now = new Date().toISOString();
@@ -48,7 +52,7 @@ function writeTargetSession(controlDbPath: string, dir: string): void {
 		name: "billing migration",
 		createdAt: now,
 		modifiedAt: now,
-		messageCount: 3,
+		messageCount: 4,
 		firstMessage: "Migrate the billing table",
 	});
 	writeSessionGoal(controlDbPath, sessionPath, JSON.stringify({ objective: "Migrate billing" }));
@@ -82,6 +86,9 @@ describe("inspect_session", () => {
 		expect(text).toContain("[assistant] Reading the schema first.");
 		expect(text).toContain('[tool call read] {"path":"schema.sql"}');
 		expect(text).toContain("[tool result read] CREATE TABLE bills");
+		const [privateThinking, narration] = narrationFixture.content;
+		expect(text).toContain(`[assistant] ${narration.thinking.replace(/\s+/g, " ").slice(0, 200)}`);
+		expect(text).not.toContain(privateThinking.thinking.replace(/\s+/g, " ").slice(0, 80));
 		expect(describeSession(inspectorDb, "missing")).toBe(`No session missing on host ${hostname()}.`);
 	});
 
