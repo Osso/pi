@@ -371,6 +371,14 @@ export class RpcClient {
 	}
 
 	/**
+	 * Detach the running tool call into a background job.
+	 * @returns Whether a tool call was detached.
+	 */
+	async detachRunningTool(): Promise<boolean> {
+		return this.getData<{ detached: boolean }>(await this.send({ type: "detach_running_tool" })).detached;
+	}
+
+	/**
 	 * Get session statistics.
 	 */
 	async getSessionStats(): Promise<SessionStats> {

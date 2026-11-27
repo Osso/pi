@@ -46,6 +46,7 @@
 - Added `pi server` with a private Unix socket, SSH stdio connector, managed RPC workers, and an inbox for escalated Supervisor questions. See `docs/server.md`.
 - Added the `pi server` hub topology: with `server.hub` set to another host, the server keeps one outbound link (`server.hubCommand`, default `ssh -T -o BatchMode=yes -o ConnectTimeout=10 <hub> ~/.local/bin/pi server --link`) and reconnects with backoff; the hub accepts spokes over `pi server --link`, forwards frames that carry `hostId`, tags spoke responses and events with `hostId`, adds `list_machines` and `machine_updated`, aggregates `list_sessions` and `list_questions` across machines, and keeps an offline spoke's last snapshot marked `stale`. See `docs/server.md#hub`.
 - Added RPC commands `get_tools`, `get_extensions`, `get_changelog`, `share_session`, `get_keybindings`, `get_scoped_models`, `set_scoped_models`, `clear_session_name`, `continue`, `reload`, `import_session`, `set_cwd`, `get_project_trust`, and `set_project_trust`, plus a `working_status` event for extension working messages.
+- Added the RPC `detach_running_tool` command to move a running tool call to a background job and report whether it detached.
 
 ### Changed
 

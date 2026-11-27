@@ -56,6 +56,7 @@ export type RpcCommand =
 	// Bash
 	| { id?: string; type: "bash"; command: string; excludeFromContext?: boolean }
 	| { id?: string; type: "abort_bash" }
+	| { id?: string; type: "detach_running_tool" }
 
 	// Session
 	| { id?: string; type: "get_session_stats" }
@@ -278,6 +279,7 @@ export type RpcResponse =
 	// Bash
 	| { id?: string; type: "response"; command: "bash"; success: true; data: BashResult }
 	| { id?: string; type: "response"; command: "abort_bash"; success: true }
+	| { id?: string; type: "response"; command: "detach_running_tool"; success: true; data: { detached: boolean } }
 
 	// Session
 	| { id?: string; type: "response"; command: "get_session_stats"; success: true; data: SessionStats }

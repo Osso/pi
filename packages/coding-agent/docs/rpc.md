@@ -561,6 +561,19 @@ Response:
 {"type": "response", "command": "abort_bash", "success": true}
 ```
 
+#### detach_running_tool
+
+Move the running tool call to a background job. The response reports whether a tool call was detached; it returns `false` when no detachable tool is running.
+
+```json
+{"type": "detach_running_tool"}
+```
+
+Response:
+```json
+{"type": "response", "command": "detach_running_tool", "success": true, "data": {"detached": true}}
+```
+
 ### Session
 
 #### get_session_stats

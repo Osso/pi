@@ -33,6 +33,7 @@ import { takeUnreportedDiagnostics, writeDiagnosticsToStderr } from "../runtime-
 import { serializeJsonLine } from "./jsonl.ts";
 import { forwardAgentUpdates, handleRpcAgentCommand, isRpcAgentCommand, type RpcAgentControls } from "./rpc-agents.ts";
 import { runRpcBash } from "./rpc-bash.ts";
+import { detachRunningTool } from "./rpc-detach.ts";
 import { handleRpcInfoCommand, isRpcInfoCommand } from "./rpc-info.ts";
 import { readRpcInputFromStartup } from "./rpc-input.ts";
 import { selectApprovalPreset, selectSandboxProfile } from "./rpc-selectors.ts";
@@ -608,6 +609,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 				session.abortBash();
 				return success(id, "abort_bash");
 			}
+
+			case "detach_running_tool":
+				return success(id, "detach_running_tool", { detached: detachRunningTool(session) });
 
 			// =================================================================
 			// Session
