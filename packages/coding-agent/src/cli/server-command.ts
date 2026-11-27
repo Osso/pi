@@ -7,6 +7,7 @@ import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { HubClient, ServerHub } from "./server-hub.ts";
 import { handleAnswerQuestion } from "./server-question-handlers.ts";
 import { questionStoreHost, questionSummaries } from "./server-question-utils.ts";
+import { forgetOwnedSession, readOwnedSessions, rememberOwnedSession } from "./server-restore.ts";
 import { handleArchiveSession, handleRenameSession } from "./server-session-admin.ts";
 import { errorMessage, serverHostId } from "./server-wire.ts";
 import { rpcCommand, sessionPathForId, sessionSummaries, startWorker, writeWorkerLine } from "./server-worker.ts";
@@ -185,9 +186,12 @@ async function registerStartedWorker(
 			throw new Error("Session is already managed by this server");
 		workers.delete(reservation);
 		workers.set(sessionId, worker);
+		rememberOwnedSession({ sessionId, cwd: worker.cwd });
 		// A worker that exits on its own is no longer owned; the directory then lists the session as ended.
-		worker.child.once("exit", () => {
+		// One that quit (exit 0) stays ended; one killed with the server (signal, crash) reopens with it.
+		worker.child.once("exit", (code) => {
 			if (workers.get(sessionId) === worker) workers.delete(sessionId);
+			if (code === 0) forgetOwnedSession(sessionId);
 		});
 		return sessionId;
 	} catch (error) {
@@ -206,6 +210,25 @@ async function handleStartSession({ frame, workers, respond, fail }: CommandCont
 	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === sessionId) });
 }
 
+/**
+ * Reopen the sessions this server's workers owned when it stopped. A resumed
+ * worker continues an interrupted run on its own (`continueRestoredSession`).
+ */
+export async function restoreOwnedSessions(workers: Map<string, Worker>): Promise<void> {
+	for (const { sessionId, cwd } of readOwnedSessions()) {
+		try {
+			const resumePath = sessionPathForId(sessionId);
+			if (!resumePath) throw new Error("it is not in the session directory");
+			const listed = sessionSummaries(workers).find((session) => session.sessionId === sessionId);
+			if (listed && listed.status !== "ended") throw new Error("it has a live writer");
+			await registerStartedWorker(startWorker(cwd, resumePath), workers, sessionId);
+		} catch (error) {
+			forgetOwnedSession(sessionId);
+			console.error(`pi server: not reopening session ${sessionId}: ${errorMessage(error)}`);
+		}
+	}
+}
+
 async function handleStopSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
 	const worker = workers.get(String(frame.sessionId));
 	if (!worker) return fail("not_managed", "Session is not owned by this server");
@@ -213,6 +236,7 @@ async function handleStopSession({ frame, workers, respond, fail }: CommandConte
 		return fail("stale_runtime", "Runtime instance ID does not match");
 	const running = sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId);
 	workers.delete(worker.sessionId);
+	forgetOwnedSession(worker.sessionId);
 	if (worker.child.exitCode === null && worker.child.signalCode === null) {
 		const exited = new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
 		worker.child.stdin?.end();

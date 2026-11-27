@@ -39,6 +39,8 @@
 
 ### Added
 
+- `pi server` reopens the sessions its workers owned when it restarts (recorded in `server-sessions.json` in the agent directory); a reopened worker continues an interrupted run. Sessions stopped with `stop_session` or whose worker quit are not reopened.
+
 - RPC `get_state` returns `extensionStatuses`, the current footer statuses (goal, mission, bwrap, ...), so a client that attaches after they were set (pi-desktop) shows them.
 
 - RPC `get_entries` takes `customType` to return only custom entries of that type (for example `supervisor-status`, the TUI's `[Supervisor]` lines), so clients like pi-desktop can show them without loading every entry.

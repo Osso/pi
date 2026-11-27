@@ -570,6 +570,94 @@ describe("pi server process", () => {
 		});
 	}, 90_000);
 
+	it("reopens the sessions it owned after a restart and continues an interrupted run, but not a stopped one", async () => {
+		await withHeadlessPi(async (agent) => {
+			const first = await startDaemon(agent, null);
+			const start = async () => {
+				const started = await first.client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const session = (started.data as { session: Frame }).session;
+				expect(
+					(await first.client.request("attach_session", { sessionId: session.sessionId, mode: "control" }))
+						.success,
+				).toBe(true);
+				return session;
+			};
+			const prompt = (session: Frame, message: string) =>
+				first.client.request("session_rpc", {
+					sessionId: session.sessionId,
+					runtimeInstanceId: session.runtimeInstanceId,
+					command: { type: "prompt", message },
+				});
+			let restarted: Awaited<ReturnType<typeof startDaemon>> | undefined;
+			try {
+				// Stopped after a finished turn: it stays ended.
+				const stopped = await start();
+				await prompt(stopped, "Stop me after this.");
+				const done = await agent.waitForLlmRequest((item) => item.userMessages.includes("Stop me after this."));
+				agent.respondToLlmRequest(
+					done.id,
+					fauxAssistantMessage([{ type: "text", text: "ok" }, fauxToolCall("end_turn", { reason: "done" })], {
+						stopReason: "toolUse",
+					}),
+				);
+				await first.client.waitForEvent(
+					(event) =>
+						event.sessionId === stopped.sessionId && (event.event as Frame | undefined)?.type === "agent_end",
+				);
+				expect(
+					await first.client.request("stop_session", {
+						sessionId: stopped.sessionId,
+						runtimeInstanceId: stopped.runtimeInstanceId,
+					}),
+				).toMatchObject({ success: true });
+				// Interrupted mid-run by the server's restart: it reopens and continues.
+				const interrupted = await start();
+				await prompt(interrupted, "Keep working across the restart.");
+				const cut = await agent.waitForLlmRequest((item) =>
+					item.userMessages.includes("Keep working across the restart."),
+				);
+				// A long tool call is running (the transcript has its assistant message) when the server stops.
+				agent.respondToLlmRequest(
+					cut.id,
+					fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 5" })], { stopReason: "toolUse" }),
+				);
+				await first.client.waitForEvent(
+					(event) =>
+						event.sessionId === interrupted.sessionId &&
+						(event.event as Frame | undefined)?.type === "tool_execution_start",
+				);
+				first.client.close();
+				await new Promise<void>((resolve) => {
+					first.daemon.once("exit", () => resolve());
+					first.daemon.kill("SIGTERM");
+				});
+				restarted = await startDaemon(agent, null);
+				const resumed = await agent.waitForLlmRequest(
+					(item) => item !== cut && item.userMessages.includes("Keep working across the restart."),
+				);
+				agent.respondToLlmRequest(
+					resumed.id,
+					fauxAssistantMessage([fauxToolCall("end_turn", { reason: "continued" })], { stopReason: "toolUse" }),
+				);
+				const sessions = await list(restarted.client);
+				expect(sessions).toContainEqual(
+					expect.objectContaining({ sessionId: interrupted.sessionId, owner: "server" }),
+				);
+				expect(sessions).toContainEqual(
+					expect.objectContaining({ sessionId: stopped.sessionId, owner: "external", status: "ended" }),
+				);
+			} finally {
+				first.client.close();
+				if (restarted) {
+					restarted.client.close();
+					await stopDaemon(restarted.daemon, restarted.runtimeDir);
+				}
+				await stopDaemon(first.daemon, first.runtimeDir);
+			}
+		});
+	}, 90_000);
+
 	it("starts, attaches, streams, reconnects, answers questions, lists external sessions, and stops workers", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { daemon, client, runtimeDir } = await startDaemon(agent);

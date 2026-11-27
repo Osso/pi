@@ -9,6 +9,7 @@ import {
 	PROTOCOL_VERSION,
 	type RevisionCounters,
 	releaseClient,
+	restoreOwnedSessions,
 	type ServerState,
 	type Subscription,
 	type Worker,
@@ -231,6 +232,7 @@ export async function runServer(): Promise<void> {
 	});
 	chmodSync(path, SOCKET_MODE);
 	const updateTimer = setInterval(state.publishUpdates, 500);
+	void restoreOwnedSessions(workers);
 	const stopHubLink =
 		hubName && !hub
 			? startHubLink(serverSettings?.hubCommand ?? defaultHubCommand(hubName), state, clients)

@@ -77,4 +77,4 @@ An offline spoke keeps its last snapshot on the hub until it reconnects. The hub
 
 ## Limits
 
-The daemon does not recover active turns after a daemon or host failure. Resume an ended transcript explicitly. Use `pi server --help` is not currently supported; see this page for the v1 contract.
+The server records the sessions its workers own in `server-sessions.json` in the agent directory. When it starts, it reopens each recorded session whose worker was killed with the server (a restart, a signal, a crash); a reopened worker continues an interrupted run as any resumed session does. A session stopped with `stop_session`, or whose worker quit with exit code 0, is not reopened. A session that has a live writer elsewhere, or that left the session directory, is skipped and forgotten. Use `pi server --help` is not currently supported; see this page for the v1 contract.
