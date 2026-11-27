@@ -1,6 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
+import { getControlDbPath } from "../core/session-control-db.ts";
+import { deleteSessionTree } from "../core/session-delete.ts";
 import type { RpcEvent, RpcResponse } from "../modes/rpc/rpc-types.ts";
 import type { HubClient, ServerHub } from "./server-hub.ts";
 import { handleAnswerQuestion } from "./server-question-handlers.ts";
@@ -224,6 +226,17 @@ async function handleStopSession({ frame, workers, respond, fail }: CommandConte
 	return respond({ session: { ...last, status: "ended", owner: "external", attachment: "none" } });
 }
 
+/** Deletes an ended session and its sub-agent transcripts, as `pi -r` does (trash first, else unlink). */
+async function handleDeleteSession({ frame, workers, publishUpdates, respond, fail }: CommandContext): Promise<void> {
+	const session = sessionSummaries(workers).find((entry) => entry.sessionId === frame.sessionId);
+	if (!session?.sessionPath) return fail("not_found", "Session is not in the session directory");
+	if (session.status !== "ended") return fail("running", "Stop the session before deleting it");
+	const result = await deleteSessionTree(session.sessionPath, getControlDbPath());
+	if (!result.ok) return fail("delete_failed", result.error);
+	publishUpdates();
+	return respond({ sessionId: session.sessionId });
+}
+
 async function handleAttachSession({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
 	const worker = workers.get(String(frame.sessionId));
 	if (!worker) {
@@ -342,6 +355,7 @@ const commandHandlers: Record<string, CommandHandler> = {
 	list_sessions: handleListSessions,
 	start_session: handleStartSession,
 	stop_session: handleStopSession,
+	delete_session: handleDeleteSession,
 	attach_session: handleAttachSession,
 	detach_session: handleDetachSession,
 	session_rpc: handleSessionRpc,

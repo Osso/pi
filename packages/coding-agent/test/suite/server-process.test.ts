@@ -238,7 +238,7 @@ describe("pi server process", () => {
 		});
 	}, 60_000);
 
-	it("lists the ended sessions pi -r offers, with their first message", async () => {
+	it("lists the ended sessions pi -r offers, with their first message, and deletes an ended one", async () => {
 		await withHeadlessPi(async (agent) => {
 			const controlDbPath = getControlDbPath(agent.paths.agentDir);
 			const ended = [
@@ -246,6 +246,8 @@ describe("pi server process", () => {
 				{ id: "empty", messageCount: 0, firstMessage: "(no messages)" },
 				{ id: "child", messageCount: 3, firstMessage: "child task", isSubagent: true },
 			];
+			const resumablePath = join(agent.paths.sessionDir, "resumable.jsonl");
+			writeFileSync(resumablePath, "");
 			for (const session of ended) {
 				writeSessionMetadata(controlDbPath, {
 					...session,
@@ -271,6 +273,16 @@ describe("pi server process", () => {
 				expect(sessions).toContainEqual(
 					expect.objectContaining({ sessionId: "resumable", status: "ended", firstMessage: "fix the sidebar" }),
 				);
+				expect(await client.request("delete_session", { sessionId: agent.sessionId })).toMatchObject({
+					success: false,
+					error: { code: "running" },
+				});
+				expect(await client.request("delete_session", { sessionId: "resumable" })).toMatchObject({
+					success: true,
+					data: { sessionId: "resumable" },
+				});
+				expect(existsSync(resumablePath)).toBe(false);
+				expect((await list(client)).map((session) => session.sessionId)).not.toContain("resumable");
 			} finally {
 				client.close();
 				await stopDaemon(daemon, runtimeDir);
