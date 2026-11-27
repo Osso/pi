@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -80,6 +80,10 @@ async function startDaemon(
 	const preloadPath = join(import.meta.dirname, "fixtures/headless-pi-provider-preload.ts");
 	const settings = SettingsManager.create(agent.paths.workspaceDir, agent.paths.agentDir, { projectTrusted: true });
 	settings.setDefaultModelAndProvider("headless-faux", "headless-faux-1");
+	const settingsPath = join(agent.paths.agentDir, "settings.json");
+	const storedSettings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+	storedSettings.supervisor = { host: "agent-server", sessionId: "remote-supervisor" };
+	writeFileSync(settingsPath, JSON.stringify(storedSettings));
 	const daemon = spawn(
 		process.execPath,
 		[
@@ -143,7 +147,19 @@ describe("pi server process", () => {
 			try {
 				expect(statSync(join(runtimeDir, "pi")).mode & 0o777).toBe(0o700);
 				expect(statSync(join(runtimeDir, "pi", "server.sock")).mode & 0o777).toBe(0o600);
-				expect((await client.request("hello", { version: 1 })).success).toBe(true);
+				const hello = await client.request("hello", { version: 1 });
+				expect(hello).toMatchObject({
+					success: true,
+					data: { questionStoreHost: "agent-server" },
+				});
+				const foreignQuestion = await client.request("answer_question", {
+					questionId: "a999",
+					answers: { question: "answer" },
+				});
+				expect(foreignQuestion).toMatchObject({
+					success: false,
+					error: { code: "not_found", message: expect.stringContaining("agent-server") },
+				});
 				const initialSessions = await list(client);
 				expect(initialSessions).toContainEqual(
 					expect.objectContaining({ sessionId: agent.sessionId, owner: "external" }),

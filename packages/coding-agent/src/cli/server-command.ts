@@ -109,7 +109,8 @@ function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] 
 }
 
 function questionUpdates(workers: Map<string, Worker>): Array<Record<string, unknown>> {
-	const stored = listQuestionEntries(controlCenter())
+	const center = controlCenter();
+	const stored = (center ? listQuestionEntries(center) : [])
 		.filter((entry): entry is AgentQuestionEntry => entry.direction === "agent" && entry.state !== "supervisor")
 		.map(makeQuestionSummary);
 	const pending = [...workers.values()].flatMap((worker) =>
@@ -270,8 +271,17 @@ function sameAnswers(left: Record<string, string> | undefined, right: Record<str
 	);
 }
 
+function serverSettings(): SettingsManager {
+	return SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
+}
+
+function questionStoreHost(settings: SettingsManager): string {
+	return settings.getMergedSettings().supervisor?.host ?? hostname();
+}
+
 function controlCenter() {
-	const settings = SettingsManager.create(process.cwd(), getAgentDir(), { projectTrusted: false });
+	const settings = serverSettings();
+	if (questionStoreHost(settings) !== hostname()) return undefined;
 	return openQuestionCenter(settings, getControlDbPath());
 }
 
@@ -317,6 +327,7 @@ async function handleCommand(
 					hostId: hostname(),
 					serverInstanceId,
 					features: ["sessions", "rpc", "questions"],
+					questionStoreHost: questionStoreHost(serverSettings()),
 				});
 			case "list_sessions": {
 				publishUpdates();
@@ -531,6 +542,11 @@ async function handleCommand(
 					return respond({ question, delivery: "accepted" });
 				}
 				const center = controlCenter();
+				if (!center)
+					return fail(
+						"not_found",
+						`Question not found on this host; the question store is on ${questionStoreHost(serverSettings())}`,
+					);
 				const entry = listQuestionEntries(center).find(
 					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
 				);
