@@ -297,6 +297,56 @@ describe("pi server process", () => {
 		});
 	}, 60_000);
 
+	it("reports a pending question cancelled when its worker stops", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				await client.request("list_questions");
+				await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: { type: "prompt", message: "Ask, then get stopped." },
+				});
+				const request = await agent.waitForLlmRequest((item) =>
+					item.userMessages.includes("Ask, then get stopped."),
+				);
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(
+						[fauxToolCall("ask_questions", { blocking: true, questions: [{ question: "Never answered?" }] })],
+						{ stopReason: "toolUse" },
+					),
+				);
+				const asked = await client.waitForEvent(
+					(event) =>
+						event.type === "question_updated" &&
+						(event.question as Frame | undefined)?.sessionId === sessionId &&
+						(event.question as Frame | undefined)?.state === "pending",
+				);
+				const questionId = (asked.question as Frame).questionId;
+				await client.request("detach_session", { sessionId, runtimeInstanceId });
+				expect((await client.request("stop_session", { sessionId, runtimeInstanceId })).success).toBe(true);
+				await client.waitForEvent(
+					(event) =>
+						event.type === "question_updated" &&
+						(event.question as Frame | undefined)?.questionId === questionId &&
+						(event.question as Frame | undefined)?.state === "cancelled",
+				);
+				const inbox = await client.request("list_questions");
+				expect((inbox.data as { questions: Frame[] }).questions).toEqual([]);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
 	it("restarts over a stale socket, refuses a live one, and releases a worker that exits on its own", async () => {
 		await withHeadlessPi(async (agent) => {
 			const first = await startDaemon(agent, null);

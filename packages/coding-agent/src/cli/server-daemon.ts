@@ -75,6 +75,17 @@ function createUpdatePublisher(
 						question: JSON.parse(value),
 					});
 			}
+			for (const [questionId, value] of previousQuestions) {
+				const previous = JSON.parse(value) as Record<string, unknown>;
+				// A pending question that leaves without an answer record (its dialog was dismissed or its worker
+				// ended) is reported cancelled, or clients and the hub keep it pending forever.
+				if (!currentQuestions.has(questionId) && previous.state === "pending")
+					questionEvents.push({
+						type: "question_updated",
+						revision: ++revisions.questions,
+						question: { ...previous, state: "cancelled", answerable: false },
+					});
+			}
 			broadcast(clients, "sessions", sessionEvents);
 			broadcast(clients, "questions", questionEvents);
 			previousSessions = currentSessions;

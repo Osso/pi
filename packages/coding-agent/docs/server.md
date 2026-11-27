@@ -69,7 +69,7 @@ Client frames take an optional `hostId`.
 
 On the hub, every entry in `list_sessions` and `list_questions` has `hostId`.
 
-- With no `hostId`, the result has the hub's entries and the last known entries of every spoke. Spoke entries have `stale: false` while the spoke is online and `stale: true` while it is offline. The hub keeps the snapshots current from the spoke's `session_updated`, `session_removed`, and `question_updated` events. Those events reach hub clients with `hostId` and the spoke's own `revision`; revisions are per machine.
+- With no `hostId`, the result has the hub's entries and the last known entries of every spoke. Spoke entries have `stale: false` while the spoke is online and `stale: true` while it is offline. The hub keeps the snapshots current from the spoke's `session_updated`, `session_removed`, and `question_updated` events. A pending question that ends without an answer (its dialog is dismissed or its worker stops) gets a `question_updated` with `state: "cancelled"`. Those events reach hub clients with `hostId` and the spoke's own `revision`; revisions are per machine.
 - With the hub's `hostId`, the result has only the hub's entries.
 - With a spoke's `hostId`, the spoke answers. When a spoke comes back online, clients should send `list_sessions` and `list_questions` with that `hostId` again to refresh it. The hub also sends `{ "type":"resync_required", "scope":"sessions"|"questions", "hostId" }` after it reloads a spoke's snapshot.
 
