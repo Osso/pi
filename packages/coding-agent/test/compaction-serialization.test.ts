@@ -1,4 +1,5 @@
-import type { Message } from "@earendil-works/pi-ai";
+import { readFileSync } from "node:fs";
+import type { Message, ThinkingContent } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { serializeConversation } from "../src/core/compaction/utils.ts";
 
@@ -13,7 +14,32 @@ function tokenUsage(input: number, output = 0) {
 	};
 }
 
+const narrationFixture = JSON.parse(
+	readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+) as { content: ThinkingContent[] };
+
 describe("serializeConversation", () => {
+	it("keeps signed narration the user saw and drops private thinking", () => {
+		const [privateThinking, narration] = narrationFixture.content;
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [privateThinking, narration],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-opus-5-5",
+				usage: tokenUsage(0),
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toBe(`[Assistant]: ${narration.thinking}`);
+		expect(result).not.toContain(privateThinking.thinking);
+	});
+
 	it("should truncate long tool results", () => {
 		const longContent = "x".repeat(5000);
 		const messages: Message[] = [

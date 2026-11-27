@@ -4,6 +4,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import { getAssistantContentText } from "../assistant-narration.ts";
 import { sliceHead } from "../tools/truncate.ts";
 
 // ============================================================================
@@ -184,8 +185,9 @@ export function serializeConversation(messages: Message[]): string {
 			const toolCalls: string[] = [];
 
 			for (const block of msg.content) {
-				if (block.type === "text") {
-					textParts.push(block.text);
+				const publicText = getAssistantContentText(block);
+				if (publicText !== undefined) {
+					textParts.push(publicText);
 				} else if (block.type === "toolCall") {
 					const args = block.arguments as Record<string, unknown>;
 					const argsStr = Object.entries(args)
