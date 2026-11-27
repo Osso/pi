@@ -303,6 +303,279 @@ function makeQuestionSummary(entry: AgentQuestionEntry) {
 	};
 }
 
+type CommandContext = {
+	frame: Record<string, unknown>;
+	client: Client;
+	workers: Map<string, Worker>;
+	serverInstanceId: string;
+	revisions: RevisionCounters;
+	publishUpdates: () => void;
+	respond: (data: unknown) => void;
+	fail: (code: string, message: string) => void;
+};
+
+type CommandHandler = (context: CommandContext) => Promise<void>;
+
+async function handleHello({ frame, serverInstanceId, respond, fail }: CommandContext): Promise<void> {
+	if (frame.version !== PROTOCOL_VERSION)
+		return fail("unsupported_version", `Supported protocol version is ${PROTOCOL_VERSION}`);
+	return respond({
+		version: PROTOCOL_VERSION,
+		hostId: hostname(),
+		serverInstanceId,
+		features: ["sessions", "rpc", "questions"],
+		questionStoreHost: questionStoreHost(serverSettings()),
+	});
+}
+
+async function handleListSessions({ frame, client, workers, revisions, publishUpdates, respond }: CommandContext) {
+	publishUpdates();
+	client.subscriptions.add("sessions");
+	const sessions = sessionSummaries(workers);
+	const visibleSessions =
+		frame.includeEnded === false ? sessions.filter((session) => session.status !== "ended") : sessions;
+	return respond({ sessions: visibleSessions, revision: revisions.sessions });
+}
+
+async function handleStartSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
+	if (typeof frame.cwd !== "string" || !frame.cwd) return fail("invalid_request", "cwd must be a non-empty path");
+	if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string")
+		return fail("invalid_request", "resumeSessionId must be a string");
+	if (typeof frame.resumeSessionId === "string" && workers.has(frame.resumeSessionId))
+		return fail("already_running", "Session is already managed by this server");
+	const resumePath = typeof frame.resumeSessionId === "string" ? sessionPathForId(frame.resumeSessionId) : undefined;
+	if (typeof frame.resumeSessionId === "string" && !resumePath)
+		return fail("not_found", "Saved session was not found");
+	if (typeof frame.resumeSessionId === "string") {
+		const existing = sessionSummaries(workers).find((session) => session.sessionId === frame.resumeSessionId);
+		if (existing?.status !== "ended") return fail("already_running", "Session has a live writer");
+	}
+	const worker = startWorker(frame.cwd, resumePath, typeof frame.name === "string" ? frame.name : undefined);
+	let sessionId: string | undefined;
+	const reservation =
+		typeof frame.resumeSessionId === "string" ? frame.resumeSessionId : `starting:${worker.runtimeInstanceId}`;
+	workers.set(reservation, worker);
+	try {
+		const state = await rpcCommand(worker, { type: "get_state" });
+		const stateData = (state as RpcCommandResponse).data;
+		if (!state.success || !stateData || typeof stateData !== "object")
+			throw new Error(`RPC worker startup failed: ${JSON.stringify(state)}`);
+		const reportedSessionId = (stateData as { sessionId?: unknown }).sessionId;
+		if (typeof reportedSessionId !== "string" || !reportedSessionId)
+			throw new Error("RPC worker did not report a session ID");
+		sessionId = reportedSessionId;
+		if (typeof frame.resumeSessionId === "string" && sessionId !== frame.resumeSessionId)
+			throw new Error(`Resumed worker opened ${sessionId}, expected ${frame.resumeSessionId}`);
+		worker.sessionId = sessionId;
+		worker.sessionPath = (stateData as { sessionFile?: string }).sessionFile;
+		if (workers.get(sessionId) && workers.get(sessionId) !== worker)
+			throw new Error("Session is already managed by this server");
+		workers.delete(reservation);
+		workers.set(sessionId, worker);
+	} catch (error) {
+		workers.delete(reservation);
+		worker.child.kill("SIGTERM");
+		throw error;
+	}
+	return respond({
+		session: sessionId ? sessionSummaries(workers).find((session) => session.sessionId === sessionId) : undefined,
+	});
+}
+
+async function handleStopSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
+	const worker = workers.get(String(frame.sessionId));
+	if (!worker) return fail("not_managed", "Session is not owned by this server");
+	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
+		return fail("stale_runtime", "Runtime instance ID does not match");
+	workers.delete(worker.sessionId);
+	worker.child.stdin?.end();
+	await new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
+	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId) });
+}
+
+async function handleAttachSession({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
+	const worker = workers.get(String(frame.sessionId));
+	if (!worker) {
+		const session = sessionSummaries(workers).find((entry) => entry.sessionId === frame.sessionId);
+		if (session?.status === "ended") return fail("not_running", "Session is not running");
+		return fail("not_attachable", "Session is not an RPC worker owned by this server");
+	}
+	if (frame.mode !== "observe" && frame.mode !== "control")
+		return fail("invalid_request", "mode must be observe or control");
+	if (
+		frame.mode === "control" &&
+		[...worker.clients].some(
+			(other) => other !== client && other.attachments.get(worker.sessionId)?.mode === "control",
+		)
+	)
+		return fail("controller_busy", "Another client controls this session");
+	const attachment: Attachment = { mode: frame.mode, buffering: true, events: [] };
+	client.attachments.set(worker.sessionId, attachment);
+	worker.clients.add(client);
+	const snapshot: Record<string, unknown> = {};
+	let snapshotWatermark = worker.sequence;
+	for (const command of ["get_state", "get_messages", "get_agents"]) {
+		const response = await rpcCommand(worker, { type: command });
+		if (response.success) snapshot[command] = (response as RpcCommandResponse).data;
+		if (command === "get_messages") snapshotWatermark = worker.sequence;
+	}
+	const firstSequence = snapshotWatermark + 1;
+	attachment.buffering = false;
+	for (const event of attachment.events) {
+		if (event.sequence >= firstSequence)
+			writeFrame(client.socket, {
+				type: "session_event",
+				sessionId: worker.sessionId,
+				runtimeInstanceId: worker.runtimeInstanceId,
+				...event,
+			});
+	}
+	attachment.events = [];
+	return respond({
+		session: sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId),
+		runtimeInstanceId: worker.runtimeInstanceId,
+		firstSequence,
+		mode: frame.mode,
+		snapshot,
+	});
+}
+
+async function handleDetachSession({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
+	const worker = workers.get(String(frame.sessionId));
+	const attachment = client.attachments.get(String(frame.sessionId));
+	if (!worker || !attachment) return fail("not_attached", "Client is not attached to this session");
+	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
+		return fail("stale_runtime", "Runtime instance ID does not match");
+	client.attachments.delete(worker.sessionId);
+	worker.clients.delete(client);
+	return respond({ detached: true });
+}
+
+async function handleSessionRpc({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
+	if (
+		typeof frame.sessionId !== "string" ||
+		typeof frame.runtimeInstanceId !== "string" ||
+		!frame.command ||
+		typeof frame.command !== "object"
+	)
+		return fail("invalid_request", "sessionId, runtimeInstanceId, and command are required");
+	const worker = workers.get(frame.sessionId);
+	const attachment = client.attachments.get(frame.sessionId);
+	if (!worker || !attachment) return fail("not_attached", "Attach to the session first");
+	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
+		return fail("stale_runtime", "Runtime instance ID does not match");
+	const command = frame.command as Record<string, unknown>;
+	if (["new_session", "switch_session", "fork", "clone"].includes(String(command.type)))
+		return fail("identity_change_rejected", "Identity-changing RPC commands are disabled in v1");
+	if (
+		attachment.mode !== "control" &&
+		![
+			"get_state",
+			"get_messages",
+			"get_agents",
+			"get_commands",
+			"get_tree",
+			"get_entries",
+			"get_last_assistant_text",
+			"get_session_stats",
+		].includes(String(command.type))
+	)
+		return fail("read_only", "Observer attachment cannot send this RPC command");
+	const response = await rpcCommand(worker, command);
+	return respond({ response: { ...response, id: command.id } });
+}
+
+async function handleListQuestions({ client, workers, revisions, publishUpdates, respond }: CommandContext) {
+	publishUpdates();
+	client.subscriptions.add("questions");
+	return respond({ questions: questionSummaries(workers), revision: revisions.questions });
+}
+
+async function handleAnswerQuestion({ frame, workers, respond, fail }: CommandContext): Promise<void> {
+	if (
+		typeof frame.questionId !== "string" ||
+		!frame.answers ||
+		typeof frame.answers !== "object" ||
+		Array.isArray(frame.answers)
+	)
+		return fail("invalid_request", "questionId and answers are required");
+	const answerValues = Object.values(frame.answers);
+	if (answerValues.some((answer) => typeof answer !== "string"))
+		return fail("invalid_answer", "Every answer must be text");
+	const answers = frame.answers as Record<string, string>;
+	for (const worker of workers.values()) {
+		const previousAnswer = worker.answeredDirectQuestions.get(frame.questionId);
+		if (previousAnswer) {
+			if (!sameAnswers(previousAnswer.answers, answers))
+				return fail("already_resolved", "Question was answered with different values");
+			return respond({ question: previousAnswer.question, delivery: "accepted" });
+		}
+		const direct = worker.directQuestions.get(frame.questionId);
+		if (!direct) continue;
+		if (
+			direct.questions.some((question) => {
+				const answer = answers[question.question];
+				return typeof answer !== "string" || !answer.trim();
+			})
+		)
+			return fail("invalid_answer", "An answer is required for every question");
+		if (!worker.child.stdin?.writable) return fail("stale_runtime", "Question runtime is not available");
+		worker.child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: direct.dialogId, answers })}\n`);
+		worker.directQuestions.delete(frame.questionId);
+		const question = {
+			questionId: frame.questionId,
+			sessionId: worker.sessionId,
+			originSessionId: worker.sessionId,
+			agentId: null,
+			toolCallId: direct.toolCallId,
+			blocking: direct.blocking,
+			questions: direct.questions,
+			createdAt: direct.createdAt,
+			state: "answered",
+			review: "none",
+			answerable: false,
+			answers,
+			answeredBy: "user",
+			delivery: "accepted",
+		};
+		worker.answeredDirectQuestions.set(frame.questionId, { answers, question });
+		return respond({ question, delivery: "accepted" });
+	}
+	const center = controlCenter();
+	if (!center)
+		return fail(
+			"not_found",
+			`Question not found on this host; the question store is on ${questionStoreHost(serverSettings())}`,
+		);
+	const entry = listQuestionEntries(center).find(
+		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
+	);
+	if (!entry) return fail("not_found", "Question not found");
+	if (entry.state === "answered" && sameAnswers(entry.answers, answers))
+		return respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
+	if (entry.state !== "open") return fail("already_resolved", "Question is no longer pending");
+	answerAgentQuestion(center, entry, answers);
+	const updated = listQuestionEntries(center).find(
+		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
+	);
+	const question = updated
+		? makeQuestionSummary(updated)
+		: makeQuestionSummary({ ...entry, state: "answered", answers, answeredBy: "user" });
+	return respond({ question, delivery: "delivered" });
+}
+
+const commandHandlers: Record<string, CommandHandler> = {
+	hello: handleHello,
+	list_sessions: handleListSessions,
+	start_session: handleStartSession,
+	stop_session: handleStopSession,
+	attach_session: handleAttachSession,
+	detach_session: handleDetachSession,
+	session_rpc: handleSessionRpc,
+	list_questions: handleListQuestions,
+	answer_question: handleAnswerQuestion,
+};
+
 async function handleCommand(
 	frame: Record<string, unknown>,
 	client: Client,
@@ -311,261 +584,21 @@ async function handleCommand(
 	revisions: RevisionCounters,
 	publishUpdates: () => void,
 ): Promise<void> {
-	const id = frame.id;
 	const type = frame.type;
 	const respond = (data: unknown) =>
-		writeFrame(client.socket, { type: "response", id, command: type, success: true, data });
+		writeFrame(client.socket, { type: "response", id: frame.id, command: type, success: true, data });
 	const fail = (code: string, message: string) =>
-		writeFrame(client.socket, { type: "response", id, command: type, success: false, error: { code, message } });
+		writeFrame(client.socket, {
+			type: "response",
+			id: frame.id,
+			command: type,
+			success: false,
+			error: { code, message },
+		});
+	const handler = commandHandlers[String(type)];
+	if (!handler) return fail("unknown_command", `Unknown server command: ${String(type)}`);
 	try {
-		switch (type) {
-			case "hello":
-				if (frame.version !== PROTOCOL_VERSION)
-					return fail("unsupported_version", `Supported protocol version is ${PROTOCOL_VERSION}`);
-				return respond({
-					version: PROTOCOL_VERSION,
-					hostId: hostname(),
-					serverInstanceId,
-					features: ["sessions", "rpc", "questions"],
-					questionStoreHost: questionStoreHost(serverSettings()),
-				});
-			case "list_sessions": {
-				publishUpdates();
-				client.subscriptions.add("sessions");
-				const sessions = sessionSummaries(workers);
-				const visibleSessions =
-					frame.includeEnded === false ? sessions.filter((session) => session.status !== "ended") : sessions;
-				return respond({ sessions: visibleSessions, revision: revisions.sessions });
-			}
-			case "start_session": {
-				if (typeof frame.cwd !== "string" || !frame.cwd)
-					return fail("invalid_request", "cwd must be a non-empty path");
-				if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string")
-					return fail("invalid_request", "resumeSessionId must be a string");
-				if (typeof frame.resumeSessionId === "string" && workers.has(frame.resumeSessionId))
-					return fail("already_running", "Session is already managed by this server");
-				const resumePath =
-					typeof frame.resumeSessionId === "string" ? sessionPathForId(frame.resumeSessionId) : undefined;
-				if (typeof frame.resumeSessionId === "string" && !resumePath)
-					return fail("not_found", "Saved session was not found");
-				if (typeof frame.resumeSessionId === "string") {
-					const existing = sessionSummaries(workers).find((s) => s.sessionId === frame.resumeSessionId);
-					if (existing?.status !== "ended") return fail("already_running", "Session has a live writer");
-				}
-				const worker = startWorker(frame.cwd, resumePath, typeof frame.name === "string" ? frame.name : undefined);
-				let sessionId: string | undefined;
-				const reservation =
-					typeof frame.resumeSessionId === "string"
-						? frame.resumeSessionId
-						: `starting:${worker.runtimeInstanceId}`;
-				workers.set(reservation, worker);
-				try {
-					const state = await rpcCommand(worker, { type: "get_state" });
-					const stateData = (state as RpcCommandResponse).data;
-					if (!state.success || !stateData || typeof stateData !== "object")
-						throw new Error(`RPC worker startup failed: ${JSON.stringify(state)}`);
-					const reportedSessionId = (stateData as { sessionId?: unknown }).sessionId;
-					if (typeof reportedSessionId !== "string" || !reportedSessionId)
-						throw new Error("RPC worker did not report a session ID");
-					sessionId = reportedSessionId;
-					if (typeof frame.resumeSessionId === "string" && sessionId !== frame.resumeSessionId)
-						throw new Error(`Resumed worker opened ${sessionId}, expected ${frame.resumeSessionId}`);
-					worker.sessionId = sessionId;
-					worker.sessionPath = (stateData as { sessionFile?: string }).sessionFile;
-					if (workers.get(sessionId) && workers.get(sessionId) !== worker)
-						throw new Error("Session is already managed by this server");
-					workers.delete(reservation);
-					workers.set(sessionId, worker);
-				} catch (error) {
-					workers.delete(reservation);
-					worker.child.kill("SIGTERM");
-					throw error;
-				}
-				return respond({
-					session: sessionId ? sessionSummaries(workers).find((s) => s.sessionId === sessionId) : undefined,
-				});
-			}
-			case "stop_session": {
-				const worker = workers.get(String(frame.sessionId));
-				if (!worker) return fail("not_managed", "Session is not owned by this server");
-				if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
-					return fail("stale_runtime", "Runtime instance ID does not match");
-				workers.delete(worker.sessionId);
-				worker.child.stdin?.end();
-				await new Promise<void>((resolve) => worker.child.once("exit", () => resolve()));
-				return respond({ session: sessionSummaries(workers).find((s) => s.sessionId === worker.sessionId) });
-			}
-			case "attach_session": {
-				const worker = workers.get(String(frame.sessionId));
-				if (!worker) {
-					const session = sessionSummaries(workers).find((entry) => entry.sessionId === frame.sessionId);
-					if (session?.status === "ended") return fail("not_running", "Session is not running");
-					return fail("not_attachable", "Session is not an RPC worker owned by this server");
-				}
-				if (frame.mode !== "observe" && frame.mode !== "control")
-					return fail("invalid_request", "mode must be observe or control");
-				if (
-					frame.mode === "control" &&
-					[...worker.clients].some(
-						(other) => other !== client && other.attachments.get(worker.sessionId)?.mode === "control",
-					)
-				)
-					return fail("controller_busy", "Another client controls this session");
-				const attachment: Attachment = { mode: frame.mode, buffering: true, events: [] };
-				client.attachments.set(worker.sessionId, attachment);
-				worker.clients.add(client);
-				const snapshot: Record<string, unknown> = {};
-				let snapshotWatermark = worker.sequence;
-				for (const command of ["get_state", "get_messages", "get_agents"]) {
-					const response = await rpcCommand(worker, { type: command });
-					if (response.success) snapshot[command] = (response as RpcCommandResponse).data;
-					if (command === "get_messages") snapshotWatermark = worker.sequence;
-				}
-				const firstSequence = snapshotWatermark + 1;
-				attachment.buffering = false;
-				for (const event of attachment.events) {
-					if (event.sequence >= firstSequence)
-						writeFrame(client.socket, {
-							type: "session_event",
-							sessionId: worker.sessionId,
-							runtimeInstanceId: worker.runtimeInstanceId,
-							...event,
-						});
-				}
-				attachment.events = [];
-				return respond({
-					session: sessionSummaries(workers).find((s) => s.sessionId === worker.sessionId),
-					runtimeInstanceId: worker.runtimeInstanceId,
-					firstSequence,
-					mode: frame.mode,
-					snapshot,
-				});
-			}
-			case "detach_session": {
-				const worker = workers.get(String(frame.sessionId));
-				const attachment = client.attachments.get(String(frame.sessionId));
-				if (!worker || !attachment) return fail("not_attached", "Client is not attached to this session");
-				if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
-					return fail("stale_runtime", "Runtime instance ID does not match");
-				client.attachments.delete(worker.sessionId);
-				worker.clients.delete(client);
-				return respond({ detached: true });
-			}
-			case "session_rpc": {
-				if (
-					typeof frame.sessionId !== "string" ||
-					typeof frame.runtimeInstanceId !== "string" ||
-					!frame.command ||
-					typeof frame.command !== "object"
-				)
-					return fail("invalid_request", "sessionId, runtimeInstanceId, and command are required");
-				const worker = workers.get(frame.sessionId);
-				const attachment = client.attachments.get(frame.sessionId);
-				if (!worker || !attachment) return fail("not_attached", "Attach to the session first");
-				if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
-					return fail("stale_runtime", "Runtime instance ID does not match");
-				const command = frame.command as Record<string, unknown>;
-				if (["new_session", "switch_session", "fork", "clone"].includes(String(command.type)))
-					return fail("identity_change_rejected", "Identity-changing RPC commands are disabled in v1");
-				if (
-					attachment.mode !== "control" &&
-					![
-						"get_state",
-						"get_messages",
-						"get_agents",
-						"get_commands",
-						"get_tree",
-						"get_entries",
-						"get_last_assistant_text",
-						"get_session_stats",
-					].includes(String(command.type))
-				)
-					return fail("read_only", "Observer attachment cannot send this RPC command");
-				const response = await rpcCommand(worker, command);
-				return respond({ response: { ...response, id: command.id } });
-			}
-			case "list_questions": {
-				publishUpdates();
-				client.subscriptions.add("questions");
-				return respond({ questions: questionSummaries(workers), revision: revisions.questions });
-			}
-			case "answer_question": {
-				if (
-					typeof frame.questionId !== "string" ||
-					!frame.answers ||
-					typeof frame.answers !== "object" ||
-					Array.isArray(frame.answers)
-				)
-					return fail("invalid_request", "questionId and answers are required");
-				const answerValues = Object.values(frame.answers);
-				if (answerValues.some((answer) => typeof answer !== "string"))
-					return fail("invalid_answer", "Every answer must be text");
-				const answers = frame.answers as Record<string, string>;
-				for (const worker of workers.values()) {
-					const previousAnswer = worker.answeredDirectQuestions.get(frame.questionId);
-					if (previousAnswer) {
-						if (!sameAnswers(previousAnswer.answers, answers))
-							return fail("already_resolved", "Question was answered with different values");
-						return respond({ question: previousAnswer.question, delivery: "accepted" });
-					}
-					const direct = worker.directQuestions.get(frame.questionId);
-					if (!direct) continue;
-					if (
-						direct.questions.some((question) => {
-							const answer = answers[question.question];
-							return typeof answer !== "string" || !answer.trim();
-						})
-					)
-						return fail("invalid_answer", "An answer is required for every question");
-					if (!worker.child.stdin?.writable) return fail("stale_runtime", "Question runtime is not available");
-					worker.child.stdin.write(
-						`${JSON.stringify({ type: "extension_ui_response", id: direct.dialogId, answers })}\n`,
-					);
-					worker.directQuestions.delete(frame.questionId);
-					const question = {
-						questionId: frame.questionId,
-						sessionId: worker.sessionId,
-						originSessionId: worker.sessionId,
-						agentId: null,
-						toolCallId: direct.toolCallId,
-						blocking: direct.blocking,
-						questions: direct.questions,
-						createdAt: direct.createdAt,
-						state: "answered",
-						review: "none",
-						answerable: false,
-						answers,
-						answeredBy: "user",
-						delivery: "accepted",
-					};
-					worker.answeredDirectQuestions.set(frame.questionId, { answers, question });
-					return respond({ question, delivery: "accepted" });
-				}
-				const center = controlCenter();
-				if (!center)
-					return fail(
-						"not_found",
-						`Question not found on this host; the question store is on ${questionStoreHost(serverSettings())}`,
-					);
-				const entry = listQuestionEntries(center).find(
-					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
-				);
-				if (!entry) return fail("not_found", "Question not found");
-				if (entry.state === "answered" && sameAnswers(entry.answers, answers))
-					return respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
-				if (entry.state !== "open") return fail("already_resolved", "Question is no longer pending");
-				answerAgentQuestion(center, entry, answers);
-				const updated = listQuestionEntries(center).find(
-					(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
-				);
-				const question = updated
-					? makeQuestionSummary(updated)
-					: makeQuestionSummary({ ...entry, state: "answered", answers, answeredBy: "user" });
-				return respond({ question, delivery: "delivered" });
-			}
-			default:
-				return fail("unknown_command", `Unknown server command: ${String(type)}`);
-		}
+		await handler({ frame, client, workers, serverInstanceId, revisions, publishUpdates, respond, fail });
 	} catch (error) {
 		return fail("server_error", errorMessage(error));
 	}
