@@ -570,6 +570,25 @@ describe("pi server process", () => {
 		});
 	}, 90_000);
 
+	it("reads a corrupt owned-sessions file as empty and rewrites it on the next start", async () => {
+		await withHeadlessPi(async (agent) => {
+			const ownedPath = join(agent.paths.agentDir, "server-sessions.json");
+			writeFileSync(ownedPath, '[{"sessionId": "trunc');
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				expect(started.success).toBe(true);
+				const session = (started.data as { session: Frame }).session;
+				expect(JSON.parse(readFileSync(ownedPath, "utf8"))).toEqual([
+					{ sessionId: session.sessionId, cwd: agent.paths.workspaceDir },
+				]);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
 	it("reopens the sessions it owned after a restart and continues an interrupted run, but not a stopped one", async () => {
 		await withHeadlessPi(async (agent) => {
 			const first = await startDaemon(agent, null);

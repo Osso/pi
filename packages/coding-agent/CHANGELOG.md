@@ -308,6 +308,8 @@
 
 ### Fixed
 
+- `pi server` no longer crashes or fails `start_session` when `server-sessions.json` is not a valid list of owned sessions: it reports the file, reads it as empty, and rewrites it on the next change.
+
 - `pi server` frames may be up to 64 MiB (was 1 MiB). Attaching to a long session sent a snapshot over 1 MiB, which closed the connection; on a spoke it broke the hub link every few seconds, so the machine kept going offline.
 
 - `pi server` passes a dialog answer (`extension_ui_response`) to the worker with its dialog id, so `/delete` and other extension command dialogs work from pi-desktop; before, the id was replaced and the dialog never closed. `prompt`, `steer` and `follow_up` no longer fail after 30 seconds while such a dialog is open.

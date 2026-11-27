@@ -9,14 +9,31 @@ function ownedSessionsPath(): string {
 	return join(getAgentDir(), "server-sessions.json");
 }
 
-/** The sessions the server owned when it last ran. */
+function isOwnedSession(value: unknown): value is OwnedSession {
+	const session = value as Partial<OwnedSession> | null;
+	return typeof session?.sessionId === "string" && typeof session.cwd === "string";
+}
+
+/**
+ * The sessions the server owned when it last ran. A file that is not a list of
+ * `{ sessionId, cwd }` (edited by hand, truncated) is reported and read as empty;
+ * the next change rewrites it.
+ */
 export function readOwnedSessions(): OwnedSession[] {
+	const path = ownedSessionsPath();
+	let text: string;
 	try {
-		return JSON.parse(readFileSync(ownedSessionsPath(), "utf8")) as OwnedSession[];
+		text = readFileSync(path, "utf8");
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
 		throw error;
 	}
+	try {
+		const sessions: unknown = JSON.parse(text);
+		if (Array.isArray(sessions) && sessions.every(isOwnedSession)) return sessions;
+	} catch {}
+	console.error(`pi server: ignoring ${path}: not a list of { sessionId, cwd }`);
+	return [];
 }
 
 function writeOwnedSessions(sessions: OwnedSession[]): void {

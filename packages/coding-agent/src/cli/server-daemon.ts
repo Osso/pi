@@ -232,7 +232,9 @@ export async function runServer(): Promise<void> {
 	});
 	chmodSync(path, SOCKET_MODE);
 	const updateTimer = setInterval(state.publishUpdates, 500);
-	void restoreOwnedSessions(workers);
+	restoreOwnedSessions(workers).catch((error) =>
+		console.error(`pi server: reopening owned sessions failed: ${errorMessage(error)}`),
+	);
 	const stopHubLink =
 		hubName && !hub
 			? startHubLink(serverSettings?.hubCommand ?? defaultHubCommand(hubName), state, clients)
