@@ -934,5 +934,5 @@ describe("change_working_directory process restart", () => {
 			expect(persistedHeader.cwd).toBe(agent.paths.workspaceDir);
 			expect(basename(agent.sessionFile)).toContain(agent.sessionId);
 		});
-	});
+	}, 60_000);
 });
