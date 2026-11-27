@@ -35,7 +35,7 @@ export function createEndTurnToolDefinition(
 				const messages = getMessagesAfterLatestUserPrompt(ctx.sessionManager.getBranch());
 				if (messages && !hasPublicAssistantText(messages)) {
 					throw new Error(
-						"Cannot end the main turn without a visible reply to the latest user prompt. Thinking is never shown; write the reply as assistant text, then call end_turn again.",
+						"Cannot end the main turn without a visible reply to the latest user prompt. Private thinking is never shown; write the reply as assistant text, then call end_turn again.",
 					);
 				}
 			}

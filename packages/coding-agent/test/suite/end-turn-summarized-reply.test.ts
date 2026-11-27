@@ -93,7 +93,7 @@ it("rejects a thinking-only end_turn, then ends after the model writes a visible
 		expect(results.map((result) => result.isError)).toEqual([true, false]);
 		const firstResult = results[0];
 		if (!firstResult || firstResult.role !== "toolResult") throw new Error("Expected rejected end_turn result");
-		expect(getMessageText(firstResult)).toContain("Thinking is never shown");
+		expect(getMessageText(firstResult)).toContain("Private thinking is never shown");
 		expect(
 			harness.session.messages.some(
 				(message) => message.role === "assistant" && getMessageText(message) === "Visible answer.",
