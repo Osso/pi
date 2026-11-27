@@ -11,6 +11,14 @@ export function serverHostId(): string {
 	return process.env.PI_SERVER_HOST_ID || hostname();
 }
 
+/**
+ * Default spoke link. A non-interactive SSH shell often lacks ~/.local/bin on PATH, so the remote pi is named by
+ * its install path; the remote shell expands `~`. Set `server.hubCommand` when pi is installed elsewhere.
+ */
+export function defaultHubCommand(hub: string): string[] {
+	return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", hub, "~/.local/bin/pi", "server", "--link"];
+}
+
 export function socketPath(): string {
 	const runtimeDir = process.env.XDG_RUNTIME_DIR;
 	if (!runtimeDir) throw new Error("XDG_RUNTIME_DIR is required for pi server");

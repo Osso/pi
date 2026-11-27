@@ -27,6 +27,7 @@ import {
 } from "./dispatch-pipeline.ts";
 import { createLifecycleCoordinator } from "./lifecycle-runtime.ts";
 import { emptyAgent, result } from "./messaging.ts";
+import { createRemoteChildSessionFactory } from "./remote-child-session.ts";
 import {
 	isProductionChildSessionFactory,
 	spawnPromptValidationMessage,
@@ -387,7 +388,10 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 	const displayName = params.displayName?.trim() || requestedAgentType || "Agent";
 	const agentType = requestedAgentType || "default";
 	const profile = requireConfiguredAgentProfile(agentType, requestedAgentType, ctx);
-	const context = params.context ?? profile?.context ?? (consultationParent ? "fresh" : "inherit");
+	const host = params.host?.trim();
+	// A child on another host is a pi server worker there: a fresh session with that machine's model and tools.
+	const createSession = host ? createRemoteChildSessionFactory(store, host) : createChildSession;
+	const context = host ? "fresh" : (params.context ?? profile?.context ?? (consultationParent ? "fresh" : "inherit"));
 	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
 		return result("spawn_agent requires a persisted supervisor session.", {
@@ -398,9 +402,9 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 	}
 	let prepared = coordinator.prepareChild({
 		agentType,
-		cwd: ctx.cwd,
+		cwd: params.cwd?.trim() || ctx.cwd,
 		displayName,
-		model: spawnModelMetadata(profile, ctx),
+		model: host ? undefined : spawnModelMetadata(profile, ctx),
 		parentId: consultationParent ?? params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
@@ -410,7 +414,7 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 	try {
 		childSession = await constructChildSession(
 			() =>
-				createChildSession({
+				createSession({
 					activeToolCallId,
 					agent: prepared,
 					context,
@@ -460,7 +464,7 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 		() =>
 			runAgentSession(
 				store,
-				createChildSession,
+				createSession,
 				created.agent,
 				params.prompt,
 				ctx,
@@ -475,11 +479,15 @@ async function dispatchSpawnAgent(input: SpawnDispatchInput): Promise<AgentToolR
 		runtime,
 	);
 	releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
-	return result(`Spawned ${agent.displayName} (${agent.id}) [type: ${agent.agentType}, context: ${context}]`, {
-		agent,
-		dispatched: true,
-		prompt: params.prompt,
-	});
+	const placement = host ? `, host: ${host}` : "";
+	return result(
+		`Spawned ${agent.displayName} (${agent.id}) [type: ${agent.agentType}, context: ${context}${placement}]`,
+		{
+			agent,
+			dispatched: true,
+			prompt: params.prompt,
+		},
+	);
 }
 
 export function releaseOwnershipAfterDispatch(

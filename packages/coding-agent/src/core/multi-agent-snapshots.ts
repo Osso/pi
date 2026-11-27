@@ -80,6 +80,7 @@ export function copyTranscript(transcript: AgentTranscriptMetadata | undefined):
 	return {
 		path: transcript.path,
 		sessionId: transcript.sessionId,
+		...(transcript.host ? { host: transcript.host } : {}),
 	};
 }
 

@@ -78,6 +78,7 @@ import {
 	sendAgentMessage,
 } from "./messaging.ts";
 import { registerQuestionRelayTools } from "./question-relay-tools.ts";
+import { createRemoteAttachedSessionFactory } from "./remote-child-session.ts";
 
 export type {
 	AgentDesktopNotification,
@@ -349,6 +350,11 @@ function orderRecoveryAgents(agents: AgentSnapshot[]): AgentSnapshot[] {
 function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target">, agent: AgentSnapshot): void {
 	if (input.dispatches.has(agent.id)) return;
 	if (!isInFlightLifecycle(agent.lifecycle)) return;
+	if (agent.lifecycle !== "cancelling" && agent.transcript?.host) {
+		const createAttachedSession = createRemoteAttachedSessionFactory(input.store);
+		dispatchAttachedSessionAgent({ ...input, createAttachedSession, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+		return;
+	}
 	if (agent.lifecycle !== "cancelling" && input.createAttachedSession && agent.transcript?.path) {
 		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
 		return;

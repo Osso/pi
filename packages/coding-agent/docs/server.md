@@ -75,6 +75,14 @@ On the hub, every entry in `list_sessions` and `list_questions` has `hostId`.
 
 An offline spoke keeps its last snapshot on the hub until it reconnects. The hub keeps snapshots in memory only.
 
+### Sub-agents on another machine
+
+`spawn_agent` with `host` (a host ID such as `aso`) and optional `cwd` (default: the parent's cwd) runs the child as a worker on that machine through the hub. The parent connects to the hub as a protocol client: over the local socket on the hub, else with the `server.hubCommand` link command. It sends `start_session` with `hostId`, `cwd`, and the child's display name, `attach_session` in control mode, and the assignment as a `session_rpc` `prompt`. The child is complete at its run's `agent_settled` event; its last reply is the result that `wait_agent`, the agent list, and the parent's mailbox receive, as for a local child. Then the parent sends `stop_session`.
+
+- The child is a fresh main session on that machine, with its default model and tools; `context: "inherit"` is refused. Its assignment ends with the parent's session ID and host, so it can use `send_agent_message` with `toHost` over the [relay](../../../docs/specs/multi-agent.md#cross-host-messaging) before it finishes.
+- The agent records `transcript: { host, sessionId }` and no local path. When the parent restarts, the worker keeps running; the restarted parent attaches to it again, does not prompt it again, and waits until it is idle. `close_agent` sends `abort` to the worker.
+- `steer_agent` is not delivered to a remote child.
+
 ## Limits
 
 The server records the sessions its workers own in `server-sessions.json` in the agent directory. When it starts, it reopens each recorded session whose worker was killed with the server (a restart, a signal, a crash); a reopened worker continues an interrupted run as any resumed session does. A session stopped with `stop_session`, or whose worker quit with exit code 0, is not reopened. A session that has a live writer elsewhere, or that left the session directory, is skipped and forgotten. Use `pi server --help` is not currently supported; see this page for the v1 contract.

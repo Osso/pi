@@ -105,6 +105,8 @@ export interface HeadlessPiOptions {
 	retainTempDirOnDispose?: boolean;
 	/** Host of the configured Supervisor session, for a Supervisor reached through the relay. */
 	supervisorHost?: string;
+	/** Extra top-level settings.json entries, e.g. `server`. */
+	settings?: Record<string, unknown>;
 }
 
 export interface HeadlessRpcExtensionError {
@@ -1185,6 +1187,7 @@ export default function(pi) {
 			...(fixtureOptions.supervisorHost
 				? { supervisor: { ...HEADLESS_SUPERVISOR_SETTINGS.supervisor, host: fixtureOptions.supervisorHost } }
 				: {}),
+			...fixtureOptions.settings,
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };

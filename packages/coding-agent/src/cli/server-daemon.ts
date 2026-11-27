@@ -18,19 +18,11 @@ import { type HubLink, ServerHub } from "./server-hub.ts";
 import { removeStaleSocket } from "./server-launch.ts";
 import { questionUpdates } from "./server-question-utils.ts";
 import { startSpokeLink } from "./server-spoke-link.ts";
-import { errorMessage, readFrames, serverHostId, socketPath, writeFrame } from "./server-wire.ts";
+import { defaultHubCommand, errorMessage, readFrames, serverHostId, socketPath, writeFrame } from "./server-wire.ts";
 import { sessionSummaries } from "./server-worker.ts";
 
 const SERVER_DIR_MODE = 0o700;
 const SOCKET_MODE = 0o600;
-
-/**
- * Default spoke link. A non-interactive SSH shell often lacks ~/.local/bin on PATH, so the remote pi is named by
- * its install path; the remote shell expands `~`. Set `server.hubCommand` when pi is installed elsewhere.
- */
-export function defaultHubCommand(hub: string): string[] {
-	return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", hub, "~/.local/bin/pi", "server", "--link"];
-}
 
 function broadcast(clients: Set<Client>, subscription: Subscription, frames: unknown[]): void {
 	for (const client of clients) {

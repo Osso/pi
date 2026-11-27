@@ -54,6 +54,8 @@ export interface AgentWorkerAdapter {
 export interface AgentTranscriptMetadata {
 	sessionId: string;
 	path?: string;
+	/** pi server host ID of a child that runs on another machine; the session is a worker there, with no local path. */
+	host?: string;
 }
 
 export interface AgentEventStreamMetadata {

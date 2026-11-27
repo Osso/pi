@@ -34,6 +34,15 @@ export const spawnAgentSchema = Type.Object({
 	),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
+	host: Type.Optional(
+		Type.String({
+			description:
+				"pi server host ID of another machine (e.g. aso); the child runs there as a fresh session, started through the server.hub.",
+		}),
+	),
+	cwd: Type.Optional(
+		Type.String({ description: "Working directory on host; requires host. Defaults to the current cwd." }),
+	),
 });
 
 export const listAgentsSchema = Type.Object(
@@ -79,12 +88,19 @@ export function requireSpawnAgentParams(params: unknown): asserts params is Spaw
 	if (!params || typeof params !== "object") {
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
 	}
-	const input = params as { context?: unknown; prompt?: unknown };
+	const input = params as { context?: unknown; cwd?: unknown; host?: unknown; prompt?: unknown };
 	if (input.context !== undefined && input.context !== "fresh" && input.context !== "inherit") {
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
 	}
 	if (typeof input.prompt !== "string") {
 		throw new Error("spawn_agent prompt must be a string");
+	}
+	if (input.host !== undefined && (typeof input.host !== "string" || !input.host.trim())) {
+		throw new Error("spawn_agent host must be a non-empty host ID");
+	}
+	if (input.cwd !== undefined && input.host === undefined) throw new Error("spawn_agent cwd requires host");
+	if (input.host !== undefined && input.context === "inherit") {
+		throw new Error('spawn_agent on another host starts a fresh session; context "inherit" is unavailable');
 	}
 }
 export type ListAgentsParams = Static<typeof listAgentsSchema>;
