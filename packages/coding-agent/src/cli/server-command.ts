@@ -337,49 +337,77 @@ async function handleListSessions({ frame, client, workers, revisions, publishUp
 	return respond({ sessions: visibleSessions, revision: revisions.sessions });
 }
 
-async function handleStartSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
-	if (typeof frame.cwd !== "string" || !frame.cwd) return fail("invalid_request", "cwd must be a non-empty path");
-	if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string")
-		return fail("invalid_request", "resumeSessionId must be a string");
-	if (typeof frame.resumeSessionId === "string" && workers.has(frame.resumeSessionId))
-		return fail("already_running", "Session is already managed by this server");
-	const resumePath = typeof frame.resumeSessionId === "string" ? sessionPathForId(frame.resumeSessionId) : undefined;
-	if (typeof frame.resumeSessionId === "string" && !resumePath)
-		return fail("not_found", "Saved session was not found");
-	if (typeof frame.resumeSessionId === "string") {
-		const existing = sessionSummaries(workers).find((session) => session.sessionId === frame.resumeSessionId);
-		if (existing?.status !== "ended") return fail("already_running", "Session has a live writer");
+type SessionStartRequest = { cwd: string; resumeSessionId?: string; resumePath?: string };
+
+function validateSessionStart(
+	frame: Record<string, unknown>,
+	workers: Map<string, Worker>,
+	fail: CommandContext["fail"],
+): SessionStartRequest | undefined {
+	if (typeof frame.cwd !== "string" || !frame.cwd) {
+		fail("invalid_request", "cwd must be a non-empty path");
+		return undefined;
 	}
-	const worker = startWorker(frame.cwd, resumePath, typeof frame.name === "string" ? frame.name : undefined);
-	let sessionId: string | undefined;
-	const reservation =
-		typeof frame.resumeSessionId === "string" ? frame.resumeSessionId : `starting:${worker.runtimeInstanceId}`;
+	if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string") {
+		fail("invalid_request", "resumeSessionId must be a string");
+		return undefined;
+	}
+	const resumeSessionId = typeof frame.resumeSessionId === "string" ? frame.resumeSessionId : undefined;
+	if (resumeSessionId === undefined) return { cwd: frame.cwd };
+	if (workers.has(resumeSessionId)) {
+		fail("already_running", "Session is already managed by this server");
+		return undefined;
+	}
+	const resumePath = sessionPathForId(resumeSessionId);
+	if (!resumePath) {
+		fail("not_found", "Saved session was not found");
+		return undefined;
+	}
+	const existing = sessionSummaries(workers).find((session) => session.sessionId === resumeSessionId);
+	if (existing?.status !== "ended") {
+		fail("already_running", "Session has a live writer");
+		return undefined;
+	}
+	return { cwd: frame.cwd, resumeSessionId, resumePath };
+}
+
+async function registerStartedWorker(
+	worker: Worker,
+	workers: Map<string, Worker>,
+	resumeSessionId?: string,
+): Promise<string> {
+	const reservation = resumeSessionId ?? `starting:${worker.runtimeInstanceId}`;
 	workers.set(reservation, worker);
 	try {
 		const state = await rpcCommand(worker, { type: "get_state" });
 		const stateData = (state as RpcCommandResponse).data;
 		if (!state.success || !stateData || typeof stateData !== "object")
 			throw new Error(`RPC worker startup failed: ${JSON.stringify(state)}`);
-		const reportedSessionId = (stateData as { sessionId?: unknown }).sessionId;
-		if (typeof reportedSessionId !== "string" || !reportedSessionId)
-			throw new Error("RPC worker did not report a session ID");
-		sessionId = reportedSessionId;
-		if (typeof frame.resumeSessionId === "string" && sessionId !== frame.resumeSessionId)
-			throw new Error(`Resumed worker opened ${sessionId}, expected ${frame.resumeSessionId}`);
+		const sessionId = (stateData as { sessionId?: unknown }).sessionId;
+		if (typeof sessionId !== "string" || !sessionId) throw new Error("RPC worker did not report a session ID");
+		if (resumeSessionId && sessionId !== resumeSessionId)
+			throw new Error(`Resumed worker opened ${sessionId}, expected ${resumeSessionId}`);
 		worker.sessionId = sessionId;
 		worker.sessionPath = (stateData as { sessionFile?: string }).sessionFile;
 		if (workers.get(sessionId) && workers.get(sessionId) !== worker)
 			throw new Error("Session is already managed by this server");
 		workers.delete(reservation);
 		workers.set(sessionId, worker);
+		return sessionId;
 	} catch (error) {
 		workers.delete(reservation);
 		worker.child.kill("SIGTERM");
 		throw error;
 	}
-	return respond({
-		session: sessionId ? sessionSummaries(workers).find((session) => session.sessionId === sessionId) : undefined,
-	});
+}
+
+async function handleStartSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
+	const request = validateSessionStart(frame, workers, fail);
+	if (!request) return;
+	const name = typeof frame.name === "string" ? frame.name : undefined;
+	const worker = startWorker(request.cwd, request.resumePath, name);
+	const sessionId = await registerStartedWorker(worker, workers, request.resumeSessionId);
+	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === sessionId) });
 }
 
 async function handleStopSession({ frame, workers, respond, fail }: CommandContext): Promise<void> {
@@ -491,39 +519,49 @@ async function handleListQuestions({ client, workers, revisions, publishUpdates,
 	return respond({ questions: questionSummaries(workers), revision: revisions.questions });
 }
 
-async function handleAnswerQuestion({ frame, workers, respond, fail }: CommandContext): Promise<void> {
-	if (
-		typeof frame.questionId !== "string" ||
-		!frame.answers ||
-		typeof frame.answers !== "object" ||
-		Array.isArray(frame.answers)
-	)
-		return fail("invalid_request", "questionId and answers are required");
-	const answerValues = Object.values(frame.answers);
-	if (answerValues.some((answer) => typeof answer !== "string"))
-		return fail("invalid_answer", "Every answer must be text");
-	const answers = frame.answers as Record<string, string>;
+function validateAnswerMap(value: unknown, fail: CommandContext["fail"]): Record<string, string> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		fail("invalid_request", "questionId and answers are required");
+		return undefined;
+	}
+	if (!Object.values(value).every((answer) => typeof answer === "string")) {
+		fail("invalid_answer", "Every answer must be text");
+		return undefined;
+	}
+	return value as Record<string, string>;
+}
+
+function answerDirectQuestion(
+	questionId: string,
+	answers: Record<string, string>,
+	workers: Map<string, Worker>,
+	respond: CommandContext["respond"],
+	fail: CommandContext["fail"],
+): boolean {
 	for (const worker of workers.values()) {
-		const previousAnswer = worker.answeredDirectQuestions.get(frame.questionId);
+		const previousAnswer = worker.answeredDirectQuestions.get(questionId);
 		if (previousAnswer) {
-			if (!sameAnswers(previousAnswer.answers, answers))
-				return fail("already_resolved", "Question was answered with different values");
-			return respond({ question: previousAnswer.question, delivery: "accepted" });
+			if (!sameAnswers(previousAnswer.answers, answers)) {
+				fail("already_resolved", "Question was answered with different values");
+				return true;
+			}
+			respond({ question: previousAnswer.question, delivery: "accepted" });
+			return true;
 		}
-		const direct = worker.directQuestions.get(frame.questionId);
+		const direct = worker.directQuestions.get(questionId);
 		if (!direct) continue;
-		if (
-			direct.questions.some((question) => {
-				const answer = answers[question.question];
-				return typeof answer !== "string" || !answer.trim();
-			})
-		)
-			return fail("invalid_answer", "An answer is required for every question");
-		if (!worker.child.stdin?.writable) return fail("stale_runtime", "Question runtime is not available");
+		if (direct.questions.some((question) => !answers[question.question]?.trim())) {
+			fail("invalid_answer", "An answer is required for every question");
+			return true;
+		}
+		if (!worker.child.stdin?.writable) {
+			fail("stale_runtime", "Question runtime is not available");
+			return true;
+		}
 		worker.child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: direct.dialogId, answers })}\n`);
-		worker.directQuestions.delete(frame.questionId);
+		worker.directQuestions.delete(questionId);
 		const question = {
-			questionId: frame.questionId,
+			questionId,
 			sessionId: worker.sessionId,
 			originSessionId: worker.sessionId,
 			agentId: null,
@@ -538,30 +576,58 @@ async function handleAnswerQuestion({ frame, workers, respond, fail }: CommandCo
 			answeredBy: "user",
 			delivery: "accepted",
 		};
-		worker.answeredDirectQuestions.set(frame.questionId, { answers, question });
-		return respond({ question, delivery: "accepted" });
+		worker.answeredDirectQuestions.set(questionId, { answers, question });
+		respond({ question, delivery: "accepted" });
+		return true;
 	}
+	return false;
+}
+
+function answerEscalatedQuestion(
+	questionId: string,
+	answers: Record<string, string>,
+	respond: CommandContext["respond"],
+	fail: CommandContext["fail"],
+): void {
 	const center = controlCenter();
-	if (!center)
-		return fail(
+	if (!center) {
+		fail(
 			"not_found",
 			`Question not found on this host; the question store is on ${questionStoreHost(serverSettings())}`,
 		);
+		return;
+	}
 	const entry = listQuestionEntries(center).find(
-		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
+		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === questionId,
 	);
-	if (!entry) return fail("not_found", "Question not found");
-	if (entry.state === "answered" && sameAnswers(entry.answers, answers))
-		return respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
-	if (entry.state !== "open") return fail("already_resolved", "Question is no longer pending");
+	if (!entry) {
+		fail("not_found", "Question not found");
+		return;
+	}
+	if (entry.state === "answered" && sameAnswers(entry.answers, answers)) {
+		respond({ question: makeQuestionSummary(entry), delivery: "delivered" });
+		return;
+	}
+	if (entry.state !== "open") {
+		fail("already_resolved", "Question is no longer pending");
+		return;
+	}
 	answerAgentQuestion(center, entry, answers);
 	const updated = listQuestionEntries(center).find(
-		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === frame.questionId,
+		(item): item is AgentQuestionEntry => item.direction === "agent" && item.ref === questionId,
 	);
 	const question = updated
 		? makeQuestionSummary(updated)
 		: makeQuestionSummary({ ...entry, state: "answered", answers, answeredBy: "user" });
-	return respond({ question, delivery: "delivered" });
+	respond({ question, delivery: "delivered" });
+}
+
+async function handleAnswerQuestion({ frame, workers, respond, fail }: CommandContext): Promise<void> {
+	if (typeof frame.questionId !== "string") return fail("invalid_request", "questionId and answers are required");
+	const answers = validateAnswerMap(frame.answers, fail);
+	if (!answers) return;
+	if (answerDirectQuestion(frame.questionId, answers, workers, respond, fail)) return;
+	answerEscalatedQuestion(frame.questionId, answers, respond, fail);
 }
 
 const commandHandlers: Record<string, CommandHandler> = {

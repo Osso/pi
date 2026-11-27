@@ -72,6 +72,7 @@ class ServerClient {
 
 async function startDaemon(
 	agent: HeadlessPi,
+	supervisorHost: string | null = "agent-server",
 ): Promise<{ daemon: ChildProcess; client: ServerClient; runtimeDir: string }> {
 	const runtimeDir = join(agent.paths.tempDir, "runtime");
 	mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
@@ -82,7 +83,8 @@ async function startDaemon(
 	settings.setDefaultModelAndProvider("headless-faux", "headless-faux-1");
 	const settingsPath = join(agent.paths.agentDir, "settings.json");
 	const storedSettings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-	storedSettings.supervisor = { host: "agent-server", sessionId: "remote-supervisor" };
+	if (supervisorHost !== null) storedSettings.supervisor = { host: supervisorHost, sessionId: "remote-supervisor" };
+	else delete storedSettings.supervisor;
 	writeFileSync(settingsPath, JSON.stringify(storedSettings));
 	const daemon = spawn(
 		process.execPath,
@@ -143,7 +145,7 @@ async function list(client: ServerClient): Promise<Frame[]> {
 describe("pi server process", () => {
 	it("forwards hello and list_sessions through the stdio connector", async () => {
 		await withHeadlessPi(async (agent) => {
-			const { daemon, client, runtimeDir } = await startDaemon(agent);
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
 			client.close();
 			const cliPath = join(import.meta.dirname, "../../src/cli.ts");
 			const connector = spawn(
@@ -184,12 +186,9 @@ describe("pi server process", () => {
 				});
 			try {
 				const hello = await request("stdio-hello", "hello", { version: 1 });
-				expect(hello).toMatchObject({
-					type: "response",
-					command: "hello",
-					success: true,
-					data: { questionStoreHost: "agent-server" },
-				});
+				expect(hello).toMatchObject({ type: "response", command: "hello", success: true });
+				const helloData = hello.data as Frame;
+				expect(helloData.questionStoreHost).toBe(helloData.hostId);
 				const sessions = await request("stdio-sessions", "list_sessions", { includeEnded: true });
 				expect(sessions).toMatchObject({ type: "response", command: "list_sessions", success: true });
 				expect((sessions.data as { sessions: Frame[] }).sessions).toContainEqual(
