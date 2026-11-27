@@ -5,6 +5,8 @@ export {
 	createProductionChildAgentSessionFactory,
 } from "./session-factories.ts";
 
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { getAssistantContentText } from "../../../src/core/assistant-narration.ts";
 import type { AttachSessionDispatchInput } from "./attachment.ts";
 import { attachSessionAgent, dispatchAttachedSessionAgent } from "./attachment.ts";
 import {
@@ -124,6 +126,8 @@ function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void
 
 	ctx.ui.notify(agents.map((agent) => `${agent.id} ${formatAgentStatus(agent)}`).join("\n"), "info");
 }
+
+type AssistantContent = AssistantMessage["content"][number];
 
 export function createMultiAgentPiRequestHandler(options: MultiAgentExtensionOptions): MultiAgentPiRequestHandler {
 	const store = resolveMultiAgentStore(options);
@@ -304,19 +308,12 @@ function summarizeMessageContent(content: unknown): { truncated: boolean; value:
 	if (!Array.isArray(content)) {
 		return undefined;
 	}
+	// Signed narration is public text the user saw; private thinking stays out.
 	const text = content
-		.map((item) => (isTextContent(item) ? item.text : undefined))
-		.filter((item): item is string => item !== undefined)
+		.map((item) => (item && typeof item === "object" ? getAssistantContentText(item as AssistantContent) : undefined))
+		.filter((item): item is string => typeof item === "string")
 		.join("\n");
 	return text ? truncateText(text) : undefined;
-}
-
-function isTextContent(item: unknown): item is { text: string; type: "text" } {
-	if (!item || typeof item !== "object") {
-		return false;
-	}
-	const content = item as { text?: unknown; type?: unknown };
-	return content.type === "text" && typeof content.text === "string";
 }
 
 function truncateText(text: string): { truncated: boolean; value: string } {

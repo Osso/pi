@@ -2135,6 +2135,36 @@ for await (const line of createInterface({ input: process.stdin })) {
 		});
 	});
 
+	it("includes signed narration but not private thinking in Pyrun pi.messages.last", async () => {
+		const narrationFixture = JSON.parse(
+			readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+		) as { content: Array<{ type: "thinking"; thinking: string; thinkingSignature: string }> };
+		const [privateThinking, narration] = narrationFixture.content;
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store: new MultiAgentStore() })],
+		});
+		const sessionManager = {
+			getBranch: () => [
+				{
+					id: "entry-1",
+					message: { content: [privateThinking, narration], role: "assistant", timestamp: 1 },
+					parentId: null,
+					timestamp: "2026-06-30T00:00:00.000Z",
+					type: "message",
+				},
+			],
+			getCwd: () => "/repo/project",
+			getEntries: () => [],
+			getSessionName: () => "pyrun work",
+		};
+
+		const result = await harness.evaluate({ code: "pi.messages.last()" }, undefined, undefined, { sessionManager });
+
+		const value = result.details.value as { text?: string };
+		expect(value.text).toBe(narration.thinking.slice(0, 2000));
+		expect(value.text).not.toContain(privateThinking.thinking.slice(0, 60));
+	});
+
 	it("responds to Pyrun pi.agents.list requests through configured handlers", async () => {
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
