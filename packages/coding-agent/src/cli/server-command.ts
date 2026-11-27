@@ -595,7 +595,7 @@ async function handleCommand(
 			success: false,
 			error: { code, message },
 		});
-	const handler = commandHandlers[String(type)];
+	const handler = Object.hasOwn(commandHandlers, String(type)) ? commandHandlers[String(type)] : undefined;
 	if (!handler) return fail("unknown_command", `Unknown server command: ${String(type)}`);
 	try {
 		await handler({ frame, client, workers, serverInstanceId, revisions, publishUpdates, respond, fail });

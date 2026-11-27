@@ -195,6 +195,11 @@ describe("pi server process", () => {
 				expect((sessions.data as { sessions: Frame[] }).sessions).toContainEqual(
 					expect.objectContaining({ sessionId: agent.sessionId }),
 				);
+				const unknownCommand = await request("stdio-unknown", "toString");
+				expect(unknownCommand).toMatchObject({
+					success: false,
+					error: { code: "unknown_command" },
+				});
 			} finally {
 				connector.stdin?.end();
 				lines.close();
