@@ -1,4 +1,5 @@
-import type { Message as PiMessage } from "@earendil-works/pi-ai";
+import { readFileSync } from "node:fs";
+import type { Message as PiMessage, ThinkingContent } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { convertPiMessages } from "../extensions/claude-bridge/src/convert.ts";
 
@@ -79,5 +80,33 @@ describe("Claude bridge message conversion", () => {
 				],
 			},
 		]);
+	});
+
+	it("sends another provider's signed narration as text and drops its private thinking", () => {
+		const fixture = JSON.parse(
+			readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+		) as { content: ThinkingContent[] };
+		const [privateThinking, narration] = fixture.content;
+		const messages = [
+			{ role: "user", content: "Should we batch deploys?", timestamp: 1 },
+			{
+				role: "assistant",
+				content: [privateThinking, narration],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "claude-opus-5-5",
+				usage,
+				stopReason: "stop",
+				timestamp: 2,
+			},
+		] satisfies PiMessage[];
+
+		const { anthropicMessages, dropped } = convertPiMessages(messages, new Map());
+
+		expect(anthropicMessages[1]).toEqual({
+			role: "assistant",
+			content: [{ type: "text", text: narration.thinking }],
+		});
+		expect(dropped.thinking).toBe(1);
 	});
 });

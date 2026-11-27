@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { isServerNarrationSignature } from "../core/assistant-narration.ts";
+import { isServerNarrationSignature } from "@earendil-works/pi-ai";
 import { listSessionMetadata, registerTemporaryRuntimeMailboxWaiter } from "../core/session-control-db.ts";
 import { sendSessionInspectionRequest, sendSessionNamesRequest, watchSupervisorReplies } from "./mail.ts";
 

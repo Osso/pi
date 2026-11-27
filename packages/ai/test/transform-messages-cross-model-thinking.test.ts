@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { transformMessages } from "../src/api/transform-messages.ts";
-import type { AssistantMessage, Message, Model } from "../src/types.ts";
+import type { AssistantMessage, Message, Model, ThinkingContent } from "../src/types.ts";
 
 const kimi: Model<"openai-completions"> = {
 	id: "moonshotai/Kimi-K3",
@@ -36,6 +37,32 @@ function assistant(model: string, content: AssistantMessage["content"]): Assista
 }
 
 describe("thinking from other models", () => {
+	it("sends another model's signed narration as text, because the user saw it", () => {
+		const fixture = JSON.parse(
+			readFileSync(new URL("../../coding-agent/test/fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+		) as { content: ThinkingContent[] };
+		const [privateThinking, narration] = fixture.content;
+		const opusReply: AssistantMessage = {
+			...assistant("claude-opus-5-5", [privateThinking, narration]),
+			api: "anthropic-messages",
+			provider: "anthropic",
+			stopReason: "stop",
+		};
+		const messages: Message[] = [{ role: "user", content: "Batch deploys?", timestamp: Date.now() }, opusReply];
+
+		const toKimi = transformMessages(messages, kimi).find((m) => m.role === "assistant") as AssistantMessage;
+		expect(toKimi.content).toEqual([{ type: "text", text: narration.thinking }]);
+
+		const opus = {
+			...kimi,
+			id: "claude-opus-5-5",
+			api: "anthropic-messages",
+			provider: "anthropic",
+		} as Model<"anthropic-messages">;
+		const toOpus = transformMessages(messages, opus).find((m) => m.role === "assistant") as AssistantMessage;
+		expect(toOpus.content).toEqual([privateThinking, narration]);
+	});
+
 	// https://github.com/earendil-works/pi/issues/10995
 	it("does not send another model's readable thinking as text", () => {
 		const messages: Message[] = [

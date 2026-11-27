@@ -9,6 +9,7 @@ import type {
 	ToolResultMessage,
 	UserMessage,
 } from "../types.ts";
+import { isServerNarrationSignature } from "../utils/narration.ts";
 
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
@@ -100,8 +101,13 @@ export function transformMessages<TApi extends Api>(
 				if (block.type === "thinking") {
 					// Thinking from another model is dropped. Signatures and encrypted reasoning are
 					// only valid for the model that produced them, and sending readable thinking as
-					// plain text makes the new model treat it as part of the visible reply.
-					if (!isSameModel) return [];
+					// plain text makes the new model treat it as part of the visible reply. Signed
+					// narration is the exception: it is the visible reply, so it goes as text.
+					if (!isSameModel) {
+						return isServerNarrationSignature(block.thinkingSignature)
+							? { type: "text" as const, text: block.thinking }
+							: [];
+					}
 					// Keep redacted and signed blocks even if the thinking text is empty
 					// (OpenAI encrypted reasoning); they are needed for replay.
 					if (block.redacted || block.thinkingSignature) return block;

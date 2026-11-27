@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed a model switch dropping replies the user saw as signed Anthropic narration: thinking from another model is still dropped, but narration is now replayed as text; added `isServerNarrationSignature`
 - Fixed proxy rate-limit errors with a `reset after` cooldown duration dropping the retry delay
 - Fixed Google Generative AI and Vertex errors dropping provider-requested retry delays
 - Fixed Anthropic errors dropping the provider `Retry-After` delay, so session retries now respect it

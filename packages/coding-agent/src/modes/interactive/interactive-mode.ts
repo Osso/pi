@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { isServerNarrationSignature } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
 import type {
 	AutocompleteItem,
@@ -50,7 +51,6 @@ import {
 	shouldContinueInterruptedSession,
 } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import { isServerNarrationSignature } from "../../core/assistant-narration.ts";
 import type { CompactionResult, CompactionSourceInfo } from "../../core/compaction/index.ts";
 import { estimateBranchContextTokens } from "../../core/context-usage-estimate.ts";
 import {

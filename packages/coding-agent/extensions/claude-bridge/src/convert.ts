@@ -1,7 +1,7 @@
 // Pure pi→Anthropic message conversion helpers.
 // Extracted so they can be tested without pulling in the full extension runtime.
 
-import type { Message as PiMessage } from "@earendil-works/pi-ai";
+import { isServerNarrationSignature, type Message as PiMessage } from "@earendil-works/pi-ai";
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -140,6 +140,9 @@ export function convertPiMessages(
 					const sig = block.thinkingSignature;
 					if (msg.provider === PROVIDER_ID && sig) {
 						blocks.push({ type: "thinking", thinking: block.thinking ?? "", signature: sig });
+					} else if (isServerNarrationSignature(sig) && block.thinking) {
+						// Signed narration is the reply the user saw, so it goes as text.
+						blocks.push({ type: "text", text: block.thinking });
 					} else {
 						dropped.thinking++;
 						dropped.providers.add(msg.provider ?? "unknown");

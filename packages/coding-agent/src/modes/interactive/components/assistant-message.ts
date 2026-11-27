@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isServerNarrationSignature } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
-import { isServerNarrationSignature } from "../../../core/assistant-narration.ts";
 import { sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
