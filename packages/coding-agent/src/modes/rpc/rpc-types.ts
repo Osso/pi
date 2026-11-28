@@ -376,6 +376,8 @@ export type RpcExtensionUIRequest =
 			title: string;
 			placeholder?: string;
 			timeout?: number;
+			/** Present only when true: mask the entry and do not keep the value. */
+			secret?: boolean;
 	  }
 	| { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string }
 	| {

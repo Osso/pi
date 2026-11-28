@@ -1369,6 +1369,8 @@ Prompt the user for free-form text.
 
 Expected response: `extension_ui_response` with `value` (the entered text) or `cancelled: true`.
 
+`secret: true` is present only for secret entry (for example `ask_secret`). The client must mask the entry, and must not log, store, or keep the value after it sends the response.
+
 #### editor
 
 Open a multi-line text editor with optional prefilled content.

@@ -109,7 +109,7 @@ export function createAskSecretToolDefinition(
 		): Promise<AgentToolResult<AskSecretDetails>> {
 			const request = parseRequest(params);
 			validateRequest(request);
-			if (ctx.mode !== "tui" || !ctx.hasUI) return unavailableResult();
+			if (!ctx.hasUI || (ctx.mode !== "tui" && ctx.mode !== "rpc")) return unavailableResult();
 			if ("path" in request) return executeFileRequest(request, signal, ctx, renameFile);
 			return executeBrowserRequest(request, signal, ctx, provision);
 		},
@@ -317,7 +317,7 @@ function isErrorWithCode(error: unknown, code: string): boolean {
 
 function unavailableResult(): AgentToolResult<AskSecretDetails> {
 	return {
-		content: [{ type: "text", text: "Error: ask_secret requires an interactive TUI session" }],
+		content: [{ type: "text", text: "Error: ask_secret requires an interactive TUI or RPC session" }],
 		details: { status: "unavailable" },
 	};
 }

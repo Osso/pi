@@ -15,9 +15,9 @@ async function createTemporaryDirectory(): Promise<string> {
 	return directory;
 }
 
-function createTuiContext(input: InputFunction): ExtensionContext {
+function createUiContext(input: InputFunction, mode: "tui" | "rpc" = "tui"): ExtensionContext {
 	return {
-		mode: "tui",
+		mode,
 		hasUI: true,
 		ui: { input },
 	} as unknown as ExtensionContext;
@@ -39,7 +39,7 @@ describe("ask_secret extension", () => {
 			.mockResolvedValueOnce("user@example.com")
 			.mockResolvedValueOnce("super-secret");
 		const tool = createAskSecretToolDefinition({ provision });
-		const context = createTuiContext(input);
+		const context = createUiContext(input);
 		const request = {
 			record: "browser/rei-capital-one.json",
 			fields: [
@@ -74,7 +74,7 @@ describe("ask_secret extension", () => {
 
 		try {
 			await expect(
-				tool.execute("call-missing-helper", request, undefined, undefined, createTuiContext(input)),
+				tool.execute("call-missing-helper", request, undefined, undefined, createUiContext(input)),
 			).rejects.toThrow("Secrets Broker provisioning failed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -93,7 +93,7 @@ describe("ask_secret extension", () => {
 			{ path: destination, label: "OpenRouter API key" },
 			undefined,
 			undefined,
-			createTuiContext(input),
+			createUiContext(input),
 		);
 
 		expect(tool.approvalRequired).toBe(true);
@@ -117,7 +117,7 @@ describe("ask_secret extension", () => {
 			{ path: destination, label: "OpenRouter API key" },
 			undefined,
 			undefined,
-			createTuiContext(input),
+			createUiContext(input),
 		);
 
 		expect(result).toEqual({
@@ -139,7 +139,7 @@ describe("ask_secret extension", () => {
 	it("rejects mixed or incomplete request shapes before prompting", async () => {
 		const input = vi.fn<InputFunction>();
 		const tool = createAskSecretToolDefinition();
-		const context = createTuiContext(input);
+		const context = createUiContext(input);
 		const field = { type: "password" as const, name: "Password", selector: "#password" };
 
 		const cases: Array<[Parameters<typeof tool.execute>[1], string]> = [
@@ -162,7 +162,7 @@ describe("ask_secret extension", () => {
 		const directory = await createTemporaryDirectory();
 		const input = vi.fn<InputFunction>();
 		const tool = createAskSecretToolDefinition();
-		const context = createTuiContext(input);
+		const context = createUiContext(input);
 
 		await expect(
 			tool.execute(
@@ -197,7 +197,7 @@ describe("ask_secret extension", () => {
 			{ path: destination, label: "OpenRouter API key" },
 			undefined,
 			undefined,
-			createTuiContext(vi.fn<InputFunction>().mockResolvedValue(secret)),
+			createUiContext(vi.fn<InputFunction>().mockResolvedValue(secret)),
 		);
 
 		expect(await readFile(destination, "utf8")).toBe(`${secret}\n`);
@@ -218,7 +218,7 @@ describe("ask_secret extension", () => {
 			{ path: destination, label: "OpenRouter API key" },
 			undefined,
 			undefined,
-			createTuiContext(vi.fn<InputFunction>().mockResolvedValue("new-secret")),
+			createUiContext(vi.fn<InputFunction>().mockResolvedValue("new-secret")),
 		);
 
 		expect(await readFile(destination, "utf8")).toBe("new-secret\n");
@@ -249,7 +249,7 @@ describe("ask_secret extension", () => {
 				{ path: destination, label: "OpenRouter API key" },
 				undefined,
 				undefined,
-				createTuiContext(vi.fn<InputFunction>().mockResolvedValue(canarySecret)),
+				createUiContext(vi.fn<InputFunction>().mockResolvedValue(canarySecret)),
 			);
 		} catch (error) {
 			thrown = error;
@@ -279,7 +279,7 @@ describe("ask_secret extension", () => {
 				{ path: destination, label: "OpenRouter API key" },
 				undefined,
 				undefined,
-				createTuiContext(input),
+				createUiContext(input),
 			),
 		).rejects.toThrow("path must not reference a symbolic link");
 		expect(input).not.toHaveBeenCalled();
@@ -299,13 +299,60 @@ describe("ask_secret extension", () => {
 				{ path: destination, label: "OpenRouter API key" },
 				undefined,
 				undefined,
-				createTuiContext(input),
+				createUiContext(input),
 			),
 		).rejects.toThrow("path must reference a regular file or not exist");
 		expect(input).not.toHaveBeenCalled();
 	});
 
-	it("fails closed outside an interactive TUI", async () => {
+	it("prompts through an RPC client UI and masks only password fields", async () => {
+		let receivedValues: string[] | undefined;
+		const provision = vi.fn<AskSecretProvisioner>(async (_request, values) => {
+			receivedValues = [...values];
+		});
+		const input = vi.fn<InputFunction>().mockResolvedValueOnce("rpc-user").mockResolvedValueOnce("rpc-password");
+		const tool = createAskSecretToolDefinition({ provision });
+		const request = {
+			record: "browser/example.json",
+			fields: [
+				{ type: "text", name: "Account user", selector: "#user" },
+				{ type: "password", name: "Account password", selector: "#password" },
+			],
+		} as never;
+
+		const result = await tool.execute("call-rpc", request, undefined, undefined, createUiContext(input, "rpc"));
+
+		expect(receivedValues).toEqual(["rpc-user", "rpc-password"]);
+		expect(input).toHaveBeenNthCalledWith(1, "Account user", "Enter Account user", { signal: undefined });
+		expect(input).toHaveBeenNthCalledWith(2, "Account password", "Enter Account password", {
+			signal: undefined,
+			secret: true,
+		});
+		expect(result.details).toEqual({ record: "browser/example.json", status: "provisioned" });
+		expect(JSON.stringify(result)).not.toContain("rpc-password");
+	});
+
+	it("writes a file secret entered through an RPC client UI as a secret input", async () => {
+		const directory = await createTemporaryDirectory();
+		const destination = join(directory, "rpc.key");
+		const input = vi.fn<InputFunction>().mockResolvedValue("rpc-file-secret");
+		const tool = createAskSecretToolDefinition();
+
+		const result = await tool.execute(
+			"call-rpc-file",
+			{ path: destination, label: "RPC API key" },
+			undefined,
+			undefined,
+			createUiContext(input, "rpc"),
+		);
+
+		expect(input).toHaveBeenCalledWith("RPC API key", "Enter secret", { signal: undefined, secret: true });
+		expect(await readFile(destination, "utf8")).toBe("rpc-file-secret\n");
+		expect(result.details).toEqual({ path: destination, status: "provisioned" });
+		expect(JSON.stringify(result)).not.toContain("rpc-file-secret");
+	});
+
+	it("fails closed in RPC mode without a UI", async () => {
 		const provision = vi.fn<AskSecretProvisioner>();
 		const tool = createAskSecretToolDefinition({ provision });
 		const result = await tool.execute(
@@ -319,11 +366,13 @@ describe("ask_secret extension", () => {
 			{ mode: "rpc", hasUI: false } as unknown as ExtensionContext,
 		);
 
-		expect(result.content).toEqual([{ type: "text", text: "Error: ask_secret requires an interactive TUI session" }]);
+		expect(result.content).toEqual([
+			{ type: "text", text: "Error: ask_secret requires an interactive TUI or RPC session" },
+		]);
 		expect(provision).not.toHaveBeenCalled();
 	});
 
-	it("fails closed for single-value requests outside an interactive TUI", async () => {
+	it("fails closed for single-value requests in RPC mode without a UI", async () => {
 		const directory = await createTemporaryDirectory();
 		const destination = join(directory, "openrouter.key");
 		const tool = createAskSecretToolDefinition();
@@ -336,14 +385,16 @@ describe("ask_secret extension", () => {
 			{ mode: "rpc", hasUI: false } as unknown as ExtensionContext,
 		);
 
-		expect(result.content).toEqual([{ type: "text", text: "Error: ask_secret requires an interactive TUI session" }]);
+		expect(result.content).toEqual([
+			{ type: "text", text: "Error: ask_secret requires an interactive TUI or RPC session" },
+		]);
 		await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
 	it("rejects unsafe broker arguments before prompting", async () => {
 		const input = vi.fn<InputFunction>();
 		const tool = createAskSecretToolDefinition({ provision: vi.fn<AskSecretProvisioner>() });
-		const context = createTuiContext(input);
+		const context = createUiContext(input);
 
 		await expect(
 			tool.execute(

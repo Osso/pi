@@ -153,8 +153,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			),
 
 		input: (title, placeholder, opts) =>
-			createDialogPromise(opts, undefined, { method: "input", title, placeholder, timeout: opts?.timeout }, (r) =>
-				"cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined,
+			createDialogPromise(
+				opts,
+				undefined,
+				{ method: "input", title, placeholder, timeout: opts?.timeout, secret: opts?.secret || undefined },
+				(r) => ("cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined),
 			),
 
 		questions: (questions, opts) =>
@@ -272,15 +275,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 			const id = crypto.randomUUID();
 			return new Promise((resolve, reject) => {
 				pendingExtensionRequests.set(id, {
-					resolve: (response: RpcExtensionUIResponse) => {
-						if ("cancelled" in response && response.cancelled) {
-							resolve(undefined);
-						} else if ("value" in response) {
-							resolve(response.value);
-						} else {
-							resolve(undefined);
-						}
-					},
+					resolve: (r: RpcExtensionUIResponse) =>
+						resolve("cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined),
 					reject,
 				});
 				output({ type: "extension_ui_request", id, method: "editor", title, prefill } as RpcExtensionUIRequest);

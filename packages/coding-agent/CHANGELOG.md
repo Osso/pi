@@ -64,6 +64,7 @@
 - pi server session summaries' `agents` entries carry the sub-agent's `model` (`<provider>/<modelId>`), and the configured Supervisor session's summary has `supervisor: true`.
 - Until an eligible main session is named, each prompt carries a hidden reminder to call `set_session_name`; models that skipped the naming guideline left sessions unnamed.
 - `pi questions` no longer shows a Quit row below the list; Escape (or Ctrl+C) quits.
+- `ask_secret` also runs in RPC mode when the client has a UI. Masked prompts reach the client as RPC `input` requests with the new optional `secret: true` field, which tells the client to mask the entry and not keep the value. Other modes, and RPC mode without a UI, still fail closed.
 - `pi questions` uses configurable `app.questions.new` (Ctrl+N) and `app.questions.refresh` (Ctrl+R) shortcuts instead of ask and refresh action rows; Ctrl+R keeps the selected question, and the footer wraps its key hints at narrow widths.
 - The generic goal continuation (`/goal` reminder and Supervisor `continue`) now tells the agent to ask questions and report blockers with `ask_questions` instead of plain text
 - `pi questions` refreshes the unanswered list every two seconds while visible, without replacing the list component or interrupting detail/answer flows; remote names are queried only for newly seen IDs between manual refreshes.
