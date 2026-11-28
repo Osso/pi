@@ -331,7 +331,14 @@ async function handleDetachSession({ frame, client, workers, respond, fail }: Co
 	return respond({ detached: true });
 }
 
-async function handleSessionRpc({ frame, client, workers, respond, fail }: CommandContext): Promise<void> {
+async function handleSessionRpc({
+	frame,
+	client,
+	workers,
+	publishUpdates,
+	respond,
+	fail,
+}: CommandContext): Promise<void> {
 	if (
 		typeof frame.sessionId !== "string" ||
 		typeof frame.runtimeInstanceId !== "string" ||
@@ -363,6 +370,8 @@ async function handleSessionRpc({ frame, client, workers, respond, fail }: Comma
 		return fail("read_only", "Observer attachment cannot send this RPC command");
 	if (command.type === "extension_ui_response") {
 		await writeWorkerLine(worker, command);
+		// Answered in the session: it leaves the question list, or clients keep offering it.
+		if (worker.directQuestions.delete(`${worker.sessionId}:${String(command.id)}`)) publishUpdates();
 		return respond({
 			response: { type: "response", command: "extension_ui_response", success: true, id: command.id },
 		});

@@ -202,6 +202,68 @@ describe("pi server process", () => {
 		});
 	}, 60_000);
 
+	it("drops a question answered in the session from the question list", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				await client.request("list_questions");
+				await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: { type: "prompt", message: "Ask in the session." },
+				});
+				const request = await agent.waitForLlmRequest((item) => item.userMessages.includes("Ask in the session."));
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(
+						[fauxToolCall("ask_questions", { blocking: true, questions: [{ question: "Answered here?" }] })],
+						{ stopReason: "toolUse" },
+					),
+				);
+				const dialog = await client.waitForEvent(
+					(event) =>
+						event.type === "session_event" &&
+						(event.event as Frame | undefined)?.type === "extension_ui_request" &&
+						(event.event as Frame | undefined)?.method === "questions",
+				);
+				const asked = await client.waitForEvent(
+					(event) =>
+						event.type === "question_updated" &&
+						(event.question as Frame | undefined)?.sessionId === sessionId &&
+						(event.question as Frame | undefined)?.state === "pending",
+				);
+				// The session's own form answers through session_rpc, not answer_question.
+				const answered = await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: {
+						type: "extension_ui_response",
+						id: (dialog.event as Frame).id,
+						answers: { "Answered here?": "Yes" },
+					},
+				});
+				expect(answered.success).toBe(true);
+				await client.waitForEvent(
+					(event) =>
+						event.type === "question_updated" &&
+						(event.question as Frame | undefined)?.questionId === (asked.question as Frame).questionId &&
+						(event.question as Frame | undefined)?.state !== "pending",
+				);
+				const inbox = await client.request("list_questions");
+				expect((inbox.data as { questions: Frame[] }).questions).toEqual([]);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
 	it("reports a pending question cancelled when its worker stops", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { daemon, client, runtimeDir } = await startDaemon(agent, null);
