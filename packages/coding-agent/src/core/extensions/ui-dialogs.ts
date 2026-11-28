@@ -8,6 +8,8 @@ export interface ExtensionUIDialogOptions {
 	secret?: boolean;
 	blocking?: boolean;
 	toolCallId?: string;
+	/** `supervisor`: the questions were also submitted to the Supervisor, whose store lists them once escalated. */
+	review?: "supervisor";
 }
 
 /** One ask_questions question as shown to a UI. */

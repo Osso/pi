@@ -52,7 +52,15 @@ export type Worker = {
 	clients: Set<Client>;
 	directQuestions: Map<
 		string,
-		{ dialogId: string; toolCallId: string; blocking: boolean; createdAt: string; questions: ExtensionUIQuestion[] }
+		{
+			dialogId: string;
+			toolCallId: string;
+			blocking: boolean;
+			createdAt: string;
+			questions: ExtensionUIQuestion[];
+			/** `supervisor`: the Supervisor store lists this call once escalated; clients do not show this entry. */
+			review: "none" | "supervisor";
+		}
 	>;
 	answeredDirectQuestions: Map<string, { answers: Record<string, string>; question: Record<string, unknown> }>;
 	stderr: string;

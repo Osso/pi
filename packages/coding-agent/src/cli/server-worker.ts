@@ -150,6 +150,7 @@ export function parseWorkerLine(worker: Worker, line: string): void {
 			blocking: frame.blocking === true,
 			createdAt: new Date().toISOString(),
 			questions,
+			review: frame.review === "supervisor" ? "supervisor" : "none",
 		});
 	}
 	if (frame.type === "extension_ui_dismiss" && typeof frame.id === "string")

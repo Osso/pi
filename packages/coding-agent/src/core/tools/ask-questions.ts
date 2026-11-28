@@ -156,7 +156,7 @@ function cancelQuestionRaceOnAbort(race: QuestionPanelRace, signal: AbortSignal 
 }
 
 type QuestionUiContext = Pick<ExtensionContext, "ui" | "sessionManager" | "mode">;
-type QuestionDialogMetadata = Pick<ExtensionUIDialogOptions, "blocking" | "toolCallId">;
+type QuestionDialogMetadata = Pick<ExtensionUIDialogOptions, "blocking" | "toolCallId" | "review">;
 
 async function showQuestions(
 	ctx: QuestionUiContext,
@@ -265,6 +265,7 @@ async function askQuestions(
 		const result = await queueQuestions(ctx, params.questions, race, {
 			blocking: params.blocking,
 			toolCallId: requestId,
+			...(supervisor ? { review: "supervisor" as const } : {}),
 		});
 		if (result.answeredBy) supervisor?.stop();
 		else supervisor?.withdraw(result.cancelled ? undefined : result.answers);

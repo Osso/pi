@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { getControlDbPath, writeSessionHealth, writeSessionMetadata } from "../../src/core/session-control-db.ts";
+import {
+	claimNextSupervisorRequest,
+	getControlDbPath,
+	readSupervisorRequest,
+	writeSessionHealth,
+	writeSessionMetadata,
+} from "../../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../../src/core/session-health.ts";
+import { evaluateAndCompleteSupervisorRequest } from "../../src/supervisor/request-evaluation.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 import {
 	FOREIGN_SUPERVISOR_HOST,
@@ -238,6 +246,12 @@ describe("pi server process", () => {
 						(event.question as Frame | undefined)?.sessionId === sessionId &&
 						(event.question as Frame | undefined)?.state === "pending",
 				);
+				// No Supervisor configured: the session's dialog is the question's one entry.
+				expect((dialog.event as Frame).review).toBeUndefined();
+				const pending = await client.request("list_questions");
+				expect((pending.data as { questions: Frame[] }).questions).toEqual([
+					expect.objectContaining({ questionId: (asked.question as Frame).questionId, review: "none" }),
+				]);
 				// The session's own form answers through session_rpc, not answer_question.
 				const answered = await client.request("session_rpc", {
 					sessionId,
@@ -257,6 +271,162 @@ describe("pi server process", () => {
 				);
 				const inbox = await client.request("list_questions");
 				expect((inbox.data as { questions: Frame[] }).questions).toEqual([]);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 60_000);
+
+	it("lists one entry per Supervisor question: none under review, the store entry once escalated", async () => {
+		await withHeadlessPi(async (agent) => {
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			// The Supervisor, and so its question store, runs on this host.
+			const { daemon, client, runtimeDir } = await startDaemon(agent, hostname());
+			const listed = async (toolCallId: unknown) =>
+				((await client.request("list_questions")).data as { questions: Frame[] }).questions.filter(
+					(question) => question.toolCallId === toolCallId,
+				);
+			// What clients show: pending questions the user must answer.
+			const shown = (questions: Frame[]) =>
+				questions.filter((question) => question.review === "none" || question.review === "escalated");
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				const ask = async (message: string, question: string): Promise<Frame> => {
+					await client.request("session_rpc", {
+						sessionId,
+						runtimeInstanceId,
+						command: { type: "prompt", message },
+					});
+					const request = await agent.waitForLlmRequest((item) => item.userMessages.includes(message));
+					agent.respondToLlmRequest(
+						request.id,
+						fauxAssistantMessage([fauxToolCall("ask_questions", { blocking: true, questions: [{ question }] })], {
+							stopReason: "toolUse",
+						}),
+					);
+					const dialog = await client.waitForEvent((event) => {
+						const ui = event.event as Frame | undefined;
+						return ui?.method === "questions" && (ui.questions as Frame[])[0]?.question === question;
+					});
+					return dialog.event as Frame;
+				};
+				const finishTurn = async (answer: string, text: string) => {
+					const followUp = await agent.waitForLlmRequest((item) => JSON.stringify(item.messages).includes(answer));
+					agent.respondToLlmRequest(
+						followUp.id,
+						fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+							stopReason: "toolUse",
+						}),
+					);
+					await client.waitForEvent(
+						(event) =>
+							(event.event as Frame | undefined)?.type === "agent_end" &&
+							JSON.stringify(event.event).includes(text),
+					);
+				};
+
+				// Under Supervisor review: the session's client gets the dialog, the user sees nothing.
+				const first = await ask("Ask the Supervisor.", "Which runner?");
+				expect(first.review).toBe("supervisor");
+				const underReview = await listed(first.toolCallId);
+				expect(underReview).toEqual([
+					expect.objectContaining({ questionId: `${sessionId}:${first.id}`, review: "supervisor" }),
+				]);
+				expect(shown(underReview)).toEqual([]);
+
+				// Escalated: the store entry is the one entry the user sees.
+				const request = claimNextSupervisorRequest(controlDbPath, "test-claim");
+				if (!request) throw new Error("The question did not reach the Supervisor");
+				await evaluateAndCompleteSupervisorRequest(
+					controlDbPath,
+					request,
+					async () => ({ kind: "escalate", reason: "A product tradeoff." }),
+					"remote-supervisor",
+				);
+				const escalated = await listed(first.toolCallId);
+				expect(shown(escalated)).toEqual([
+					expect.objectContaining({ questionId: `a${request.id}`, sessionId, review: "escalated" }),
+				]);
+				expect(escalated).toHaveLength(2);
+
+				// Answered through the store entry: the session's call settles and both entries are gone.
+				const answered = await client.request("answer_question", {
+					questionId: `a${request.id}`,
+					answers: { "Which runner?": "vitest" },
+				});
+				expect(answered).toMatchObject({ success: true, data: { delivery: "delivered" } });
+				await client.waitForEvent(
+					(event) =>
+						(event.event as Frame | undefined)?.type === "extension_ui_dismiss" &&
+						(event.event as Frame).id === first.id,
+				);
+				await finishTurn("vitest", "Using vitest.");
+				expect(await listed(first.toolCallId)).toEqual([]);
+
+				// Answered in the session while under review: the store entry is withdrawn, nothing is listed.
+				const second = await ask("Ask again.", "Which linter?");
+				expect(second.review).toBe("supervisor");
+				await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: { type: "extension_ui_response", id: second.id, answers: { "Which linter?": "biome" } },
+				});
+				await finishTurn("biome", "Using biome.");
+				expect(readSupervisorRequest(controlDbPath, request.id + 1)).toMatchObject({
+					replyTo: { requestId: second.toolCallId },
+					status: "cancelled",
+				});
+				expect(await listed(second.toolCallId)).toEqual([]);
+			} finally {
+				client.close();
+				await stopDaemon(daemon, runtimeDir);
+			}
+		});
+	}, 120_000);
+
+	it("lists a question whose Supervisor runs on another host only as under Supervisor review", async () => {
+		await withHeadlessPi(async (agent) => {
+			// The store entry is on the Supervisor host; this host must not show the session's dialog as well.
+			const { daemon, client, runtimeDir } = await startDaemon(agent, FOREIGN_SUPERVISOR_HOST);
+			try {
+				const started = await client.request("start_session", { cwd: agent.paths.workspaceDir });
+				if (started.success !== true) throw new Error(JSON.stringify(started));
+				const { session } = started.data as { session: Frame };
+				const sessionId = session.sessionId as string;
+				const runtimeInstanceId = session.runtimeInstanceId as string;
+				expect((await client.request("attach_session", { sessionId, mode: "control" })).success).toBe(true);
+				await client.request("session_rpc", {
+					sessionId,
+					runtimeInstanceId,
+					command: { type: "prompt", message: "Ask the remote Supervisor." },
+				});
+				const request = await agent.waitForLlmRequest((item) =>
+					item.userMessages.includes("Ask the remote Supervisor."),
+				);
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(
+						[fauxToolCall("ask_questions", { blocking: true, questions: [{ question: "Remote?" }] })],
+						{ stopReason: "toolUse" },
+					),
+				);
+				const dialog = await client.waitForEvent(
+					(event) => (event.event as Frame | undefined)?.method === "questions",
+				);
+				const inbox = await client.request("list_questions");
+				expect((inbox.data as { questions: Frame[] }).questions).toEqual([
+					expect.objectContaining({
+						questionId: `${sessionId}:${(dialog.event as Frame).id}`,
+						review: "supervisor",
+						answerable: true,
+					}),
+				]);
 			} finally {
 				client.close();
 				await stopDaemon(daemon, runtimeDir);

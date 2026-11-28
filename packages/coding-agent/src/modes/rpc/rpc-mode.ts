@@ -160,11 +160,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 				(r) => ("cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined),
 			),
 
-		questions: (questions, opts) =>
+		questions: (questions, o) =>
 			createDialogPromise(
-				opts,
+				o,
 				{ answers: {}, cancelled: true },
-				{ method: "questions", questions, blocking: opts?.blocking, toolCallId: opts?.toolCallId },
+				{ method: "questions", questions, blocking: o?.blocking, toolCallId: o?.toolCallId, review: o?.review },
 				(r) => ("answers" in r ? { answers: r.answers, cancelled: false } : { answers: {}, cancelled: true }),
 			),
 

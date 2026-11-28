@@ -387,6 +387,7 @@ export type RpcExtensionUIRequest =
 			questions: ExtensionUIQuestion[];
 			blocking?: boolean;
 			toolCallId?: string;
+			review?: "supervisor";
 	  }
 	| {
 			type: "extension_ui_request";

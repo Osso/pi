@@ -316,6 +316,7 @@
 
 ### Fixed
 
+- `pi server` `list_questions` no longer shows one `ask_questions` call twice when a Supervisor is configured. The RPC `questions` dialog of a call posted to the Supervisor carries `review: "supervisor"`, and the server lists that dialog with review `supervisor`, which clients do not show. The user sees the Supervisor store entry once the Supervisor escalates, and no entry while it reviews.
 - A new agent or background job (e.g. a bash command moved to the background) now reaches agent-update subscribers when it appears: RPC clients get `agent_updated` at once instead of only at its next change, so they no longer show "Waiting for agents" with no agent listed.
 
 - `pi server` uses far less CPU with many sub-agent sessions. Every 500 ms its session list read every session row and then discarded the sub-agents; it now reads only main sessions, through a new partial index. On a control database with 18,461 rows, a list went from 128 ms to 14 ms.

@@ -53,7 +53,7 @@ function answerDirectQuestion(
 			questions: direct.questions,
 			createdAt: direct.createdAt,
 			state: "answered",
-			review: "none",
+			review: direct.review,
 			answerable: false,
 			answers,
 			answeredBy: "user",

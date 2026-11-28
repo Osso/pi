@@ -1407,6 +1407,8 @@ The `ask_questions` tool asks the user 1-4 questions. A question with `options` 
 }
 ```
 
+The request also carries `blocking` and `toolCallId` (the `ask_questions` call), and `review: "supervisor"` when the questions were also posted to the configured Supervisor. A `pi server` question list shows such a dialog with review `supervisor`, because the Supervisor's store lists the call once it escalates it to the user.
+
 Expected response: `extension_ui_response` with `answers` or `cancelled: true`. When a Supervisor is configured it receives the same questions; if it answers first, pi sends `extension_ui_dismiss` for this `id`.
 
 #### notify

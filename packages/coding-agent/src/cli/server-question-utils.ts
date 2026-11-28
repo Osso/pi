@@ -55,7 +55,7 @@ export function questionUpdates(workers: Map<string, Worker>): Array<Record<stri
 			questions: question.questions,
 			createdAt: question.createdAt,
 			state: "pending",
-			review: "none",
+			review: question.review,
 			answerable: true,
 		})),
 	);
