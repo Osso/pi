@@ -851,6 +851,11 @@ async function exportTerminalHistory(parsed: Args): Promise<void> {
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	if (args.length === 2 && args[0] === "relay" && (args[1] === "serve" || args[1] === "connect")) {
+		// Hosts still running a pre-hub-link pi call `pi relay serve` over SSH; fail instead of starting a session.
+		console.error("pi relay was removed: cross-host messages use the pi server hub link (server.hub).");
+		process.exit(1);
+	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
 	if (initialArgs.terminalExport) {
