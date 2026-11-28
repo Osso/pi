@@ -84,7 +84,7 @@ describe("MultiAgentStore", () => {
 		const spawned = spawnScout(store);
 		const updates: Array<[string, string | undefined]> = [];
 		store.subscribeAgentUpdates((previous, current) => {
-			updates.push([previous.lifecycle, current.transcript?.path]);
+			updates.push([previous?.lifecycle ?? "", current.transcript?.path]);
 		});
 
 		const transcript = store.updateAgentTranscript(spawned.agent.id, {
