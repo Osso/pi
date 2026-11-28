@@ -674,19 +674,20 @@ describe("default footer extension", () => {
 			expect(stats()).not.toContain("tok/s");
 			requestRender.mockClear();
 
-			// Time to first token (0 -> 4s) is excluded; 84 tokens over the 2s stream is 42 tok/s.
-			await emit("message_start", { message: { role: "assistant" } }, 0);
-			await emit("message_update", reply(0), 4_000);
-			await emit("message_update", reply(50), 5_000);
-			await emit("message_end", reply(84), 6_000);
+			// The request's wall time counts, time to first token included: 84 tokens over 0 -> 2s is 42 tok/s,
+			// though the visible reply streamed only from 1.9s (hidden reasoning came first).
+			await emit("model_request_start", { type: "model_request_start" }, 0);
+			await emit("message_start", { message: { role: "assistant" } }, 1_900);
+			await emit("message_update", reply(0), 1_900);
+			await emit("message_end", reply(84), 2_000);
 			expect(stats()).toContain("42 tok/s ctx 60.9%/272k");
 			expect(requestRender).toHaveBeenCalledTimes(1);
 
 			// An aborted reply keeps the last measured speed, and the next reply is timed on its own.
-			await emit("message_update", reply(5, "aborted"), 10_000);
+			await emit("model_request_start", { type: "model_request_start" }, 10_000);
 			await emit("message_end", reply(10, "aborted"), 20_000);
 			expect(stats()).toContain("42 tok/s");
-			await emit("message_update", reply(1), 30_000);
+			await emit("model_request_start", { type: "model_request_start" }, 30_000);
 			await emit("message_end", reply(150), 31_000);
 			expect(stats()).toContain("150 tok/s");
 

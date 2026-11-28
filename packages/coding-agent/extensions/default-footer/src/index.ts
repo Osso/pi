@@ -304,8 +304,8 @@ function registerBackgroundCompactionStatus(pi: ExtensionAPI): void {
 }
 
 function registerReplySpeed(pi: ExtensionAPI, replySpeed: ReplySpeed): void {
-	pi.on("message_update", async (event) => {
-		replySpeed.recordUpdate(event.message, Date.now());
+	pi.on("model_request_start", async () => {
+		replySpeed.recordRequestStart(Date.now());
 	});
 
 	pi.on("message_end", async (event, ctx) => {
