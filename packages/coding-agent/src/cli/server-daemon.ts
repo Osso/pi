@@ -210,7 +210,14 @@ export async function runStdioConnector(path: string): Promise<void> {
 	});
 	process.stdin.pipe(socket);
 	socket.pipe(process.stdout);
-	await new Promise<void>((resolve) => socket.once("close", resolve));
+	// The connection ends with whichever side goes first: the server socket, or the client's stdin or stdout
+	// (an SSH client that went away; writing to its stdout fails with EPIPE).
+	await new Promise<void>((resolve) => {
+		socket.once("close", resolve);
+		process.stdin.once("close", resolve);
+		process.stdout.once("error", resolve);
+	});
+	socket.destroy();
 }
 
 export async function runServer(): Promise<void> {
@@ -272,8 +279,11 @@ export async function runServer(): Promise<void> {
 export async function handleServerCommand(args: string[]): Promise<boolean> {
 	if (args[0] !== "server") return false;
 	try {
-		if (args.length === 2 && (args[1] === "--stdio" || args[1] === "--link")) await runStdioConnector(socketPath());
-		else if (args.length === 1) await runServer();
+		if (args.length === 2 && (args[1] === "--stdio" || args[1] === "--link")) {
+			await runStdioConnector(socketPath());
+			// Exit now: under Bun a closed stdin stays polled and spins a core while the process lives.
+			process.exit(process.exitCode ?? 0);
+		} else if (args.length === 1) await runServer();
 		else throw new Error("Usage: pi server [--stdio|--link]");
 	} catch (error) {
 		console.error(`pi server: ${errorMessage(error)}`);

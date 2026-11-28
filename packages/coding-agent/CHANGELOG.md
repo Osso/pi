@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- `pi server --stdio` exits when its client goes away. Before, an update pushed to the closed stdout failed with EPIPE, and the orphaned connector stayed running and used a full CPU core.
 - `pi server`: the session that runs another machine's remote `bash`, `pyrun_eval`, or `browser-cli` calls (`start_session` with `toolSession: true`) no longer appears in `list_sessions` (pi-desktop showed it as "Session <id>") and is not reopened after a server restart.
 - `pi server` drops a question from `list_questions` when the session answers its dialog through `session_rpc` (`extension_ui_response`). It stayed pending, so clients offered it again and it had to be answered twice.
 - In RPC mode (pi server workers, pi-desktop), a steering message now wakes a running `wait_agent`, as in the TUI. It waited until an agent finished or the 25-minute wait slice ended.
