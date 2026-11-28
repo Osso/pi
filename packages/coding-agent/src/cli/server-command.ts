@@ -56,6 +56,8 @@ export type Worker = {
 	>;
 	answeredDirectQuestions: Map<string, { answers: Record<string, string>; question: Record<string, unknown> }>;
 	stderr: string;
+	/** Runs another machine's remote tool calls: not listed and not reopened after a restart. */
+	toolSession?: boolean;
 };
 
 type Attachment = {
@@ -195,7 +197,7 @@ async function registerStartedWorker(
 			throw new Error("Session is already managed by this server");
 		workers.delete(reservation);
 		workers.set(sessionId, worker);
-		rememberOwnedSession({ sessionId, cwd: worker.cwd });
+		if (!worker.toolSession) rememberOwnedSession({ sessionId, cwd: worker.cwd });
 		// A worker that exits on its own is no longer owned; the directory then lists the session as ended.
 		// One that quit (exit 0) stays ended; one killed with the server (signal, crash) reopens with it.
 		worker.child.once("exit", (code) => {
@@ -215,8 +217,10 @@ async function handleStartSession({ frame, workers, respond, fail }: CommandCont
 	if (!request) return;
 	const name = typeof frame.name === "string" ? frame.name : undefined;
 	const worker = startWorker(request.cwd, request.resumePath, name);
+	worker.toolSession = frame.toolSession === true;
 	const sessionId = await registerStartedWorker(worker, workers, request.resumeSessionId);
-	return respond({ session: sessionSummaries(workers).find((session) => session.sessionId === sessionId) });
+	const summaries = sessionSummaries(workers, { includeToolSessions: true });
+	return respond({ session: summaries.find((session) => session.sessionId === sessionId) });
 }
 
 /**
@@ -245,7 +249,9 @@ async function handleStopSession({ frame, workers, respond, fail }: CommandConte
 	if (!worker) return fail("not_managed", "Session is not owned by this server");
 	if (frame.runtimeInstanceId !== worker.runtimeInstanceId)
 		return fail("stale_runtime", "Runtime instance ID does not match");
-	const running = sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId);
+	const running = sessionSummaries(workers, { includeToolSessions: true }).find(
+		(session) => session.sessionId === worker.sessionId,
+	);
 	workers.delete(worker.sessionId);
 	forgetOwnedSession(worker.sessionId);
 	if (worker.child.exitCode === null && worker.child.signalCode === null) {
@@ -312,7 +318,9 @@ async function handleAttachSession({ frame, client, workers, respond, fail }: Co
 	}
 	attachment.events = [];
 	return respond({
-		session: sessionSummaries(workers).find((session) => session.sessionId === worker.sessionId),
+		session: sessionSummaries(workers, { includeToolSessions: true }).find(
+			(session) => session.sessionId === worker.sessionId,
+		),
 		runtimeInstanceId: worker.runtimeInstanceId,
 		firstSequence,
 		mode: frame.mode,

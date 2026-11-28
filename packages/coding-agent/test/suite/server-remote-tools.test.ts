@@ -3,6 +3,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import { getControlDbPath } from "../../src/core/session-control-db.ts";
+import { listSessions } from "../../src/core/session-directory.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 import { type Frame, localHubCommand, startDaemon, stopDaemon } from "./server-daemon-fixture.ts";
 
@@ -35,6 +37,13 @@ async function callTool(
 async function runningSpokeSessions(client: { request(type: string, fields?: Frame): Promise<Frame> }) {
 	const sessions = ((await client.request("list_sessions")).data as { sessions: Frame[] }).sessions;
 	return sessions.filter((session) => session.owner === "server" && session.status === "running");
+}
+
+/** The spoke's live sessions other than its own headless pi, listed or not. */
+function liveSpokeSessions(spoke: { sessionId: string; paths: { agentDir: string } }) {
+	return listSessions(getControlDbPath(spoke.paths.agentDir)).filter(
+		(session) => session.status !== "ended" && session.sessionId !== spoke.sessionId,
+	);
 }
 
 function resultText(result: Frame): string {
@@ -111,13 +120,15 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 					expect(unknown.isError).toBe(true);
 					expect(resultText(unknown)).toContain("machine_offline");
 
+					// The remote tool sessions run on the spoke but are not in its session list.
+					expect(liveSpokeSessions(spokeAgent)).not.toHaveLength(0);
+					expect(await runningSpokeSessions(spoke.client)).toHaveLength(0);
 					// Ending the local session stops the remote tool sessions it opened on the spoke.
-					expect(await runningSpokeSessions(spoke.client)).not.toHaveLength(0);
 					await hub.client.request("stop_session", { sessionId, runtimeInstanceId });
 					const deadline = Date.now() + 30_000;
-					while ((await runningSpokeSessions(spoke.client)).length > 0 && Date.now() < deadline)
+					while (liveSpokeSessions(spokeAgent).length > 0 && Date.now() < deadline)
 						await new Promise((resolve) => setTimeout(resolve, 100));
-					expect(await runningSpokeSessions(spoke.client)).toHaveLength(0);
+					expect(liveSpokeSessions(spokeAgent)).toHaveLength(0);
 				} finally {
 					hub.client.close();
 					spoke.client.close();

@@ -28,15 +28,24 @@ function supervisorSessionId(): string | undefined {
 
 /**
  * The sessions `pi -r` offers, plus every session that runs now; unnamed ones carry their first message.
- * A session that is not ended carries its non-terminal sub-agents, when it has any.
+ * A session that is not ended carries its non-terminal sub-agents, when it has any. Remote tool sessions
+ * (`start_session` with `toolSession`) are left out unless `includeToolSessions`.
  */
-export function sessionSummaries(workers: Map<string, Worker>): ServerSessionSummary[] {
+export function sessionSummaries(
+	workers: Map<string, Worker>,
+	options: { includeToolSessions?: boolean } = {},
+): ServerSessionSummary[] {
 	const owned = new Map([...workers.values()].map((worker) => [worker.sessionId, worker] as const));
+	const hidden = new Set(
+		options.includeToolSessions ? [] : [...owned.values()].filter((w) => w.toolSession).map((w) => w.sessionId),
+	);
 	const controlDbPath = getControlDbPath();
 	const resumable = resumableSessions(controlDbPath);
 	const supervisorId = supervisorSessionId();
 	const listed = listSessions(controlDbPath, { includeEnded: true }).filter(
-		(entry) => owned.has(entry.sessionId) || entry.status !== "ended" || resumable.has(entry.sessionId),
+		(entry) =>
+			!hidden.has(entry.sessionId) &&
+			(owned.has(entry.sessionId) || entry.status !== "ended" || resumable.has(entry.sessionId)),
 	);
 	const agents = readActiveSessionAgents(
 		controlDbPath,

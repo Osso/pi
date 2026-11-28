@@ -112,7 +112,7 @@ interface RemoteToolSession {
 }
 
 async function startRemoteToolSession(hub: HubConnection, host: string, cwd: string): Promise<RemoteToolSession> {
-	const started = await hub.request("start_session", { hostId: host, cwd });
+	const started = await hub.request("start_session", { hostId: host, cwd, toolSession: true });
 	const startedSession = started.session as Frame | undefined;
 	const sessionId = String(startedSession?.sessionId ?? "");
 	const runtimeInstanceId = String(startedSession?.runtimeInstanceId ?? "");
