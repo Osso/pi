@@ -2946,7 +2946,7 @@ export class InteractiveMode {
 			if (transcriptPath && transcriptPath !== this.childViewTranscriptPath) {
 				this.openChildAgentView(current);
 			}
-			if (JSON.stringify(previous.model) !== JSON.stringify(current.model)) {
+			if (JSON.stringify(previous?.model) !== JSON.stringify(current.model)) {
 				InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 				this.footer.invalidate();
 			}

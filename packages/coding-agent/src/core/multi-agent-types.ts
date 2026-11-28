@@ -240,7 +240,8 @@ export interface MultiAgentStoreOptions {
 
 export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
 export type AgentTransitionListener = (previous: AgentSnapshot, current: AgentSnapshot) => void;
-export type AgentUpdateListener = (previous: AgentSnapshot, current: AgentSnapshot) => void;
+/** `previous` is undefined when the agent first appears. */
+export type AgentUpdateListener = (previous: AgentSnapshot | undefined, current: AgentSnapshot) => void;
 
 export interface AgentSlotProjection {
 	agentId: string;

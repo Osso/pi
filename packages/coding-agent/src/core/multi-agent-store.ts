@@ -609,8 +609,8 @@ export class MultiAgentStore {
 	}
 
 	/** @internal */
-	notifyAgentUpdateListeners(previous: AgentNode, current: AgentNode): void {
-		const previousSnapshot = copyAgent(previous);
+	notifyAgentUpdateListeners(previous: AgentNode | undefined, current: AgentNode): void {
+		const previousSnapshot = previous && copyAgent(previous);
 		const currentSnapshot = copyAgent(current);
 		for (const listener of this.updateListeners) {
 			try {

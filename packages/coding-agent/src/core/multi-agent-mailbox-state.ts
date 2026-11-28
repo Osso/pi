@@ -63,8 +63,8 @@ export function publishLifecycleCoordinatorSteering(
 		store.mailboxMessages.set(message.id, copyMessage(message));
 	}
 	store.agents.set(agent.id, current);
-	if (!previous) return;
 	store.notifyAgentUpdateListeners(previous, current);
+	if (!previous) return;
 	store.notifyTransitionListenersIfLifecycleChanged(previous, current);
 }
 
@@ -81,11 +81,11 @@ export function publishLifecycleCoordinatorSnapshot(store: MultiAgentStore, agen
 	const previous = store.agents.get(agent.id);
 	const current = copyAgent(agent);
 	store.agents.set(agent.id, current);
+	store.notifyAgentUpdateListeners(previous, current);
 	if (!previous) {
 		store.clearSelectedTerminalAgent(current);
 		return;
 	}
-	store.notifyAgentUpdateListeners(previous, current);
 	if (previous.lifecycle !== current.lifecycle) {
 		if (current.lifecycle === "waiting_for_input") recordWaitingForInputNotification(store, current);
 		store.notifyTransitionListenersIfLifecycleChanged(previous, current);
@@ -103,11 +103,11 @@ export function publishTerminalOutboxSnapshot(store: MultiAgentStore, agent: Age
 			retryOrRecordTerminalNotification(store, current, "failed");
 		}
 	}
+	store.notifyAgentUpdateListeners(previous, current);
 	if (!previous) {
 		store.clearSelectedTerminalAgent(current);
 		return;
 	}
-	store.notifyAgentUpdateListeners(previous, current);
 	store.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	store.clearSelectedTerminalAgent(current);
 }

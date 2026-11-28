@@ -31,6 +31,14 @@ describe("RPC detach_running_tool", () => {
 				data: { detached: true },
 			});
 
+			// RPC clients list agents from agent_updated: the new job must be reported when it appears.
+			const created = (await agent.waitForEvent(
+				(event) =>
+					event.type === "agent_updated" &&
+					(event as unknown as { agent: { agentType: string } }).agent.agentType === "background",
+			)) as unknown as { agent: { lifecycle: string; displayName: string } };
+			expect(created.agent).toMatchObject({ lifecycle: "running", displayName: "Bash command" });
+
 			const afterTool = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialRequest.id,
 			);

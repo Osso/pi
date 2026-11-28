@@ -314,6 +314,8 @@
 
 ### Fixed
 
+- A new agent or background job (e.g. a bash command moved to the background) now reaches agent-update subscribers when it appears: RPC clients get `agent_updated` at once instead of only at its next change, so they no longer show "Waiting for agents" with no agent listed.
+
 - `pi server` uses far less CPU with many sub-agent sessions. Every 500 ms its session list read every session row and then discarded the sub-agents; it now reads only main sessions, through a new partial index. On a control database with 18,461 rows, a list went from 128 ms to 14 ms.
 - `pi server --stdio` exits when its client goes away. Before, an update pushed to the closed stdout failed with EPIPE, and the orphaned connector stayed running and used a full CPU core.
 - `pi server`: the session that runs another machine's remote `bash`, `pyrun_eval`, or `browser-cli` calls (`start_session` with `toolSession: true`) no longer appears in `list_sessions` (pi-desktop showed it as "Session <id>") and is not reopened after a server restart.
