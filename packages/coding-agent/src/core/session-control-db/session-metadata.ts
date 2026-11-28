@@ -301,6 +301,21 @@ export function listActiveSessionMetadata(controlDbPath: string): SessionMetadat
 	return listSessionMetadataByArchiveState(controlDbPath, false);
 }
 
+/** Non-archived sessions that are not sub-agents, newest first; reads only the main-session index. */
+export function listActiveMainSessionMetadata(controlDbPath: string): SessionMetadata[] {
+	return withControlDb(controlDbPath, (db) =>
+		(
+			db
+				.prepare(
+					`SELECT ${SESSION_METADATA_COLUMNS} FROM session_metadata
+					 WHERE archived_at IS NULL AND is_subagent = 0
+					 ORDER BY modified_at DESC, updated_at DESC, session_path DESC`,
+				)
+				.all() as SessionMetadataRow[]
+		).map(sessionMetadataFromRow),
+	);
+}
+
 export function listArchivedSessionMetadata(controlDbPath: string): SessionMetadata[] {
 	return listSessionMetadataByArchiveState(controlDbPath, true);
 }

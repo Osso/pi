@@ -141,6 +141,7 @@ export {
 	findActiveSessionMetadataById,
 	findActiveSessionMetadataByName,
 	isSessionRootIndexed,
+	listActiveMainSessionMetadata,
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
 	listEmptyMainSessionCandidates,

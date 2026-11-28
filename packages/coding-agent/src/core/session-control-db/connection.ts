@@ -129,6 +129,11 @@ export function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: numb
 		CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx
 		ON session_metadata(id, session_path)
 		WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;
+
+		-- The session list reads the few main sessions among thousands of sub-agent rows.
+		CREATE INDEX IF NOT EXISTS session_metadata_main_idx
+		ON session_metadata(archived_at)
+		WHERE is_subagent = 0;
 	`);
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
