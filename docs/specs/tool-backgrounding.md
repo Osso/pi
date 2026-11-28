@@ -45,6 +45,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 - [x] Detaching activates the background job synchronously and releases the tool call's abort listener, so aborting the call afterwards (including restart teardown) does not cancel the job.
 - [x] A Bash or Pyrun runner launched from a systemd user service (such as `pi-server.service`, `KillMode=control-group`) starts in its own `systemd-run --user --scope`, so stopping or restarting the service does not kill running jobs. Outside a user service, runners start directly (`detached-runner-service-scope.test.ts`).
+- [x] An RPC worker ended by a signal (a `pi server` stop or restart sends SIGTERM to every worker) detaches its running Bash and Pyrun calls before shutdown, as a restart does, so they keep running and report to the reopened session instead of being cancelled (`server-sigterm-keeps-pyrun.test.ts`).
 - [x] Aborting a running foreground Bash command stops the shell and its process group, not just the supervising runner. Foreground teardown does not cancel a Bash job that has already detached (`bash-tool-detach.test.ts`, `suite/headless-pi.test.ts`).
 - [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
       notification, recorded through a fenced `detached` lifecycle mark. Silent subagent terminal cleanup

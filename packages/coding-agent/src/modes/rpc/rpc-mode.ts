@@ -387,9 +387,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 	const registerSignalHandlers = (): void => {
 		for (const signal of shutdownSignals()) {
 			// Handlers stay until exit: one signal never interrupts a started shutdown, a repeated one exits at once.
+			// Running Bash/Pyrun calls detach and continue as jobs: pi server reopens a signalled worker.
 			process.on(signal, () => {
 				if (shutdownSignalSeen) process.exit(signalExitCode(signal));
 				shutdownSignalSeen = true;
+				session.detachAllRunningTools();
 				killTrackedDetachedChildren();
 				void shutdown(signalExitCode(signal), signal);
 			});
@@ -738,9 +740,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		detachInput();
 		process.stdin.pause();
 		// After SIGTERM or Ctrl+C the client may have stopped reading; a flush could block exit.
-		if (signal !== "SIGTERM" && signal !== "SIGINT") {
-			await flushRawStdout();
-		}
+		if (signal !== "SIGTERM" && signal !== "SIGINT") await flushRawStdout();
 		process.exit(exitCode);
 	}
 
