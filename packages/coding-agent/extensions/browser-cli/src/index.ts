@@ -91,7 +91,8 @@ export function createBrowserCliToolDefinition(
 			const remote = await runRemoteTool(
 				ctx,
 				params.host,
-				ctx.cwd,
+				// A browser has no working directory; the caller's need not exist on the target.
+				"~",
 				"browser-cli",
 				{ commands: params.commands },
 				signal,

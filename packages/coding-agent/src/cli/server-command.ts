@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import type { ExtensionUIQuestion } from "../core/extensions/types.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { deleteSessionTree } from "../core/session-delete.ts";
@@ -142,8 +143,10 @@ function validateSessionStart(
 		fail("invalid_request", "cwd must be a non-empty path");
 		return undefined;
 	}
-	if (!isDirectory(frame.cwd)) {
-		fail("invalid_cwd", `cwd is not a directory on this machine: ${frame.cwd}`);
+	// "~" is this machine's home directory: a caller on another machine does not know its path.
+	const cwd = frame.cwd === "~" ? homedir() : frame.cwd;
+	if (!isDirectory(cwd)) {
+		fail("invalid_cwd", `cwd is not a directory on this machine: ${cwd}`);
 		return undefined;
 	}
 	if (frame.resumeSessionId !== undefined && typeof frame.resumeSessionId !== "string") {
@@ -151,7 +154,7 @@ function validateSessionStart(
 		return undefined;
 	}
 	const resumeSessionId = typeof frame.resumeSessionId === "string" ? frame.resumeSessionId : undefined;
-	if (resumeSessionId === undefined) return { cwd: frame.cwd };
+	if (resumeSessionId === undefined) return { cwd };
 	if (workers.has(resumeSessionId)) {
 		fail("already_running", "Session is already managed by this server");
 		return undefined;
@@ -166,7 +169,7 @@ function validateSessionStart(
 		fail("already_running", "Session has a live writer");
 		return undefined;
 	}
-	return { cwd: frame.cwd, resumeSessionId, resumePath };
+	return { cwd, resumeSessionId, resumePath };
 }
 
 async function registerStartedWorker(

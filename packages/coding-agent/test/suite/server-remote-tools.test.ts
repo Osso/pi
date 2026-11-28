@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { withHeadlessPi } from "./headless-pi.ts";
 import { type Frame, localHubCommand, startDaemon, stopDaemon } from "./server-daemon-fixture.ts";
@@ -47,7 +48,7 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 		browserCli,
 		[
 			"#!/usr/bin/env node",
-			"console.log(process.env.PI_SERVER_HOST_ID + ':' + process.env.BROWSER_CLI_SESSION);",
+			"console.log(process.env.PI_SERVER_HOST_ID + ':' + process.env.BROWSER_CLI_SESSION + ':' + process.cwd());",
 			"",
 		].join("\n"),
 	);
@@ -94,6 +95,8 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 					});
 					expect(browser.isError).not.toBe(true);
 					expect(resultText(browser)).toContain("spoke-id:");
+					// browser-cli starts its remote session in the target's home, not the caller's cwd.
+					expect(resultText(browser).trim().endsWith(`:${homedir()}`)).toBe(true);
 					// A second call reuses the remote session, so browser-cli keeps the same tab key.
 					const browserAgain = await callTool(hub.client, sessionId, runtimeInstanceId, "browser-cli", {
 						host: "spoke-id",
@@ -128,4 +131,70 @@ it("routes bash, Pyrun, and browser-cli tools through the pi server hub and repo
 		else process.env.PATH = originalPath;
 		rmSync(stubDir, { recursive: true, force: true });
 	}
+}, 180_000);
+
+// A model turn runs pyrun_eval through prepareExecution, which gives every call a new tool-execution ID:
+// the remote session must not be keyed by it, or session_id ctx is lost between calls.
+it("keeps remote Pyrun session_id ctx across tool calls of a model turn", async () => {
+	await withHeadlessPi(async (hubAgent) => {
+		await withHeadlessPi(async (spokeAgent) => {
+			const hub = await startDaemon(hubAgent, null, { hostId: "hub-id", hub: "hub-id" });
+			const spoke = await startDaemon(spokeAgent, null, {
+				hostId: "spoke-id",
+				hub: "hub-id",
+				hubCommand: localHubCommand(hub.runtimeDir),
+			});
+			try {
+				await waitForSpoke(hub.client);
+				await withHeadlessPi(
+					async (parent) => {
+						expect(await parent.send({ type: "prompt", message: "Count remotely" })).toMatchObject({
+							success: true,
+						});
+						const seen = new Set<string>();
+						let request = await parent.waitForLlmRequest((candidate) => candidate.agentId === null);
+						for (const expected of ["1", "2"]) {
+							seen.add(request.id);
+							parent.respondToLlmRequest(
+								request.id,
+								fauxAssistantMessage(
+									fauxToolCall("pyrun_eval", {
+										host: "spoke-id",
+										cwd: spokeAgent.paths.workspaceDir,
+										session_id: "remote-ctx",
+										code: 'ctx["n"] = ctx.get("n", 0) + 1; print(f"count={ctx[\'n\']}")',
+									}),
+									{ stopReason: "toolUse" },
+								),
+							);
+							request = await parent.waitForLlmRequest(
+								(candidate) => candidate.agentId === null && !seen.has(candidate.id),
+							);
+							const lastMessage = JSON.stringify(request.messages.at(-1));
+							expect(lastMessage).toContain(`count=${expected}`);
+						}
+						parent.respondToLlmRequest(
+							request.id,
+							fauxAssistantMessage(
+								[{ type: "text", text: "done" }, fauxToolCall("end_turn", { reason: "done" })],
+								{
+									stopReason: "toolUse",
+								},
+							),
+						);
+						await parent.waitForEvent((event) => event.type === "agent_end");
+					},
+					{
+						env: { PI_SERVER_HOST_ID: "hub-id", XDG_RUNTIME_DIR: hub.runtimeDir },
+						settings: { server: { hub: "hub-id" } },
+					},
+				);
+			} finally {
+				hub.client.close();
+				spoke.client.close();
+				await stopDaemon(spoke.daemon, spoke.runtimeDir);
+				await stopDaemon(hub.daemon, hub.runtimeDir);
+			}
+		});
+	});
 }, 180_000);

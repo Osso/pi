@@ -173,7 +173,8 @@ const remoteToolSessions = new Map<string, Promise<CachedRemoteToolSession>>();
 
 function remoteToolSessionKey(ctx: ExtensionContext, host: string, cwd: string): string {
 	const sessionId = ctx.sessionManager?.getSessionId() ?? "";
-	const agentId = ctx.toolExecutionAgentId ?? ctx.multiAgentAgentId ?? "main";
+	// Not toolExecutionAgentId: tools such as pyrun_eval set a new one per call.
+	const agentId = ctx.multiAgentAgentId ?? "main";
 	return JSON.stringify([sessionId, agentId, host, cwd]);
 }
 
