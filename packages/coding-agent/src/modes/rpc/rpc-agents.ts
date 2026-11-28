@@ -13,7 +13,9 @@ import type { RpcAgentCommand, RpcAgentUpdatedEvent, RpcResponse } from "./rpc-t
 /** Multi-agent access for RPC mode; absent when the session runs without a Supervisor (`--no-supervisor`). */
 export interface RpcAgentControls {
 	store: MultiAgentStore;
-	steer?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+	steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Wake an active wait_agent once main-session steering is queued, as the TUI does. */
+	wakeWaitAgentsAfterSteering?: () => void;
 }
 
 const AGENT_COMMANDS = new Set<string>(["get_agents", "get_agent_messages", "steer_agent"]);
@@ -59,8 +61,8 @@ export async function handleRpcAgentCommand(
 		case "steer_agent": {
 			if (typeof command.message !== "string" || command.message.trim() === "")
 				return failure("message must be a non-empty string");
-			if (!controls.steer) return failure("Agent steering is unavailable");
-			const result = await controls.steer(command.agentId, command.message);
+			if (!controls.steerMultiAgent) return failure("Agent steering is unavailable");
+			const result = await controls.steerMultiAgent(command.agentId, command.message);
 			return result.ok
 				? { id, type: "response", command: "steer_agent", success: true }
 				: failure(result.error ?? "Steering failed");

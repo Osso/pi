@@ -314,6 +314,7 @@
 
 ### Fixed
 
+- In RPC mode (pi server workers, pi-desktop), a steering message now wakes a running `wait_agent`, as in the TUI. It waited until an agent finished or the 25-minute wait slice ended.
 - A `pi server` restart (SIGTERM to each RPC worker) no longer kills running foreground `pyrun_eval` calls: the worker detaches running Bash and Pyrun calls before shutting down, so they finish and report to the reopened session instead of failing with "Pyrun runner exited before producing a result".
 - `pi --resume` with non-terminal stdin now exits with an error suggesting `--session <id>` instead of showing a session picker that can never receive keys.
 - `pi config` without a terminal (piped or redirected stdio) now exits with an error instead of writing escape codes into the pipe and waiting forever for keys.

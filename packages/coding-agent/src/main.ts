@@ -1327,7 +1327,7 @@ export async function main(args: string[], options?: MainOptions) {
 	const controls = createInteractiveOrchestrationControls(coordination, controlDbPath, runtime);
 	if (appMode === "rpc") {
 		printTimings();
-		await runRpcMode(runtime, coordination && { store: coordination.store, steer: controls.steerMultiAgent });
+		await runRpcMode(runtime, coordination && { store: coordination.store, ...controls });
 	} else if (appMode === "interactive") {
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,

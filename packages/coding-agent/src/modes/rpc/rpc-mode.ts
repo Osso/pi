@@ -333,9 +333,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime, agents?: RpcA
 		unsubscribeBackpressure?.();
 		unsubscribe = session.subscribe((event) => {
 			output(event);
-			if (event.type === "agent_settled") {
-				void checkShutdownRequested();
-			}
+			if (event.type === "agent_settled") void checkShutdownRequested();
+			else if (event.type === "steering_message_queued") agents?.wakeWaitAgentsAfterSteering?.();
 		});
 		unsubscribeBackpressure = session.agent.subscribe(async () => {
 			await waitForRawStdoutBackpressure();
