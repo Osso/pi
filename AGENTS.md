@@ -74,7 +74,7 @@ Restart mechanics (`restart_self`, `/restart`, `pi control restart`, SIGHUP; `Ag
 - Running Bash and Pyrun calls are detached first into separate durable runner processes. They keep running across the restart and report through background-job completion notifications; their tool call gets the job reference.
 - Child agents run in-process. Restart aborts their current turn without recording a terminal result; the restarted parent resumes them from the control DB with the same transcript.
 - Other unfinished calls in the batch get an interrupted result and are never rerun. The session then continues automatically from a typed `self_restart` notice.
-- Resident `pi supervisor`, `relay connect`, and `relay serve` processes are separate and are not restarted with sessions.
+- The resident `pi supervisor` process is separate and is not restarted with sessions.
 
 Prefer the control CLI for the SQLite control channel. Do not type into tmux panes to steer a running Pi unless explicitly asked.
 

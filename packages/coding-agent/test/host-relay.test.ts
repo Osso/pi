@@ -1,9 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
-import { PassThrough, Transform } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runHostRelay } from "../src/core/host-relay.ts";
+import { startHostRelay } from "../src/core/host-relay.ts";
 import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { formatRuntimeMailboxPrompt } from "../src/core/runtime-coordination-format.ts";
 import { acceptRuntimeMailboxMessages } from "../src/core/runtime-mailbox-acceptance.ts";
@@ -20,6 +19,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { sendSessionInspectionRequest, sendSupervisorReply } from "../src/supervisor/mail.ts";
+import { pairHostRelays } from "./host-relay-pair.ts";
 
 // Let both simulated relay peers remain remote to the test process on every worker.
 vi.mock("node:os", async (importOriginal) => ({
@@ -30,7 +30,7 @@ vi.mock("node:os", async (importOriginal) => ({
 const a = { sessionId: "laptop-session", agentId: null };
 const b = { sessionId: "server-session", agentId: null };
 
-describe("cross-host relay", () => {
+describe("cross-host relay over a hub link", () => {
 	let directory: string;
 	let dbA: string;
 	let dbB: string;
@@ -117,35 +117,15 @@ describe("cross-host relay", () => {
 			(sql) => (sql.prepare("SELECT COUNT(*) AS n FROM multi_agent_mailbox_messages").get() as { n: number }).n,
 		);
 	}
+	/** aso is a spoke of the hub agent-server. */
 	function connect(dropAcks = false) {
-		const ab = new PassThrough();
-		const ba = new Transform({
-			transform(chunk, _encoding, callback) {
-				const line = chunk.toString();
-				callback(null, dropAcks && line.includes('"type":"ack"') ? undefined : chunk);
-			},
-		});
-		const controller = new AbortController();
-		stops.push(() => controller.abort());
-		const done = Promise.all([
-			runHostRelay({
-				controlDbPath: dbA,
-				host: "aso",
-				input: ba,
-				output: ab,
-				pollMs: 20,
-				signal: controller.signal,
-			}),
-			runHostRelay({
-				controlDbPath: dbB,
-				host: "agent-server",
-				input: ab,
-				output: ba,
-				pollMs: 20,
-				signal: controller.signal,
-			}),
-		]);
-		return { done, stop: () => controller.abort() };
+		const stop = pairHostRelays(
+			{ controlDbPath: dbA, host: "aso" },
+			{ controlDbPath: dbB, host: "agent-server" },
+			{ dropHubAcks: dropAcks },
+		);
+		stops.push(stop);
+		return { done: Promise.resolve(), stop };
 	}
 	it("forwards both ways and imports channels once across reconnect", async () => {
 		queue(dbA, "agent-server", "first", "from laptop");
@@ -175,6 +155,52 @@ describe("cross-host relay", () => {
 		second.stop();
 		await second.done;
 	});
+	it("forwards a message and a channel post between two spokes through the hub, and the reply back", async () => {
+		const dbC = join(directory, "c.sqlite");
+		const c = { sessionId: "laptop-only-session", agentId: null };
+		const session = SessionManager.create(directory, join(directory, c.sessionId), { id: c.sessionId });
+		session.setMetadataControlDbPath(dbC);
+		recipients.set(dbC, session);
+		registerRuntimeMailboxListener(dbC, c, process.pid, session.getSessionFile());
+		// aso and travel-laptop are both spokes of agent-server.
+		connect();
+		stops.push(
+			pairHostRelays({ controlDbPath: dbC, host: "travel-laptop" }, { controlDbPath: dbB, host: "agent-server" }),
+		);
+		enqueueStoredRuntimeMessageTo(dbA, c, "travel-laptop", "to-laptop", "from aso to the laptop");
+		await expect
+			.poll(() => takeRuntimeMailboxMessagesForDelivery(dbC, c, () => true).map((m) => [m.body, m.senderHost]))
+			.toEqual([["from aso to the laptop", "aso"]]);
+		// Nothing stays queued on the sender or the hub.
+		await expect.poll(() => [count(dbA), count(dbB)]).toEqual([0, 0]);
+		// The reply goes to the origin host, not to the hub that forwarded it.
+		enqueueStoredRuntimeMailboxMessage(dbC, {
+			kind: "message",
+			recipient: a,
+			sender: c,
+			recipientHost: "aso",
+			storeRef: { sessionPath: "/laptop/only.jsonl", messageId: "reply" },
+			message: {
+				id: "reply",
+				kind: "message",
+				status: "pending",
+				fromAgentId: "main",
+				toAgentId: "main",
+				body: "reply from the laptop",
+				createdAt: new Date().toISOString(),
+			},
+		});
+		await expect
+			.poll(() => takeRuntimeMailboxMessagesForDelivery(dbA, a, () => true).map((m) => [m.body, m.senderHost]))
+			.toEqual([["reply from the laptop", "travel-laptop"]]);
+		postSharedChannelMessage(dbA, { sender: a, body: "Restart /tmp/shared" });
+		await expect
+			.poll(() => listSharedChannelMessagesAfter(dbC, 0))
+			.toMatchObject([{ originHost: "aso", body: "Restart /tmp/shared" }]);
+		// The hub does not send a post back to the spoke it came from.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(listSharedChannelMessagesAfter(dbA, 0)).toHaveLength(1);
+	});
 	it("forwards a message body containing U+2028 and U+2029 intact", async () => {
 		queue(dbA, "agent-server", "separators", "line one\u2028line two\u2029paragraph");
 		const connection = connect();
@@ -185,14 +211,22 @@ describe("cross-host relay", () => {
 		connection.stop();
 		await connection.done;
 	});
-	it("names the relay step that failed", async () => {
-		const input = new PassThrough();
-		const relay = runHostRelay({ controlDbPath: dbB, host: "agent-server", input, output: new PassThrough() });
-		input.write(`${JSON.stringify({ type: "hello", host: "aso" })}\n`);
+	it("names the relay step that failed and sends no ack", () => {
+		const errors: string[] = [];
+		const sent: unknown[] = [];
+		const relay = startHostRelay({
+			controlDbPath: dbA,
+			host: "aso",
+			peer: "agent-server",
+			role: "spoke",
+			send: (frame) => sent.push(frame),
+			onError: (error) => errors.push(error.message),
+		});
+		stops.push(relay.stop);
 		const data = { recipientHost: "elsewhere", relaySeq: 1 };
-		const frame = { type: "mailbox", seq: 1, sessionPath: "/laptop/session.jsonl", messageId: "m", data };
-		input.write(`${JSON.stringify(frame)}\n`);
-		await expect(relay).rejects.toThrow("relay mailbox frame: Relay mailbox route/sequence mismatch");
+		relay.receive({ type: "mailbox", seq: 1, sessionPath: "/laptop/session.jsonl", messageId: "m", data });
+		expect(errors).toEqual(["relay mailbox frame: Relay mailbox route/sequence mismatch"]);
+		expect(sent).toEqual([]);
 	});
 	it("tells the sender when the remote recipient session is not running", async () => {
 		const stopped = { sessionId: "stopped-session", agentId: null };
@@ -352,7 +386,7 @@ describe("cross-host relay", () => {
 			expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((item) => item.body)).toEqual([id]);
 			importRelayMailbox(dbB, "aso", message, "agent-server");
 			expect(count(dbB)).toBe(0);
-			ackRelayMailbox(dbA, "agent-server", message);
+			ackRelayMailbox(dbA, message);
 		}
 		expect(count(dbA)).toBe(0);
 		expect(
@@ -398,7 +432,7 @@ describe("cross-host relay", () => {
 		};
 
 		importRelayMailbox(dbB, "aso", expired, "agent-server");
-		ackRelayMailbox(dbA, "agent-server", stale);
+		ackRelayMailbox(dbA, stale);
 		const fresh = nextRelayMailbox(dbA, "agent-server");
 		if (!fresh) throw new Error("Expected the fresh relay payload");
 		importRelayMailbox(dbB, "aso", fresh, "agent-server");
@@ -413,7 +447,7 @@ describe("cross-host relay", () => {
 			sendSessionInspectionRequest(dbA, { sessionId: b.sessionId, host: "agent-server" }, { ...a, requestId });
 			const request = nextRelayMailbox(dbA, "agent-server");
 			if (!request) throw new Error("Expected inspection payload");
-			ackRelayMailbox(dbA, "agent-server", request);
+			ackRelayMailbox(dbA, request);
 			const createdAt = new Date(Date.now() - ageMs).toISOString();
 			importRelayMailbox(dbB, "aso", { ...request, data: { ...request.data, createdAt } }, "agent-server");
 		};

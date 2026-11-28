@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Cross-host messages, channel posts, Supervisor requests and session inspection now travel over the `pi server` hub link. `pi relay serve`, `pi relay connect`, the relay autostart and the `relay` setting are removed; remove `relay` from settings.json.
 - `FileOperations` (compaction and branch-summary `preparation.fileOps`) replaces `written` and `edited` with one `modified` set in least-to-most-recent use order; extensions that read or add modified paths must use `fileOps.modified`.
 - Renamed the sub-agent rules folder from `rules/child/` to `rules/sub-agent/`; move any files from `rules/child/`. The configured Supervisor session now also loads `rules/supervisor/*.md` after `rules/main/*.md`. The unused `rules/architect/` scope is removed; the disabled Architect loads shared rules only.
 - Removed the `reminders` tool, `/reminders` command, control-DB `reminders` table (dropped on startup) and `reminders.deliverySessionId` setting. Reminders are tasks with a due time in the shared llm-tasks tracker (`lt create --due`, `lt due`); the Supervisor session delivers due ones when `supervisor.tasksUrl` is set, polling `GET /tasks/due` and acknowledging each with `POST /tasks/{id}/delivered`.

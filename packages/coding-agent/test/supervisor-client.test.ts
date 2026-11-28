@@ -1,9 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runHostRelay } from "../src/core/host-relay.ts";
 import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
@@ -16,6 +14,7 @@ import {
 import { requestSupervisorDecision } from "../src/supervisor/client.ts";
 import { SupervisorNotRunningError } from "../src/supervisor/ensure-running.ts";
 import { ingestSupervisorRequestMail, type SupervisorAddress, sendSupervisorReply } from "../src/supervisor/mail.ts";
+import { pairHostRelays } from "./host-relay-pair.ts";
 
 const ASKER = { sessionId: "asker-session", agentId: null };
 const SUPERVISOR: SupervisorAddress = { sessionId: "supervisor-session" };
@@ -69,27 +68,14 @@ describe("Supervisor client", () => {
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
-	/** Joins the two control DBs with the real relay protocol, as SSH does between hosts. */
+	/** Joins the two control DBs with the real relay protocol, as a pi server hub link does between hosts. */
 	function connectHosts(): void {
-		const toSupervisor = new PassThrough();
-		const toAsker = new PassThrough();
-		const controller = new AbortController();
-		stops.push(() => controller.abort());
-		const common = { pollMs: 20, signal: controller.signal };
-		void runHostRelay({
-			...common,
-			controlDbPath: askerDb,
-			host: "asker-test-host",
-			input: toAsker,
-			output: toSupervisor,
-		});
-		void runHostRelay({
-			...common,
-			controlDbPath: supervisorDb,
-			host: REMOTE_SUPERVISOR.host,
-			input: toSupervisor,
-			output: toAsker,
-		});
+		stops.push(
+			pairHostRelays(
+				{ controlDbPath: askerDb, host: "asker-test-host" },
+				{ controlDbPath: supervisorDb, host: "supervisor-test-host" },
+			),
+		);
 	}
 
 	it("returns the reply the local Supervisor sends to the asking session's mailbox", async () => {

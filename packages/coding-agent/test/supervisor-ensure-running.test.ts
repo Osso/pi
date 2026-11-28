@@ -2,8 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { VERSION } from "../src/config.ts";
-import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import { writeSessionHealth } from "../src/core/session-control-db/session-health.ts";
 import { ensureSupervisorAvailable } from "../src/supervisor/ensure-running.ts";
 
@@ -22,13 +20,13 @@ afterEach(() => {
 describe("ensureSupervisorAvailable", () => {
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 
-	function configureSupervisorSession(sessionId?: string, host?: string): string {
+	function configureSupervisorSession(sessionId?: string, host?: string, hub?: string): string {
 		const path = controlDbPath();
 		const agentDir = join(path, "..", "agent");
 		mkdirSync(agentDir, { recursive: true });
 		writeFileSync(
 			join(agentDir, "settings.json"),
-			JSON.stringify(sessionId ? { supervisor: { sessionId, host } } : {}),
+			JSON.stringify(sessionId ? { supervisor: { sessionId, host }, ...(hub ? { server: { hub } } : {}) } : {}),
 		);
 		process.env.PI_CODING_AGENT_DIR = agentDir;
 		return path;
@@ -72,13 +70,13 @@ describe("ensureSupervisorAvailable", () => {
 		});
 	});
 
-	it("addresses a Supervisor on another host while this host's relay runs", async () => {
-		const path = configureSupervisorSession("supervisor-session", "supervisor-test-host");
-		await expect(ensureSupervisorAvailable({ controlDbPath: path })).rejects.toThrow(
-			"the relay to the Supervisor on host supervisor-test-host is not running",
+	it("addresses a Supervisor on another host when this host has a pi server hub", async () => {
+		const unlinked = configureSupervisorSession("supervisor-session", "supervisor-test-host");
+		await expect(ensureSupervisorAvailable({ controlDbPath: unlinked })).rejects.toThrow(
+			"the Supervisor is on host supervisor-test-host, but this host has no pi server hub; set server.hub",
 		);
 
-		writeFileSync(`${path}.relay.json`, JSON.stringify({ ...readProcessIdentity(process.pid), version: VERSION }));
+		const path = configureSupervisorSession("supervisor-session", "supervisor-test-host", "supervisor-test-host");
 		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toEqual({
 			sessionId: "supervisor-session",
 			host: "supervisor-test-host",

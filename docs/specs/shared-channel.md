@@ -46,7 +46,7 @@ once needed.
 
 ### Cross-host delivery
 
-- [x] Local-origin posts replicate both ways through the [host relay](multi-agent.md#cross-host-messaging); imported posts are never forwarded back.
+- [x] Posts replicate to every host through the [pi server hub link](multi-agent.md#cross-host-messaging): a spoke sends its own posts to the hub, and the hub sends each spoke every post that spoke did not originate.
 - [x] Imported posts preserve origin hostname and origin ID. Reconnect replay imports each origin pair only once, using a unique index rather than a separate receipt table.
 - [x] Relay acknowledgements advance one persistent forwarding cursor per peer; an outage leaves unacknowledged posts available for retry.
 - [x] A peer's first connection starts that cursor at the current channel tail, so existing local history is not broadcast to the other host as new.
@@ -80,7 +80,7 @@ once needed.
 - `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — live/history visibility, queue-update provenance, toggle restoration, unchanged delivery/context/persistence and channel cursors.
 
 - `packages/coding-agent/test/host-relay.test.ts` — two-host channel import and reconnect deduplication.
-- `packages/coding-agent/test/suite/host-relay-process.test.ts` — cross-host channel over real CLI stdio.
+- `packages/coding-agent/test/suite/server-hub-relay.test.ts` — cross-host channel over a real hub link.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/shared-channel-retention.test.ts` — 24h expiry at open and periodic cleanup; reader, late-joiner, and relay cursors after deletion.

@@ -1,15 +1,14 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runHostRelay } from "../src/core/host-relay.ts";
 import {
 	registerRuntimeMailboxListener,
 	writeSessionGoal,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { describeSession, inspectRemoteSession } from "../src/supervisor/inspect-session.ts";
+import { pairHostRelays } from "./host-relay-pair.ts";
 
 const INSPECTOR = "supervisor-session";
 const narrationFixture = JSON.parse(
@@ -95,25 +94,12 @@ describe("inspect_session", () => {
 	it("describes a stopped session on another host through the relay", async () => {
 		writeTargetSession(targetDb, tempDir);
 		registerRuntimeMailboxListener(inspectorDb, { sessionId: INSPECTOR, agentId: null }, process.pid);
-		const toTarget = new PassThrough();
-		const toInspector = new PassThrough();
-		const controller = new AbortController();
-		stops.push(() => controller.abort());
-		const common = { pollMs: 20, signal: controller.signal };
-		void runHostRelay({
-			...common,
-			controlDbPath: inspectorDb,
-			host: "inspector-host",
-			input: toInspector,
-			output: toTarget,
-		});
-		void runHostRelay({
-			...common,
-			controlDbPath: targetDb,
-			host: "target-host",
-			input: toTarget,
-			output: toInspector,
-		});
+		stops.push(
+			pairHostRelays(
+				{ controlDbPath: inspectorDb, host: "inspector-host" },
+				{ controlDbPath: targetDb, host: "target-host" },
+			),
+		);
 
 		const text = await inspectRemoteSession(
 			inspectorDb,

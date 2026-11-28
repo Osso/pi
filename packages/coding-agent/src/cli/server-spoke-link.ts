@@ -8,6 +8,11 @@ export type SpokeLinkHandlers<C> = {
 	createClient: (send: (frame: unknown) => void) => C;
 	dropClient: (client: C) => void;
 	handle: (frame: Frame, client: C) => void;
+	/** The hub accepted the link: `send` writes frames that belong to no client (relay traffic). */
+	opened: (hubHostId: string, send: (frame: Frame) => void) => void;
+	/** A frame for no client: relay traffic from the hub. */
+	linkFrame: (frame: Frame) => void;
+	closed: () => void;
 };
 
 const INITIAL_DELAY_MS = 1_000;
@@ -48,7 +53,10 @@ export function startSpokeLink<C>(command: string[], hello: Frame, handlers: Spo
 		};
 		const onFrame = (frame: Frame) => {
 			const { client: id, ...body } = frame;
-			if (body.type === "link_hello_ack") attempt = 0;
+			if (body.type === "link_hello_ack") {
+				attempt = 0;
+				handlers.opened(String(body.hostId), write);
+			} else if (body.type === "relay") handlers.linkFrame(body);
 			else if (body.type === "link_hello_rejected") {
 				console.error(`pi server link: hub refused this host: ${JSON.stringify(body.error)}`);
 				current.kill("SIGTERM");
@@ -68,6 +76,7 @@ export function startSpokeLink<C>(command: string[], hello: Frame, handlers: Spo
 		current.once("close", () => {
 			for (const client of clients.values()) handlers.dropClient(client);
 			clients.clear();
+			handlers.closed();
 			if (child === current) child = undefined;
 			if (stopped) return;
 			timer = setTimeout(connect, reconnectDelay(attempt));

@@ -321,7 +321,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - `packages/coding-agent/test/sqlite.test.ts` with `test/fixtures/sqlite-contention.ts` — Node read-only configuration reports 10,000 ms by default and 150 ms explicitly; separate Bun writer/contender processes prove the default write succeeds after a lock held >=6,500 ms and persists both rows, while an explicit 150 ms contender fails before writer release and persists only the writer row. The four tests also cover Bun prepared-statement/file-descriptor cleanup.
 
 - `packages/coding-agent/test/host-relay.test.ts` — atomic sequence persistence/import, deletion isolation, ordered retries and fixed cursor count.
-- `packages/coding-agent/test/suite/host-relay-process.test.ts` — native relay delivery on isolated control DBs.
+- `packages/coding-agent/test/suite/server-hub-relay.test.ts` — relay delivery between real `pi server` processes on isolated control DBs.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/session-name-schema-migration.test.ts`

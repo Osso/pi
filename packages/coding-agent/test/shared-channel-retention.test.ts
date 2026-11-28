@@ -40,14 +40,14 @@ it("deletes channel messages 24h after creation while cursors and relay replicat
 	advanceSharedChannelCursor(path, reader, 0);
 	const first = post("first");
 	post("second");
-	expect(nextRelayChannel(path, "peer", "aso")).toBeUndefined();
+	expect(nextRelayChannel(path, "peer", "aso", "spoke")).toBeUndefined();
 	releases.push(retainControlDbConnection(path));
 
 	vi.setSystemTime(start + day - 60_000);
 	const fresh = post("fresh");
 	vi.advanceTimersByTime(60_000);
 	expect(bodies()).toEqual(["fresh"]);
-	expect(nextRelayChannel(path, "peer", "aso")?.originId).toBe(fresh);
+	expect(nextRelayChannel(path, "peer", "aso", "spoke")?.originId).toBe(fresh);
 	ackRelayChannel(path, "peer", fresh);
 	advanceSharedChannelCursor(path, reader, fresh);
 
@@ -62,7 +62,7 @@ it("deletes channel messages 24h after creation while cursors and relay replicat
 	expect(listSharedChannelMessagesAfter(path, fresh).map((message) => message.body)).toEqual(["after expiry"]);
 	expect(hasPendingRuntimeCoordinationMessage(path, reader)).toBe(true);
 	expect(listSharedChannelMessagesAfter(path, 0).map((message) => message.body)).toEqual(["after expiry"]);
-	expect(nextRelayChannel(path, "peer", "aso")?.originId).toBe(after);
+	expect(nextRelayChannel(path, "peer", "aso", "spoke")?.originId).toBe(after);
 });
 
 it("an expired message is not delivered while it waits for the next cleanup sweep", () => {

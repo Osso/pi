@@ -102,7 +102,7 @@ describe("user question storage", () => {
 		if (!first) throw new Error("Expected the first answer to be queued for relay");
 		importRelayMailbox(storeDb, "agent-server", first, "aso");
 		expect(readUserQuestion(storeDb, id)).toMatchObject({ status: "answered", answer: "Recorded remotely" });
-		ackRelayMailbox(senderDb, "aso", first);
+		ackRelayMailbox(senderDb, first);
 		const second = nextRelayMailbox(senderDb, "aso");
 		if (!second) throw new Error("Expected the revision to be queued for relay");
 		importRelayMailbox(storeDb, "agent-server", second, "aso");

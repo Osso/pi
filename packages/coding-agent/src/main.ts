@@ -84,8 +84,6 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import { exportSessionToTerminal } from "./core/export-terminal.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
-import { runRelayServe } from "./core/host-relay.ts";
-import { ensureRelayRunning, runRelayConnect } from "./core/host-relay-resident.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
 import {
@@ -853,14 +851,6 @@ async function exportTerminalHistory(parsed: Args): Promise<void> {
 }
 
 export async function main(args: string[], options?: MainOptions) {
-	if (args.length === 2 && args[0] === "relay" && args[1] === "serve") {
-		await runRelayServe();
-		return;
-	}
-	if (args.length === 2 && args[0] === "relay" && args[1] === "connect") {
-		await runRelayConnect();
-		process.exit(0);
-	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
 	if (initialArgs.terminalExport) {
@@ -1319,11 +1309,6 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 
-	if (!parsed.noSupervisor) {
-		void ensureRelayRunning(controlDbPath, settingsManager.getGlobalSettings().relay).catch((error: unknown) => {
-			console.error(`Relay startup failed: ${error instanceof Error ? error.message : String(error)}`);
-		});
-	}
 	const controls = createInteractiveOrchestrationControls(coordination, controlDbPath, runtime);
 	if (appMode === "rpc") {
 		printTimings();

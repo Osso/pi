@@ -93,7 +93,7 @@ export function describeSession(controlDbPath: string, sessionId: string): strin
 	return lines.join("\n");
 }
 
-/** Describes a session on another host through the relay there; fails after 30 seconds without a reply. */
+/** Describes a session on another host through the hub link; fails after 30 seconds without a reply. */
 export function inspectRemoteSession(
 	controlDbPath: string,
 	inspectorSessionId: string,
@@ -110,7 +110,10 @@ export function inspectRemoteSession(
 		};
 		const onAbort = () => finish(() => reject(new Error("Session inspection cancelled")));
 		const timer = setTimeout(
-			() => finish(() => reject(new Error(`No inspection reply from host ${target.host}; is its relay connected?`))),
+			() =>
+				finish(() =>
+					reject(new Error(`No inspection reply from host ${target.host}; is its pi server linked to the hub?`)),
+				),
 			REMOTE_INSPECTION_TIMEOUT_MS,
 		);
 		const stopWatching = watchSupervisorReplies(controlDbPath, route, (reply) =>

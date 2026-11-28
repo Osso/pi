@@ -1,6 +1,3 @@
-import { hostname } from "node:os";
-import type { Readable, Writable } from "node:stream";
-import { attachJsonlLineReader } from "../modes/rpc/jsonl.ts";
 import {
 	ackRelayChannel,
 	ackRelayMailbox,
@@ -10,35 +7,50 @@ import {
 	nextRelayMailbox,
 	nullableText,
 	type RelayChannel,
+	type RelayChannelFrame,
 	type RelayMailbox,
+	type RelayRole,
 	requireText,
 } from "./host-relay-store.ts";
-import { getControlDbPath } from "./session-control-db.ts";
 
+/**
+ * Cross-host mailbox and channel delivery over one pi server hub link. Each end knows its peer from the link
+ * handshake. A spoke sends every message for another host to the hub and only its own channel posts; the hub
+ * sends a spoke the messages for that spoke and every channel post not from it, so spokes reach each other
+ * through the hub.
+ */
 export interface HostRelayOptions {
 	controlDbPath: string;
-	input: Readable;
-	output: Writable;
-	host?: string;
+	/** This server's host ID. */
+	host: string;
+	/** The host at the other end of the link. */
+	peer: string;
+	role: RelayRole;
+	send: (frame: RelayFrame) => void;
 	pollMs?: number;
-	signal?: AbortSignal;
+	/** Pause after a failure, so a bad stored row or frame is not retried and logged every poll. */
+	errorPauseMs?: number;
+	onError?: (error: Error) => void;
+}
+
+export interface HostRelay {
+	receive: (frame: unknown) => void;
+	stop: () => void;
 }
 
 type RelayAck = { type: "ack"; kind: "mailbox" | "channel"; id: number };
-type RelayFrame = RelayMailbox | RelayChannel | RelayAck | { type: "hello"; host: string };
+export type RelayFrame = RelayMailbox | RelayChannelFrame | RelayAck;
 
 function positiveInteger(value: unknown): number {
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
 		throw new Error("Invalid relay sequence/id");
 	return value;
 }
-function parseFrame(line: string): RelayFrame {
-	const value: unknown = JSON.parse(line);
+
+function parseFrame(value: unknown): RelayFrame {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid relay frame");
 	const frame = value as Record<string, unknown>;
 	switch (frame.type) {
-		case "hello":
-			return { type: "hello", host: requireText(frame.host, "host") };
 		case "ack": {
 			if (frame.kind !== "mailbox" && frame.kind !== "channel") throw new Error("Invalid relay ack kind");
 			return { type: "ack", kind: frame.kind, id: positiveInteger(frame.id) };
@@ -69,94 +81,85 @@ function parseFrame(line: string): RelayFrame {
 	}
 }
 
-/** Names the relay step that failed; the peer only sees the message, so it must identify the operation. */
+/** Names the relay step that failed, so a log line identifies the operation. */
 function relayStepError(step: string, error: unknown): Error {
 	return new Error(`relay ${step}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
 }
 
-/** One mailbox and one channel in flight; retries preserve persisted sequence and channel origin. */
-export function runHostRelay(options: HostRelayOptions): Promise<void> {
-	const host = options.host ?? hostname();
-	return new Promise((resolve, reject) => {
-		let peer: string | undefined;
-		let mailbox: RelayMailbox | undefined;
-		let channel: RelayChannel | undefined;
-		let settled = false;
-		const send = (frame: RelayFrame) => {
-			options.output.write(`${JSON.stringify(frame)}\n`);
-		};
-		const scan = () => {
-			if (!peer || options.output.writableNeedDrain) return;
-			mailbox = nextRelayMailbox(options.controlDbPath, peer);
-			channel = nextRelayChannel(options.controlDbPath, peer, host);
-			if (mailbox) send(mailbox);
-			if (channel) send(channel);
-		};
-		const finish = (error?: Error) => {
-			if (settled) return;
-			settled = true;
-			clearInterval(timer);
-			options.signal?.removeEventListener("abort", stop);
-			options.input.off("error", fail);
-			options.output.off("error", fail);
-			detachLines();
-			options.input.off("end", stop);
-			options.input.pause();
-			if (error) reject(error);
-			else resolve();
-		};
-		const fail = (error: Error) => finish(error);
-		const stop = () => finish();
-		const guardedScan = () => {
-			try {
-				scan();
-			} catch (error) {
-				fail(relayStepError("scan", error));
-			}
-		};
-		const timer = setInterval(guardedScan, options.pollMs ?? 2000);
-		options.input.on("error", fail);
-		options.output.on("error", fail);
-		options.signal?.addEventListener("abort", stop, { once: true });
-		// Strict LF framing: readline also splits at U+2028/U+2029, which JSON leaves unescaped inside strings.
-		const detachLines = attachJsonlLineReader(options.input, (line) => {
-			let step = "frame parse";
-			try {
-				const frame = parseFrame(line);
-				step = frame.type === "ack" ? `${frame.kind} ack` : `${frame.type} frame`;
-				if (frame.type === "hello") {
-					if (peer || frame.host === host) throw new Error("Invalid relay peer hello");
-					peer = frame.host;
-					scan();
-					return;
-				}
-				if (!peer) throw new Error("Relay hello required before messages");
-				if (frame.type === "mailbox") {
-					if (frame.data.recipientHost !== host || frame.data.relaySeq !== frame.seq)
-						throw new Error("Relay mailbox route/sequence mismatch");
-					importRelayMailbox(options.controlDbPath, peer, frame, host);
-					send({ type: "ack", kind: "mailbox", id: frame.seq });
-				} else if (frame.type === "channel") {
-					if (frame.originHost !== peer) throw new Error("Relay channel origin mismatch");
-					importRelayChannel(options.controlDbPath, frame);
-					send({ type: "ack", kind: "channel", id: frame.originId });
-				} else if (frame.kind === "mailbox" && mailbox?.seq === frame.id) {
-					ackRelayMailbox(options.controlDbPath, peer, mailbox);
-					mailbox = undefined;
-				} else if (frame.kind === "channel" && channel?.originId === frame.id) {
-					ackRelayChannel(options.controlDbPath, peer, frame.id);
-					channel = undefined;
-				}
-			} catch (error) {
-				fail(relayStepError(step, error));
-			}
-		});
-		options.input.on("end", stop);
-		if (options.signal?.aborted) stop();
-		else send({ type: "hello", host });
-	});
+/** Checks that a received frame may come from this peer. */
+function checkRoute(frame: RelayMailbox | RelayChannelFrame, options: HostRelayOptions): void {
+	const { host, peer, role } = options;
+	if (frame.type === "mailbox") {
+		const target = frame.data.recipientHost;
+		// The hub forwards a message for another spoke; a spoke only receives its own.
+		const routed = role === "hub" ? typeof target === "string" && target !== peer : target === host;
+		if (!routed || frame.data.relaySeq !== frame.seq) throw new Error("Relay mailbox route/sequence mismatch");
+	} else {
+		const origin = role === "hub" ? frame.originHost === peer : frame.originHost !== host;
+		if (!origin) throw new Error("Relay channel origin mismatch");
+	}
 }
 
-export async function runRelayServe(): Promise<void> {
-	await runHostRelay({ controlDbPath: getControlDbPath(), input: process.stdin, output: process.stdout });
+/** One mailbox and one channel entry in flight, resent each poll until acknowledged. */
+export function startHostRelay(options: HostRelayOptions): HostRelay {
+	const { controlDbPath, host, peer, role } = options;
+	const report = options.onError ?? ((error: Error) => console.error(`pi server relay ${peer}: ${error.message}`));
+	let mailbox: RelayMailbox | undefined;
+	let channel: RelayChannel | undefined;
+	let pausedUntil = 0;
+	let stopped = false;
+	const fail = (error: Error) => {
+		mailbox = undefined;
+		channel = undefined;
+		pausedUntil = Date.now() + (options.errorPauseMs ?? 30_000);
+		report(error);
+	};
+	const scan = () => {
+		if (stopped || Date.now() < pausedUntil) return;
+		try {
+			mailbox = nextRelayMailbox(controlDbPath, peer, role === "spoke" ? host : undefined);
+			channel = nextRelayChannel(controlDbPath, peer, host, role);
+			if (mailbox) options.send(mailbox);
+			if (channel) {
+				const { cursor: _cursor, ...wire } = channel;
+				options.send(wire);
+			}
+		} catch (error) {
+			fail(relayStepError("scan", error));
+		}
+	};
+	const receive = (value: unknown) => {
+		if (stopped || Date.now() < pausedUntil) return;
+		let step = "frame parse";
+		try {
+			const frame = parseFrame(value);
+			step = frame.type === "ack" ? `${frame.kind} ack` : `${frame.type} frame`;
+			if (frame.type === "mailbox") {
+				checkRoute(frame, options);
+				importRelayMailbox(controlDbPath, peer, frame, host);
+				options.send({ type: "ack", kind: "mailbox", id: frame.seq });
+			} else if (frame.type === "channel") {
+				checkRoute(frame, options);
+				importRelayChannel(controlDbPath, frame);
+				options.send({ type: "ack", kind: "channel", id: frame.originId });
+			} else if (frame.kind === "mailbox" && mailbox?.seq === frame.id) {
+				ackRelayMailbox(controlDbPath, mailbox);
+				mailbox = undefined;
+			} else if (frame.kind === "channel" && channel?.originId === frame.id) {
+				ackRelayChannel(controlDbPath, peer, channel.cursor);
+				channel = undefined;
+			}
+		} catch (error) {
+			fail(relayStepError(step, error));
+		}
+	};
+	const timer = setInterval(scan, options.pollMs ?? 2000);
+	scan();
+	return {
+		receive,
+		stop: () => {
+			stopped = true;
+			clearInterval(timer);
+		},
+	};
 }

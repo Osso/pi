@@ -1,14 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { runHostRelay } from "../../src/core/host-relay.ts";
 import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../../src/core/runtime-process.ts";
 import { getControlDbPath } from "../../src/core/session-control-db.ts";
 import { sendSupervisorInterrupt } from "../../src/supervisor/interrupt.ts";
+import { pairHostRelays } from "../host-relay-pair.ts";
 import { HEADLESS_SUPERVISOR_SESSION_ID } from "./fixtures/headless-supervisor.ts";
 import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
 
@@ -25,19 +24,13 @@ async function waitFor<T>(read: () => T | undefined, what: string, timeoutMs = 2
 	}
 }
 
-/** Connects a stand-in Supervisor host's control DB to the target Pi's control DB, as `pi relay` does over SSH. */
+/** Connects a stand-in Supervisor host's control DB to the target Pi's control DB, as a pi server hub link does. */
 function connectHosts(supervisorDb: string, targetDb: string, signal: AbortSignal): void {
-	const toTarget = new PassThrough();
-	const toSupervisor = new PassThrough();
-	const common = { pollMs: 20, signal };
-	void runHostRelay({
-		...common,
-		controlDbPath: supervisorDb,
-		host: SUPERVISOR_HOST,
-		input: toSupervisor,
-		output: toTarget,
-	});
-	void runHostRelay({ ...common, controlDbPath: targetDb, host: TARGET_HOST, input: toTarget, output: toSupervisor });
+	const stop = pairHostRelays(
+		{ controlDbPath: targetDb, host: TARGET_HOST },
+		{ controlDbPath: supervisorDb, host: SUPERVISOR_HOST },
+	);
+	signal.addEventListener("abort", stop, { once: true });
 }
 
 /** Starts a child agent whose model request stays open, then a main-turn Bash call that never ends. */

@@ -6,7 +6,6 @@ import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { parseCompactionThresholdTokens, removedCompactionSettingError } from "./compaction-threshold.ts";
-import type { RelaySettings } from "./host-relay-client.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
 import {
@@ -109,7 +108,6 @@ export type PackageSource =
 	  };
 
 export interface Settings {
-	relay?: RelaySettings;
 	server?: { hub?: string; hubCommand?: string[] };
 	/** Interactive Supervisor session; `host` when remote; `tasksUrl`: llm-tasks server whose due tasks it delivers. */
 	supervisor?: { sessionId?: string; host?: string; tasksUrl?: string };

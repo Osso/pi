@@ -17,6 +17,7 @@ import {
 import { type HubLink, ServerHub } from "./server-hub.ts";
 import { removeStaleSocket } from "./server-launch.ts";
 import { questionUpdates } from "./server-question-utils.ts";
+import { startLinkRelay } from "./server-relay.ts";
 import { startSpokeLink } from "./server-spoke-link.ts";
 import { defaultHubCommand, errorMessage, readFrames, serverHostId, socketPath, writeFrame } from "./server-wire.ts";
 import { sessionSummaries } from "./server-worker.ts";
@@ -155,23 +156,27 @@ function acceptConnection(socket: Socket, state: ServerState, clients: Set<Clien
 	if (hub) client.hubClient = hub.addClient(send);
 	clients.add(client);
 	let link: HubLink | undefined;
+	let relay: ReturnType<typeof startLinkRelay> | undefined;
 	const releaseProtocolClient = () => {
 		clients.delete(client);
 		if (client.hubClient) hub?.removeClient(client.hubClient);
 		releaseClient(client, state.workers);
 	};
 	const onFrame = (frame: Record<string, unknown>) => {
+		if (link && frame.type === "relay") return relay?.receive(frame);
 		if (link) return hub?.accept(link, frame);
 		if (frame.type !== "link_hello") return void handleCommand(frame, client, state);
 		link = registerLink(frame, send, hub);
-		if (link) releaseProtocolClient();
-		else socket.end();
+		if (!link) return void socket.end();
+		releaseProtocolClient();
+		relay = startLinkRelay("hub", link.hostId, send);
 	};
 	readFrames(socket, onFrame, () =>
 		send({ type: "response", success: false, error: { code: "invalid_json", message: "Invalid JSON frame" } }),
 	);
 	socket.on("error", (error) => console.error(`pi server connection: ${errorMessage(error)}`));
 	socket.on("close", () => {
+		relay?.stop();
 		if (link) hub?.disconnect(link);
 		else releaseProtocolClient();
 	});
@@ -179,6 +184,7 @@ function acceptConnection(socket: Socket, state: ServerState, clients: Set<Clien
 
 /** On a spoke: one local client per hub connection, carried over the outbound link. */
 function startHubLink(command: string[], state: ServerState, clients: Set<Client>): () => void {
+	let relay: ReturnType<typeof startLinkRelay> | undefined;
 	return startSpokeLink<Client>(
 		command,
 		{
@@ -198,6 +204,15 @@ function startHubLink(command: string[], state: ServerState, clients: Set<Client
 				releaseClient(client, state.workers);
 			},
 			handle: (frame, client) => void handleCommand(frame, client, state),
+			opened: (hubHostId, write) => {
+				relay?.stop();
+				relay = startLinkRelay("spoke", hubHostId, write);
+			},
+			linkFrame: (frame) => relay?.receive(frame),
+			closed: () => {
+				relay?.stop();
+				relay = undefined;
+			},
 		},
 	);
 }

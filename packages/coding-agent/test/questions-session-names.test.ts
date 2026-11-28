@@ -1,13 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { setKeybindings, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { QuestionListComponent } from "../src/cli/questions-list.ts";
 import { QuestionsApp } from "../src/cli/questions-tui.ts";
-import { runHostRelay } from "../src/core/host-relay.ts";
 import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
@@ -26,6 +24,7 @@ import {
 	type UserQuestionEntry,
 } from "../src/questions/question-center.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { pairHostRelays } from "./host-relay-pair.ts";
 
 const SUPERVISOR = "supervisor-session";
 const REMOTE = "remote-worker-session";
@@ -87,25 +86,12 @@ describe("question session names over the host relay", () => {
 		});
 		registerRuntimeMailboxListener(sourceDb, { sessionId: SUPERVISOR, agentId: null }, process.pid);
 
-		const sourceToTarget = new PassThrough();
-		const targetToSource = new PassThrough();
-		const controller = new AbortController();
-		stops.push(() => controller.abort());
-		const common = { pollMs: 20, signal: controller.signal };
-		void runHostRelay({
-			...common,
-			controlDbPath: sourceDb,
-			host: "store-host",
-			input: targetToSource,
-			output: sourceToTarget,
-		});
-		void runHostRelay({
-			...common,
-			controlDbPath: targetDb,
-			host: "remote-host",
-			input: sourceToTarget,
-			output: targetToSource,
-		});
+		stops.push(
+			pairHostRelays(
+				{ controlDbPath: targetDb, host: "remote-host" },
+				{ controlDbPath: sourceDb, host: "store-host" },
+			),
+		);
 
 		const entry = createEntry("remote-host");
 		const names = await lookupQuestionSessionNames(
@@ -205,11 +191,11 @@ describe("question session names over the host relay", () => {
 			const request = nextRelayMailbox(sourceDb, "remote-host");
 			if (!request) throw new Error("Expected pending name request");
 			importRelayMailbox(targetDb, "store-host", request, "remote-host");
-			ackRelayMailbox(sourceDb, "remote-host", request);
+			ackRelayMailbox(sourceDb, request);
 			const reply = nextRelayMailbox(targetDb, "store-host");
 			if (!reply) throw new Error("Expected name reply");
 			importRelayMailbox(sourceDb, "remote-host", reply, "store-host");
-			ackRelayMailbox(targetDb, "store-host", reply);
+			ackRelayMailbox(targetDb, reply);
 		};
 		addQuestion(REMOTE, "Billing worker");
 		const ui = new TUI(new VirtualTerminal(140, 40));
@@ -261,25 +247,12 @@ describe("question session names over the host relay", () => {
 		app.showList();
 		ui.getFocusedComponent()?.handleInput?.("\r");
 
-		const sourceToTarget = new PassThrough();
-		const targetToSource = new PassThrough();
-		const controller = new AbortController();
-		stops.push(() => controller.abort());
-		const common = { pollMs: 20, signal: controller.signal };
-		void runHostRelay({
-			...common,
-			controlDbPath: sourceDb,
-			host: "store-host",
-			input: targetToSource,
-			output: sourceToTarget,
-		});
-		void runHostRelay({
-			...common,
-			controlDbPath: targetDb,
-			host: "remote-host",
-			input: sourceToTarget,
-			output: targetToSource,
-		});
+		stops.push(
+			pairHostRelays(
+				{ controlDbPath: targetDb, host: "remote-host" },
+				{ controlDbPath: sourceDb, host: "store-host" },
+			),
+		);
 		await new Promise((resolve) => setTimeout(resolve, 1_200));
 
 		const detail = ui.render(140).map(stripAnsi).join("\n");

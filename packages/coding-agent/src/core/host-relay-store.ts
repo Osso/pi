@@ -21,6 +21,9 @@ export interface RelayMailbox {
 	messageId: string;
 	data: Record<string, unknown>;
 }
+/** A hub link end: the hub forwards between spokes; a spoke reaches every other host through the hub. */
+export type RelayRole = "hub" | "spoke";
+
 export interface RelayChannel {
 	type: "channel";
 	originHost: string;
@@ -29,7 +32,11 @@ export interface RelayChannel {
 	senderAgentId: string | null;
 	body: string;
 	createdAt: string;
+	/** This host's row ID: the peer's cursor once acknowledged. Not sent. */
+	cursor: number;
 }
+/** A channel entry as sent: without this host's cursor. */
+export type RelayChannelFrame = Omit<RelayChannel, "cursor">;
 
 function readCounter(db: SqliteDatabase, key: string): number {
 	return (
@@ -49,17 +56,22 @@ function writeCounter(db: SqliteDatabase, key: string, value: number): void {
 	);
 }
 
-/** Stop-and-wait: the smallest stored sequence is retried until acknowledged or expired. */
-export function nextRelayMailbox(path: string, peer: string): RelayMailbox | undefined {
+/**
+ * Stop-and-wait: the smallest stored sequence is retried until acknowledged or expired. The hub sends a spoke
+ * the messages for it; a spoke (given `spokeHost`, its own host) sends the hub every message for another host.
+ */
+export function nextRelayMailbox(path: string, peer: string, spokeHost?: string): RelayMailbox | undefined {
 	return withControlDb(path, (db) =>
 		withImmediateTransaction(db, () => {
 			const row = db
 				.prepare(`SELECT session_path, message_id, data FROM multi_agent_mailbox_messages
-   WHERE json_valid(data) AND json_extract(data, '$.recipientHost') = ? AND json_extract(data, '$.status') = 'pending'
+   WHERE json_valid(data) AND json_extract(data, '$.status') = 'pending'
+   AND (CASE WHEN ? IS NULL THEN json_extract(data, '$.recipientHost') = ?
+        ELSE json_extract(data, '$.recipientHost') IS NOT NULL AND json_extract(data, '$.recipientHost') != ? END)
    AND json_type(data, '$.createdAt') = 'text'
    AND CAST(ROUND((julianday(json_extract(data, '$.createdAt')) - 2440587.5) * 86400000) AS INTEGER) > ?
    ORDER BY json_extract(data, '$.relaySeq') IS NULL, json_extract(data, '$.relaySeq'), rowid LIMIT 1`)
-				.get(peer, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as
+				.get(spokeHost ?? null, peer, spokeHost ?? null, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as
 				| { session_path: string; message_id: string; data: string }
 				| undefined;
 			if (!row) return undefined;
@@ -90,14 +102,13 @@ export function nextRelayMailbox(path: string, peer: string): RelayMailbox | und
 	);
 }
 
-export function ackRelayMailbox(path: string, peer: string, message: RelayMailbox): void {
+export function ackRelayMailbox(path: string, message: RelayMailbox): void {
 	withControlDb(path, (db) => {
 		db.prepare(`DELETE FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND data = ?
-   AND json_extract(data, '$.recipientHost') = ? AND json_extract(data, '$.relaySeq') = ?`).run(
+   AND json_extract(data, '$.relaySeq') = ?`).run(
 			message.sessionPath,
 			message.messageId,
 			JSON.stringify(message.data),
-			peer,
 			message.seq,
 		);
 	});
@@ -105,9 +116,15 @@ export function ackRelayMailbox(path: string, peer: string, message: RelayMailbo
 
 export function importRelayMailbox(path: string, peer: string, message: RelayMailbox, host: string): void {
 	const data = { ...message.data };
-	delete data.recipientHost;
 	delete data.relaySeq;
-	data.senderHost = peer;
+	// Set by the hub when it forwards between spokes; the origin host is where replies go.
+	data.senderHost = typeof data.senderHost === "string" ? data.senderHost : peer;
+	if (data.recipientHost !== host) {
+		forwardRelayMailbox(path, peer, message, data);
+		return;
+	}
+	delete data.recipientHost;
+	const senderHost = data.senderHost as string;
 	const recipient = {
 		sessionId: requireText(data.recipientSessionId, "recipientSessionId"),
 		agentId: nullableText(data.recipientAgentId, "recipientAgentId"),
@@ -166,7 +183,7 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		// The relay answers on the session's host, so a busy or stopped session can still be inspected.
 		answerSessionInspectionRequest(
 			path,
-			peer,
+			senderHost,
 			data,
 			(sessionId) => describeSession(path, sessionId),
 			(sessionIds) => lookupSessionNames(path, sessionIds),
@@ -182,12 +199,44 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		data.kind !== "reply" &&
 		!readLiveRuntimeMailboxSessionAgentIds(path, recipient.sessionId).includes(recipient.agentId)
 	)
-		queueNotRunningNotice(path, peer, host, message, recipient, sender, String(data.body ?? ""));
+		queueNotRunningNotice(path, senderHost, host, message, recipient, sender, String(data.body ?? ""));
+}
+
+/**
+ * On the hub: keep a message for another spoke queued for that spoke's link. Its store key names the origin
+ * host, so it cannot collide with a hub session's own message.
+ */
+function forwardRelayMailbox(path: string, peer: string, message: RelayMailbox, data: Record<string, unknown>): void {
+	const recipientHost = requireText(data.recipientHost, "recipientHost");
+	withControlDb(path, (db) =>
+		withImmediateTransaction(db, () => {
+			if (message.seq <= readCounter(db, `relay-in:${peer}`)) return;
+			if (!isMailboxMessageExpired(data.createdAt, Date.now()))
+				enqueueStoredRuntimeMailboxMessageInTransaction(db, {
+					kind: requireText(data.kind, "kind") as RuntimeMailboxMessageKind,
+					recipientHost,
+					recipient: {
+						sessionId: requireText(data.recipientSessionId, "recipientSessionId"),
+						agentId: nullableText(data.recipientAgentId, "recipientAgentId"),
+					},
+					sender: {
+						sessionId: requireText(data.senderSessionId, "senderSessionId"),
+						agentId: nullableText(data.senderAgentId, "senderAgentId"),
+					},
+					storeRef: {
+						sessionPath: `relay:${String(data.senderHost)}:${message.sessionPath}`,
+						messageId: message.messageId,
+					},
+					message: data,
+				});
+			writeCounter(db, `relay-in:${peer}`, message.seq);
+		}),
+	);
 }
 
 function queueNotRunningNotice(
 	path: string,
-	peer: string,
+	senderHost: string,
 	host: string,
 	message: RelayMailbox,
 	recipient: RuntimeMailboxAddress,
@@ -201,11 +250,11 @@ function queueNotRunningNotice(
 		: `session ${recipient.sessionId}`;
 	enqueueStoredRuntimeMailboxMessage(path, {
 		kind: "system",
-		recipientHost: peer,
+		recipientHost: senderHost,
 		recipient: sender,
 		sender: recipient,
 		// Message IDs are per sender session, so the sender's session path keeps two senders' notices apart.
-		storeRef: { sessionPath: `relay:${peer}:${message.sessionPath}`, messageId: id },
+		storeRef: { sessionPath: `relay:${senderHost}:${message.sessionPath}`, messageId: id },
 		message: {
 			id,
 			kind: "system",
@@ -231,19 +280,30 @@ function relayChannelCursor(db: SqliteDatabase, peer: string): number {
 	return tail;
 }
 
-export function nextRelayChannel(path: string, peer: string, host: string): RelayChannel | undefined {
+/** A spoke sends its own posts; the hub also sends a spoke every post another spoke sent it. */
+export function nextRelayChannel(path: string, peer: string, host: string, role: RelayRole): RelayChannel | undefined {
 	return withControlDb(path, (db) => {
 		const row = db
-			.prepare(`SELECT id, sender_session_id, sender_agent_id, body, created_at FROM shared_channel_messages
-   WHERE origin_host IS NULL AND id > ? ORDER BY id LIMIT 1`)
-			.get(relayChannelCursor(db, peer)) as
-			| { id: number; sender_session_id: string; sender_agent_id: string | null; body: string; created_at: string }
+			.prepare(`SELECT id, sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id
+   FROM shared_channel_messages
+   WHERE (origin_host IS NULL OR (? = 'hub' AND origin_host != ?)) AND id > ? ORDER BY id LIMIT 1`)
+			.get(role, peer, relayChannelCursor(db, peer)) as
+			| {
+					id: number;
+					sender_session_id: string;
+					sender_agent_id: string | null;
+					body: string;
+					created_at: string;
+					origin_host: string | null;
+					origin_id: number | null;
+			  }
 			| undefined;
 		return row
 			? {
 					type: "channel",
-					originHost: host,
-					originId: row.id,
+					originHost: row.origin_host ?? host,
+					originId: row.origin_id ?? row.id,
+					cursor: row.id,
 					senderSessionId: row.sender_session_id,
 					senderAgentId: row.sender_agent_id,
 					body: row.body,
@@ -255,7 +315,7 @@ export function nextRelayChannel(path: string, peer: string, host: string): Rela
 export function ackRelayChannel(path: string, peer: string, id: number): void {
 	withControlDb(path, (db) => writeCounter(db, `relay:${peer}`, id));
 }
-export function importRelayChannel(path: string, message: RelayChannel): void {
+export function importRelayChannel(path: string, message: RelayChannelFrame): void {
 	// Expiry deletes the (origin_host, origin_id) dedup row; a late retry must not resurrect it.
 	if (isMailboxMessageExpired(message.createdAt, Date.now())) return;
 	const recipients = withControlDb(path, (db) => {
