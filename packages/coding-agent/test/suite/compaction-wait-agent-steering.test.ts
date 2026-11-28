@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
-import { getControlDbPath, postSharedChannelMessage } from "../../src/core/session-control-db.ts";
 import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
 
 async function recordCompletedAudit(agent: HeadlessPi) {
@@ -117,15 +116,7 @@ it("accepts steering during a post-compaction wait with a live child restored ac
 			await expect(
 				agent.send({ type: "prompt", message: steering, streamingBehavior: "steer" }),
 			).resolves.toMatchObject({ success: true, command: "prompt" });
-			expect(await agent.send({ type: "get_state" })).toMatchObject({
-				data: { isCompacting: false, pendingMessageCount: 1 },
-			});
-			// RPC has no terminal steering-wake subscription. Release the real wait through
-			// its coordination channel, without completing or cancelling the live child.
-			postSharedChannelMessage(getControlDbPath(agent.paths.agentDir), {
-				body: "Process the accepted user steering while the parallel worker stays active.",
-				sender: { agentId: null, sessionId: "compaction-test-peer" },
-			});
+			// The RPC steer wakes the wait itself; the live child keeps running.
 			await agent.waitForEvent((event) => event.type === "tool_execution_end" && event.toolCallId === waitCallId);
 			const steered = await agent.waitForLlmRequest(
 				(request) => request.sessionId === mainSessionId && request.userMessages.includes(steering),
